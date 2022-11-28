@@ -1,0 +1,41 @@
+[package]
+edition = "2021"
+name = "verustest-tipbot"
+version = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+color-eyre = "0.6"
+config = {version = "0.13", default-features = false, features = ["toml"]}
+secrecy = {version = "0.8", features = ["serde"]}
+serde = {version = "1.0", features = ["derive"]}
+serde-aux = "4.0.0"
+serde_json = "1.0"
+tokio = {version = "1.0", features = ["macros", "rt-multi-thread", "net"]}
+tracing = "0.1.26"
+tracing-subscriber = {version = "0.3", features = ["env-filter"]}
+uuid = {version = "1.2", features = ["v4"]}
+vrsc = {path = "../rust-vrsc/"}
+vrsc-rpc = {path = "../rust-vrsc-rpc/client"}
+
+[dependencies.serenity]
+default-features = false
+features = [
+  "cache",
+  "builder",
+  "client",
+  "framework",
+  "gateway",
+  "http",
+  "model",
+  "standard_framework",
+  "utils",
+  "rustls_backend",
+]
+version = "0.11"
+
+[dependencies.sqlx]
+default-features = false
+features = ["postgres", "macros", "migrate", "uuid", "offline", "chrono", "runtime-tokio-rustls"]
+version = "0.6"
