@@ -1,42 +1,21 @@
 pub mod configuration;
+pub mod events;
+pub mod framework;
 
 use std::sync::Arc;
 
-use crate::configuration::get_configuration;
+use crate::{configuration::get_configuration, framework::*};
 
 use color_eyre::Report;
 use secrecy::ExposeSecret;
 use serenity::{
-    async_trait,
     client::{Client, Context},
-    framework::standard::{
-        macros::{group, hook},
-        DispatchError, StandardFramework,
-    },
-    model::{channel::Message, gateway::GatewayIntents, prelude::Ready},
-    prelude::EventHandler,
+    framework::standard::{macros::hook, DispatchError, StandardFramework},
+    model::{channel::Message, gateway::GatewayIntents},
 };
-use sqlx::types::Uuid;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error};
 use tracing_subscriber::EnvFilter;
 use vrsc_rpc::RpcApi;
-
-// this allows for prefix commands to be grouped together
-#[group]
-pub struct General;
-
-#[derive(Debug)]
-pub struct Handler {}
-
-#[async_trait]
-impl EventHandler for Handler {
-    #[instrument(skip(_ctx), fields(
-        request_id = %Uuid::new_v4()
-    ))]
-    async fn ready(&self, _ctx: Context, _ready: Ready) {
-        info!("Bot is ready!");
-    }
-}
 
 #[tokio::main(worker_threads = 8)]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -51,19 +30,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         false => vrsc_rpc::Client::vrsc(false, vrsc_rpc::Auth::ConfigFile),
     }?;
 
+    // do not start bot if Verus daemon isn't ready
     if let Err(e) = client.ping() {
         error!("Verus daemon not ready: {:?}", e);
         return Ok(());
     }
 
-    debug!("{}", config.database.connection_string());
+    debug!("connection string: {}", config.database.connection_string());
 
     let framework = StandardFramework::new()
-        .configure(|c| c.prefix("!")) // set the bot's prefix to "!"
+        .configure(|c| c.prefix("!")) // set the bot's prefix to "!" if a prefix is used.
         .on_dispatch_error(on_dispatch_error)
         .group(&GENERAL_GROUP);
 
-    let handler = Arc::new(Handler {});
+    let handler = Arc::new(events::Handler {});
 
     let mut intents = GatewayIntents::all();
     intents.remove(GatewayIntents::DIRECT_MESSAGE_TYPING);
@@ -94,7 +74,7 @@ async fn setup_logging() -> Result<(), Report> {
     color_eyre::install()?;
 
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "serenity=info,verusnft=debug")
+        std::env::set_var("RUST_LOG", "bot=debug,serenity=info")
     }
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
