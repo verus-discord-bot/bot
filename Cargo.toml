@@ -20,21 +20,7 @@ uuid = {version = "1.2", features = ["v4"]}
 vrsc = "0.0.1"
 vrsc-rpc = "0.1.0"
 
-[dependencies.serenity]
-default-features = false
-features = [
-  "cache",
-  "builder",
-  "client",
-  "framework",
-  "gateway",
-  "http",
-  "model",
-  "standard_framework",
-  "utils",
-  "rustls_backend",
-]
-version = "0.11"
+poise = "0.5.0"
 
 [dependencies.sqlx]
 default-features = false

@@ -1,8 +1,8 @@
-use serenity::{
-    async_trait,
-    model::prelude::{interaction::Interaction, GuildId, Ready},
-    prelude::{Context, EventHandler},
-};
+// use serenity::{
+//     async_trait,
+//     model::prelude::{interaction::Interaction, GuildId, Ready},
+//     prelude::{Context, EventHandler},
+// };
 use tracing::{debug, info, instrument, trace};
 use uuid::Uuid;
 

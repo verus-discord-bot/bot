@@ -1,28 +1,77 @@
 pub mod configuration;
-pub mod events;
-pub mod framework;
-pub mod global_data;
+pub mod misc;
 
-use std::sync::Arc;
-
-use crate::{configuration::get_configuration, framework::*, global_data::AppConfig};
+use crate::configuration::get_configuration;
 
 use color_eyre::Report;
+use poise::serenity_prelude as serenity;
 use secrecy::ExposeSecret;
-use serenity::{
-    client::{Client, Context},
-    framework::standard::{macros::hook, DispatchError, StandardFramework},
-    model::{channel::Message, gateway::GatewayIntents},
-};
-use tracing::{debug, error};
+use sqlx::PgPool;
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 use vrsc_rpc::RpcApi;
 
-#[tokio::main(worker_threads = 8)]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let config = get_configuration().expect("failed to read config file");
+type Error = Box<dyn std::error::Error + Send + Sync>;
+type Context<'a> = poise::Context<'a, Data, Error>;
 
-    setup_logging().await?;
+#[derive(Debug)]
+pub struct Data {
+    bot_user_id: serenity::UserId,
+    //    mod_role_id: serenity::RoleId,
+    bot_start_time: std::time::Instant,
+    database: sqlx::PgPool,
+}
+
+async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
+    warn!("Encountered error: {:?}", error);
+    if let poise::FrameworkError::Command { ctx, error } = error {
+        if let Err(e) = ctx.say(error.to_string()).await {
+            warn!("{}", e)
+        }
+    }
+}
+
+async fn app() -> Result<(), Error> {
+    let options = poise::FrameworkOptions {
+        commands: vec![misc::help(), misc::source(), misc::register()],
+        prefix_options: poise::PrefixFrameworkOptions {
+            prefix: Some("?".into()),
+            edit_tracker: Some(poise::EditTracker::for_timespan(
+                std::time::Duration::from_secs(3600 * 24 * 2),
+            )),
+            ..Default::default()
+        },
+        pre_command: |ctx| {
+            Box::pin(async move {
+                let channel_name = ctx
+                    .channel_id()
+                    .name(&ctx.serenity_context())
+                    .await
+                    .unwrap_or_else(|| "<unknown>".to_owned());
+                let author = ctx.author().tag();
+
+                match ctx {
+                    poise::Context::Prefix(ctx) => {
+                        info!("{} in {}: {}", author, channel_name, &ctx.msg.content);
+                    }
+                    poise::Context::Application(ctx) => {
+                        let command_name = &ctx.interaction.data().name;
+
+                        info!(
+                            "{} in {} used slash command '{}'",
+                            author, channel_name, command_name
+                        );
+                    }
+                }
+            })
+        },
+
+        on_error: |error| Box::pin(on_error(error)),
+        event_handler: |ctx, event, _framework, data| Box::pin(listener(ctx, event, data)),
+        ..Default::default()
+    };
+
+    let config = get_configuration()?;
 
     let client = vrsc_rpc::Client::vrsc(
         config.application.testnet,
@@ -41,35 +90,56 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     debug!("connection string: {}", config.database.connection_string());
 
-    let framework = StandardFramework::new()
-        .configure(|c| c.prefix("!")) // set the bot's prefix to "!" if a prefix is used.
-        .on_dispatch_error(on_dispatch_error)
-        .group(&GENERAL_GROUP);
-
-    let handler = Arc::new(events::Handler {});
-
-    let mut intents = GatewayIntents::all();
-    intents.remove(GatewayIntents::DIRECT_MESSAGE_TYPING);
-    intents.remove(GatewayIntents::GUILD_MESSAGE_TYPING);
-
-    let mut client = Client::builder(config.application.discord.expose_secret(), intents)
-        .event_handler_arc(handler.clone())
-        .framework(framework)
-        .await
-        .expect("Error creating serenity client");
-
-    {
-        let mut data = client.data.write().await;
-        data.insert::<AppConfig>(config.clone());
-    }
+    let pg_url = &config.database.connection_string();
+    let database = PgPool::connect_lazy(pg_url)?;
 
     debug!("starting client");
 
-    if let Err(why) = client.start().await {
-        error!(
-            "An error occurred while running the discord bot client: {:?}",
-            why
-        );
+    poise::Framework::builder()
+        .token(config.application.discord.expose_secret())
+        .setup(move |ctx, bot, _framework| {
+            Box::pin(async move {
+                ctx.set_activity(serenity::Activity::listening("?help"))
+                    .await;
+
+                Ok(Data {
+                    bot_user_id: bot.user.id,
+                    bot_start_time: std::time::Instant::now(),
+                    database,
+                })
+            })
+        })
+        .options(options)
+        .intents(
+            serenity::GatewayIntents::non_privileged()
+                | serenity::GatewayIntents::GUILD_MEMBERS
+                | serenity::GatewayIntents::MESSAGE_CONTENT,
+        )
+        .run()
+        .await?;
+
+    Ok(())
+}
+
+async fn listener(
+    ctx: &serenity::Context,
+    event: &poise::Event<'_>,
+    data: &Data,
+) -> Result<(), Error> {
+    match event {
+        _ => {}
+    }
+
+    Ok(())
+}
+
+#[tokio::main(worker_threads = 8)]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    setup_logging().await?;
+
+    if let Err(e) = app().await {
+        error!("{}", e);
+        std::process::exit(1);
     }
 
     Ok(())
@@ -97,26 +167,4 @@ async fn setup_logging() -> Result<(), Report> {
         .init();
 
     Ok(())
-}
-
-#[hook]
-pub async fn on_dispatch_error(
-    ctx: &Context,
-    msg: &Message,
-    error: DispatchError,
-    _command_name: &str,
-) {
-    match error {
-        DispatchError::OnlyForDM => {
-            if let Err(e) = msg
-                .reply(ctx, "This can only be done in DM with this bot")
-                .await
-            {
-                error!("something went wrong while sending a reply in DM: {:?}", e);
-            }
-        }
-        _ => {
-            error!("Unhandled dispatch error: {:?}", error);
-        }
-    }
 }
