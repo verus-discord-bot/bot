@@ -86,8 +86,16 @@ async fn setup_logging() -> Result<(), Report> {
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "bot=debug,serenity=info")
     }
+
+    let home_dir = std::env::var("HOME").unwrap();
+
+    let file_appender =
+        tracing_appender::rolling::hourly(format!("{home_dir}/log/bot"), "tracing.log");
+
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
+        .with_writer(file_appender)
+        // .with_ansi(false) // uncomment to disable color
         .init();
 
     Ok(())
