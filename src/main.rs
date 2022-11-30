@@ -20,8 +20,6 @@ use vrsc_rpc::RpcApi;
 
 #[tokio::main(worker_threads = 8)]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("Hello, world!");
-
     let config = get_configuration().expect("failed to read config file");
 
     setup_logging().await?;
@@ -84,7 +82,7 @@ async fn setup_logging() -> Result<(), Report> {
     color_eyre::install()?;
 
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "bot=debug,serenity=info")
+        std::env::set_var("RUST_LOG", "bot=trace,serenity=info")
     }
 
     let home_dir = std::env::var("HOME").unwrap();

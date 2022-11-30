@@ -3,7 +3,7 @@ use serenity::{
     model::prelude::{interaction::Interaction, GuildId, Ready},
     prelude::{Context, EventHandler},
 };
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, trace};
 use uuid::Uuid;
 
 use crate::global_data::AppConfig;
@@ -40,13 +40,20 @@ impl EventHandler for Handler {
         }
     }
 
-    #[instrument(skip(ctx, interaction), fields(
+    // with every new interaction, a random uuid is generated to trace the interaction through the various steps, like db processing or verus daemon interaction.
+    // if something goes wrong, the request_id gives the ability to trace back to where things went south.
+    #[instrument(level = "trace", skip(ctx, interaction), fields(
         request_id = %Uuid::new_v4()
     ))]
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         if let Interaction::ApplicationCommand(command) = interaction {
-            info!("received command interaction: {:?}", command);
-
+            trace!(
+                "got interaction `{:?}` from `{} ({}#{})`",
+                &command.data.name,
+                &command.user.name,
+                &command.user.id,
+                &command.user.discriminator
+            );
             match command.data.name.as_str() {
                 "help" => {
                     command
@@ -61,7 +68,7 @@ impl EventHandler for Handler {
                                         .field("5", "`talk about 5`", false)
                                         .thumbnail("https://media.tenor.com/dzvvois22BoAAAAi/verus-vrsc.gif")
                                 });
-                                data.ephemeral(false)
+                                data.ephemeral(true)
                             })
                         })
                         .await
