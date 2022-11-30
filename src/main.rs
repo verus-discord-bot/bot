@@ -29,9 +29,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let client = vrsc_rpc::Client::vrsc(
         config.application.testnet,
         vrsc_rpc::Auth::UserPass(
+            format!("http://127.0.0.1:{}", config.application.rpc_port),
             config.application.rpc_user.clone(),
             config.application.rpc_password.clone(),
-            config.application.rpc_port.to_string(),
         ),
     )?;
 
