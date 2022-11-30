@@ -26,10 +26,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     setup_logging().await?;
 
-    let client = match config.application.testnet {
-        true => vrsc_rpc::Client::vrsc(true, vrsc_rpc::Auth::ConfigFile),
-        false => vrsc_rpc::Client::vrsc(false, vrsc_rpc::Auth::ConfigFile),
-    }?;
+    let client = vrsc_rpc::Client::vrsc(
+        config.application.testnet,
+        vrsc_rpc::Auth::UserPass(
+            config.application.rpc_user.clone(),
+            config.application.rpc_password.clone(),
+            config.application.rpc_port.to_string(),
+        ),
+    )?;
 
     // do not start bot if Verus daemon isn't ready
     if let Err(e) = client.ping() {

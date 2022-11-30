@@ -43,6 +43,10 @@ impl DatabaseSettings {
 #[derive(Deserialize, Clone)]
 pub struct ApplicationSettings {
     pub testnet: bool,
+    pub rpc_user: String,
+    pub rpc_password: String,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    pub rpc_port: u16,
     pub trace_level: String,
     pub enable_tracing: bool,
     pub discord: Secret<String>,
