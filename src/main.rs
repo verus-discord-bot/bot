@@ -1,10 +1,11 @@
 pub mod configuration;
 pub mod events;
 pub mod framework;
+pub mod global_data;
 
 use std::sync::Arc;
 
-use crate::{configuration::get_configuration, framework::*};
+use crate::{configuration::get_configuration, framework::*, global_data::AppConfig};
 
 use color_eyre::Report;
 use secrecy::ExposeSecret;
@@ -54,6 +55,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .framework(framework)
         .await
         .expect("Error creating serenity client");
+
+    {
+        let mut data = client.data.write().await;
+        data.insert::<AppConfig>(config.clone());
+    }
 
     debug!("starting client");
 
