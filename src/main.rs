@@ -1,5 +1,7 @@
+pub mod commands;
 pub mod configuration;
-pub mod misc;
+
+use commands::*;
 
 use crate::configuration::get_configuration;
 
