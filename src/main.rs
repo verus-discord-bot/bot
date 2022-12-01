@@ -18,10 +18,10 @@ type Context<'a> = poise::Context<'a, Data, Error>;
 
 #[derive(Debug)]
 pub struct Data {
-    bot_user_id: serenity::UserId,
+    _bot_user_id: serenity::UserId,
     //    mod_role_id: serenity::RoleId,
-    bot_start_time: std::time::Instant,
-    database: sqlx::PgPool,
+    _bot_start_time: std::time::Instant,
+    _database: sqlx::PgPool,
 }
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
@@ -39,7 +39,7 @@ async fn app() -> Result<(), Error> {
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("?".into()),
             edit_tracker: Some(poise::EditTracker::for_timespan(
-                std::time::Duration::from_secs(3600 * 24 * 2),
+                std::time::Duration::from_secs(60 * 60 * 24 * 2), // 2 days
             )),
             ..Default::default()
         },
@@ -54,22 +54,18 @@ async fn app() -> Result<(), Error> {
 
                 match ctx {
                     poise::Context::Prefix(ctx) => {
-                        info!("{} in {}: {}", author, channel_name, &ctx.msg.content);
+                        info!("{} in {}: `{}`", author, channel_name, &ctx.msg.content);
                     }
                     poise::Context::Application(ctx) => {
                         let command_name = &ctx.interaction.data().name;
 
-                        info!(
-                            "{} in {} used slash command '{}'",
-                            author, channel_name, command_name
-                        );
+                        info!("{} in {}: `/{}`", author, channel_name, command_name);
                     }
                 }
             })
         },
-
         on_error: |error| Box::pin(on_error(error)),
-        event_handler: |ctx, event, _framework, data| Box::pin(listener(ctx, event, data)),
+        // event_handler: |ctx, event, _framework, data| Box::pin(listener(ctx, event, data)),
         ..Default::default()
     };
 
@@ -93,7 +89,7 @@ async fn app() -> Result<(), Error> {
     debug!("connection string: {}", config.database.connection_string());
 
     let pg_url = &config.database.connection_string();
-    let database = PgPool::connect_lazy(pg_url)?;
+    let _database = PgPool::connect_lazy(pg_url)?;
 
     debug!("starting client");
 
@@ -105,9 +101,9 @@ async fn app() -> Result<(), Error> {
                     .await;
 
                 Ok(Data {
-                    bot_user_id: bot.user.id,
-                    bot_start_time: std::time::Instant::now(),
-                    database,
+                    _bot_user_id: bot.user.id,
+                    _bot_start_time: std::time::Instant::now(),
+                    _database,
                 })
             })
         })
@@ -123,17 +119,17 @@ async fn app() -> Result<(), Error> {
     Ok(())
 }
 
-async fn listener(
-    ctx: &serenity::Context,
-    event: &poise::Event<'_>,
-    data: &Data,
-) -> Result<(), Error> {
-    match event {
-        _ => {}
-    }
+// async fn listener(
+//     ctx: &serenity::Context,
+//     event: &poise::Event<'_>,
+//     data: &Data,
+// ) -> Result<(), Error> {
+//     match event {
+//         _ => {}
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 #[tokio::main(worker_threads = 8)]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -157,14 +153,14 @@ async fn setup_logging() -> Result<(), Report> {
         std::env::set_var("RUST_LOG", "bot=trace,serenity=info")
     }
 
-    let home_dir = std::env::var("HOME").unwrap();
+    // let home_dir = std::env::var("HOME").unwrap();
 
-    let file_appender =
-        tracing_appender::rolling::hourly(format!("{home_dir}/log/bot"), "tracing.log");
+    // let file_appender =
+    //     tracing_appender::rolling::hourly(format!("{home_dir}/log/bot"), "tracing.log");
 
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
-        .with_writer(file_appender)
+        // .with_writer(file_appender)
         // .with_ansi(false) // uncomment to disable color
         .init();
 

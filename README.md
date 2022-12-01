@@ -19,3 +19,7 @@ Check `configuration.rs` to find out which variables are required.
 `psql -U postgres`  
 `\c <name of db>` connects to database  
 `\dt` shows tables in database
+
+## New commands
+- poise command
+- register
