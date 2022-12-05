@@ -1,8 +1,6 @@
 // use futures::{Stream, StreamExt};
 
-use serde_json::to_string;
-
-use crate::{Context, Error};
+use crate::Context;
 use std::string::ToString;
 
 // pub async fn autocomplete_chain<'a>(
@@ -14,7 +12,7 @@ use std::string::ToString;
 //         .map(|name| name.to_string())
 // }
 
-pub async fn autocomplete_chain<'a>(
+pub async fn _autocomplete_chain<'a>(
     _ctx: Context<'a>,
     partial: &'a str,
 ) -> impl Iterator<Item = String> + 'a {

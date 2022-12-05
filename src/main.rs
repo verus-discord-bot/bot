@@ -1,9 +1,13 @@
 pub mod commands;
 pub mod configuration;
+pub mod wallet_listener;
 
 use commands::*;
 
-use crate::configuration::{get_configuration, Settings};
+use crate::{
+    configuration::{get_configuration, Settings},
+    wallet_listener::listen,
+};
 
 use color_eyre::Report;
 use poise::serenity_prelude as serenity;
@@ -23,7 +27,7 @@ pub struct Data {
     _bot_user_id: serenity::UserId,
     //    mod_role_id: serenity::RoleId,
     _bot_start_time: std::time::Instant,
-    _database: sqlx::PgPool,
+    database: sqlx::PgPool,
 }
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
@@ -96,14 +100,20 @@ async fn app() -> Result<(), Error> {
     debug!("connection string: {}", config.database.connection_string());
 
     let pg_url = &config.database.connection_string();
-    let _database = PgPool::connect_lazy(pg_url)?;
+    let database = PgPool::connect_lazy(pg_url)?;
 
     debug!("starting client");
 
     poise::Framework::builder()
         .token(config.application.discord.expose_secret())
         .setup(move |ctx, bot, _framework| {
+            // listen();
+            let http = ctx.http.clone();
+            let db = database.clone();
+
             Box::pin(async move {
+                listen(http, db).await;
+
                 ctx.set_activity(serenity::Activity::listening("?help"))
                     .await;
 
@@ -112,7 +122,7 @@ async fn app() -> Result<(), Error> {
                     settings: config,
                     _bot_user_id: bot.user.id,
                     _bot_start_time: std::time::Instant::now(),
-                    _database,
+                    database,
                 })
             })
         })

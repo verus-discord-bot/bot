@@ -1,9 +1,8 @@
-use poise::{ChoiceParameter, CreateReply};
-use tracing::{debug, error, instrument};
+use poise::ChoiceParameter;
+use tracing::{debug, instrument};
 use uuid::Uuid;
 use vrsc_rpc::RpcApi;
 
-use crate::commands::autocomplete;
 use crate::{Context, Error};
 /// Show information about Verus blockchain
 #[instrument(skip(ctx, set), fields(request_id = %Uuid::new_v4() ))]
@@ -36,10 +35,6 @@ pub async fn info(ctx: Context<'_>, set: Pbaas) -> Result<(), Error> {
     .await?;
 
     Ok(())
-}
-
-async fn my_check(ctx: Context<'_>) -> Result<bool, Error> {
-    Ok(false)
 }
 
 #[derive(Debug, ChoiceParameter)]
