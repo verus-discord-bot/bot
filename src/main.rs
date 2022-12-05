@@ -3,7 +3,7 @@ pub mod configuration;
 
 use commands::*;
 
-use crate::configuration::get_configuration;
+use crate::configuration::{get_configuration, Settings};
 
 use color_eyre::Report;
 use poise::serenity_prelude as serenity;
@@ -11,13 +11,15 @@ use secrecy::ExposeSecret;
 use sqlx::PgPool;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
-use vrsc_rpc::RpcApi;
+use vrsc_rpc::{Client as VerusClient, RpcApi};
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 
 #[derive(Debug)]
 pub struct Data {
+    verus: VerusClient,
+    settings: Settings,
     _bot_user_id: serenity::UserId,
     //    mod_role_id: serenity::RoleId,
     _bot_start_time: std::time::Instant,
@@ -35,7 +37,12 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
 
 async fn app() -> Result<(), Error> {
     let options = poise::FrameworkOptions {
-        commands: vec![misc::help(), misc::source(), misc::register()],
+        commands: vec![
+            misc::help(),
+            misc::source(),
+            misc::register(),
+            chain::info(),
+        ],
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("?".into()),
             edit_tracker: Some(poise::EditTracker::for_timespan(
@@ -101,6 +108,8 @@ async fn app() -> Result<(), Error> {
                     .await;
 
                 Ok(Data {
+                    verus: client,
+                    settings: config,
                     _bot_user_id: bot.user.id,
                     _bot_start_time: std::time::Instant::now(),
                     _database,
