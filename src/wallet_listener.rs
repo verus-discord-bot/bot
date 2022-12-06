@@ -77,9 +77,10 @@ async fn transaction_processed(pool: &PgPool, txid: &Txid) -> Result<bool, Error
 async fn increase_balance(pool: &PgPool, user_id: UserId, amount: Amount) -> Result<(), Error> {
     // now we check if the transaction was already processed
     sqlx::query!(
-        "UPDATE balance_vrsc SET balance = balance + $1 WHERE discord_id = $2",
-        amount.as_sat() as i64,
-        user_id.0 as i64
+        "INSERT INTO balance_vrsc (discord_id, balance) VALUES ($1, $2) ON CONFLICT (discord_id) DO UPDATE SET balance = (balance_vrsc.balance + EXCLUDED.balance)",
+        // "UPDATE balance_vrsc SET balance = balance + $1 WHERE discord_id = $2",
+        user_id.0 as i64,
+        amount.as_sat() as i64
     )
     .execute(pool)
     .await?;

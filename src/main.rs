@@ -50,6 +50,7 @@ async fn app() -> Result<(), Error> {
             misc::source(),
             misc::register(),
             chain::info(),
+            wallet::deposit(),
         ],
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("?".into()),
@@ -111,15 +112,16 @@ async fn app() -> Result<(), Error> {
     poise::Framework::builder()
         .token(config.application.discord.expose_secret())
         .setup(move |ctx, bot, _framework| {
-            // listen();
             let http = ctx.http.clone();
             let db = database.clone();
 
-            Box::pin(async move {
-                listen(http, db).await;
+            debug!("really starting");
 
-                ctx.set_activity(serenity::Activity::listening("?help"))
-                    .await;
+            Box::pin(async move {
+                tokio::spawn(async { listen(http, db).await });
+
+                // ctx.set_activity(serenity::Activity::listening("?help"))
+                //     .await;
 
                 Ok(Data {
                     verus: client,
@@ -141,18 +143,6 @@ async fn app() -> Result<(), Error> {
 
     Ok(())
 }
-
-// async fn listener(
-//     ctx: &serenity::Context,
-//     event: &poise::Event<'_>,
-//     data: &Data,
-// ) -> Result<(), Error> {
-//     match event {
-//         _ => {}
-//     }
-
-//     Ok(())
-// }
 
 #[tokio::main(worker_threads = 8)]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

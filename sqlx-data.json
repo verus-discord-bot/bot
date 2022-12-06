@@ -1,18 +1,5 @@
 {
   "db": "PostgreSQL",
-  "1a056ef24063992c56c220516e3f34b5c6220990f1e3de0b1df7e880695cbfd7": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Int8"
-        ]
-      }
-    },
-    "query": "UPDATE balance_vrsc SET balance = balance + $1 WHERE discord_id = $2"
-  },
   "28e87ba515b652c3eb069179ed4470c3db1ab7432c34490d646ee3782e71e3bd": {
     "describe": {
       "columns": [
@@ -58,6 +45,58 @@
       }
     },
     "query": "INSERT INTO transactions_vrsc (discord_id, transaction_id, transaction_action) VALUES ($1, $2, $3)"
+  },
+  "5ab48ee91c6e88927e5447a516dfa143d42dc6dba5c47af6d297d2aaab84b7d9": {
+    "describe": {
+      "columns": [
+        {
+          "name": "discord_id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "vrsc_address",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      }
+    },
+    "query": "SELECT discord_id, vrsc_address FROM discord_users WHERE discord_id = $1"
+  },
+  "68cf30eb6c49b165afb2db37efc2e2139d1888117da55ba28a0d5f07382b44f1": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "INSERT INTO balance_vrsc (discord_id, balance) VALUES ($1, $2) ON CONFLICT (discord_id) DO UPDATE SET balance = (balance_vrsc.balance + EXCLUDED.balance)"
+  },
+  "8e314747e0e8d4b6ba4fa66a0a5efeeea0e1cd8fb05567289e9ed68f876fd53c": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO discord_users (discord_id, vrsc_address) VALUES ($1, $2)"
   },
   "f6dd740d5e10551558ff29b292c25b1a753d27e7d0c9c33cc2492af054126e5b": {
     "describe": {
