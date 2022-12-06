@@ -8,7 +8,7 @@ use color_eyre::Report;
 use poise::serenity_prelude::{Http, UserId};
 use sqlx::PgPool;
 use tokio::net::{UnixListener, UnixStream};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 use vrsc::{Address, Amount};
 use vrsc_rpc::bitcoin::{TxIn, Txid};
 use vrsc_rpc::{Auth, Client, RpcApi};
@@ -75,37 +75,32 @@ async fn transaction_processed(pool: &PgPool, txid: &Txid) -> Result<bool, Error
 }
 
 async fn increase_balance(pool: &PgPool, user_id: UserId, amount: Amount) -> Result<(), Error> {
-    debug!("this user_id was found for the incoming tx: {:?}", user_id);
-
     // now we check if the transaction was already processed
-
-    //         let query_result = sqlx::query!(
-    //             "UPDATE discord_users SET balance = balance + $1 WHERE discord_id = $2",
-    //             vout.value.as_sat() as i64,
-    //             discord_id.discord_id
-    //         )
-    //         .execute(&pool)
-    //         .await;
-
-    //         if let Ok(_) = query_result {
-    //             info!("the query worked");
-
-    //             sqlx::query!(
-    //     "INSERT INTO transactions (discord_id, transaction_id, transaction_action) VALUES ($1, $2, $3)",
-    //     discord_id.discord_id as i64,
-    //     &tx_hash,
-    //     "deposit"
-    // )
-    // .execute(&pool)
-    // .await?;
+    sqlx::query!(
+        "UPDATE balance_vrsc SET balance = balance + $1 WHERE discord_id = $2",
+        amount.as_sat() as i64,
+        user_id.0 as i64
+    )
+    .execute(pool)
+    .await?;
 
     Ok(())
 }
 
-async fn store_transaction(pool: &PgPool, user_id: UserId, amount: Amount) -> Result<(), Error> {
-    todo!()
+async fn store_transaction(pool: &PgPool, user_id: UserId, tx_hash: Txid) -> Result<(), Error> {
+    sqlx::query!(
+        "INSERT INTO transactions_vrsc (discord_id, transaction_id, transaction_action) VALUES ($1, $2, $3)",
+        user_id.0 as i64,
+        &tx_hash.to_string(),
+        "deposit"
+        )
+        .execute(pool)
+        .await?;
+
+    Ok(())
 }
 
+#[instrument(skip(_http, pool))]
 async fn handle(_http: Arc<Http>, pool: PgPool, stream: UnixStream) -> Result<(), Error> {
     //
     stream.readable().await?;
@@ -128,8 +123,15 @@ async fn handle(_http: Arc<Http>, pool: PgPool, stream: UnixStream) -> Result<()
                         for address in addresses {
                             if let Some(user_id) = fetch_user(address, &pool).await? {
                                 let result = increase_balance(&pool, user_id, vout.value_sat).await;
-                                if result.is_ok() {
-                                    store_transaction(&pool, user_id, vout.value_sat).await?;
+                                match result {
+                                    Ok(_) => {
+                                        if let Err(e) =
+                                            store_transaction(&pool, user_id, raw_tx.txid).await
+                                        {
+                                            error!("something went wrong while storing a transaction to the database: {:?}", e)
+                                        }
+                                    }
+                                    Err(e) => error!("something went wrong while increasing a user's balance\nuser: {user_id} txid: {tx_hash} vout: {} \nerror: {:?}", vout.n, e),
                                 }
                             }
                         }

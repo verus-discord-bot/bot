@@ -1,5 +1,18 @@
 {
   "db": "PostgreSQL",
+  "1a056ef24063992c56c220516e3f34b5c6220990f1e3de0b1df7e880695cbfd7": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "UPDATE balance_vrsc SET balance = balance + $1 WHERE discord_id = $2"
+  },
   "28e87ba515b652c3eb069179ed4470c3db1ab7432c34490d646ee3782e71e3bd": {
     "describe": {
       "columns": [
@@ -31,6 +44,20 @@
       }
     },
     "query": "SELECT * FROM transactions_vrsc WHERE (transaction_id) = ($1)"
+  },
+  "3e1e649d03633655ca8b458a486d04925c9b75b502bfd01dadfaa8015c0f0551": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Varchar",
+          "Text"
+        ]
+      }
+    },
+    "query": "INSERT INTO transactions_vrsc (discord_id, transaction_id, transaction_action) VALUES ($1, $2, $3)"
   },
   "f6dd740d5e10551558ff29b292c25b1a753d27e7d0c9c33cc2492af054126e5b": {
     "describe": {
