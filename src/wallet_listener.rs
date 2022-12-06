@@ -5,11 +5,12 @@ use std::sync::Arc;
 
 use color_eyre::Report;
 
-use poise::serenity_prelude::Http;
+use poise::serenity_prelude::{Http, UserId};
 use sqlx::PgPool;
 use tokio::net::{UnixListener, UnixStream};
-use tracing::{error, info};
-use vrsc_rpc::bitcoin::Txid;
+use tracing::{debug, error, info};
+use vrsc::{Address, Amount};
+use vrsc_rpc::bitcoin::{TxIn, Txid};
 use vrsc_rpc::{Auth, Client, RpcApi};
 
 use crate::Error;
@@ -45,11 +46,72 @@ pub async fn listen(http: Arc<Http>, pool: PgPool) {
     }
 }
 
-async fn handle(_http: Arc<Http>, _pool: PgPool, stream: UnixStream) -> Result<(), Error> {
+async fn fetch_user(address: &Address, pool: &PgPool) -> Result<Option<UserId>, Error> {
+    if let Some(row) = sqlx::query!(
+        "SELECT discord_id FROM discord_users WHERE vrsc_address = $1",
+        &address.to_string()
+    )
+    .fetch_optional(pool)
+    .await?
+    {
+        Ok(Some(UserId(row.discord_id as u64)))
+    } else {
+        Ok(None)
+    }
+}
+
+async fn transaction_processed(pool: &PgPool, txid: &Txid) -> Result<bool, Error> {
+    let transaction_query = sqlx::query!(
+        "SELECT * FROM transactions_vrsc WHERE (transaction_id) = ($1)",
+        &txid.to_string()
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    match transaction_query {
+        Some(_) => Ok(true),
+        None => Ok(false),
+    }
+}
+
+async fn increase_balance(pool: &PgPool, user_id: UserId, amount: Amount) -> Result<(), Error> {
+    debug!("this user_id was found for the incoming tx: {:?}", user_id);
+
+    // now we check if the transaction was already processed
+
+    //         let query_result = sqlx::query!(
+    //             "UPDATE discord_users SET balance = balance + $1 WHERE discord_id = $2",
+    //             vout.value.as_sat() as i64,
+    //             discord_id.discord_id
+    //         )
+    //         .execute(&pool)
+    //         .await;
+
+    //         if let Ok(_) = query_result {
+    //             info!("the query worked");
+
+    //             sqlx::query!(
+    //     "INSERT INTO transactions (discord_id, transaction_id, transaction_action) VALUES ($1, $2, $3)",
+    //     discord_id.discord_id as i64,
+    //     &tx_hash,
+    //     "deposit"
+    // )
+    // .execute(&pool)
+    // .await?;
+
+    Ok(())
+}
+
+async fn store_transaction(pool: &PgPool, user_id: UserId, amount: Amount) -> Result<(), Error> {
+    todo!()
+}
+
+async fn handle(_http: Arc<Http>, pool: PgPool, stream: UnixStream) -> Result<(), Error> {
     //
     stream.readable().await?;
     let tx_hash = parse_bytes(&stream).await?;
 
+    // todo: need to get client from main
     let client = Client::vrsc(true, Auth::ConfigFile)?;
 
     let raw_tx = client.get_raw_transaction_verbose(&Txid::from_str(&tx_hash)?)?;
@@ -57,6 +119,23 @@ async fn handle(_http: Arc<Http>, _pool: PgPool, stream: UnixStream) -> Result<(
     if let Some(confs) = raw_tx.confirmations {
         if confs >= 1 {
             info!("new confirmed tx: {}", &tx_hash);
+
+            // todo need to get notified if anything below goes wrong.
+            // skip if tx was already processed
+            if !transaction_processed(&pool, &raw_tx.txid).await? {
+                for vout in raw_tx.vout {
+                    if let Some(addresses) = &vout.script_pubkey.addresses {
+                        for address in addresses {
+                            if let Some(user_id) = fetch_user(address, &pool).await? {
+                                let result = increase_balance(&pool, user_id, vout.value_sat).await;
+                                if result.is_ok() {
+                                    store_transaction(&pool, user_id, vout.value_sat).await?;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

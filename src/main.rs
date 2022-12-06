@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod configuration;
+pub mod util;
 pub mod wallet_listener;
 
 use commands::*;
@@ -15,7 +16,10 @@ use secrecy::ExposeSecret;
 use sqlx::PgPool;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
-use vrsc_rpc::{Client as VerusClient, RpcApi};
+use vrsc_rpc::{
+    jsonrpc::{client, Client},
+    Client as VerusClient, RpcApi,
+};
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;

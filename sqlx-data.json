@@ -1,0 +1,55 @@
+{
+  "db": "PostgreSQL",
+  "28e87ba515b652c3eb069179ed4470c3db1ab7432c34490d646ee3782e71e3bd": {
+    "describe": {
+      "columns": [
+        {
+          "name": "discord_id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "transaction_id",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "transaction_action",
+          "ordinal": 2,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT * FROM transactions_vrsc WHERE (transaction_id) = ($1)"
+  },
+  "f6dd740d5e10551558ff29b292c25b1a753d27e7d0c9c33cc2492af054126e5b": {
+    "describe": {
+      "columns": [
+        {
+          "name": "discord_id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT discord_id FROM discord_users WHERE vrsc_address = $1"
+  }
+}
