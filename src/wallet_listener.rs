@@ -5,6 +5,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::{UnixListener, UnixStream};
 use tracing::{debug, error, info, instrument};
+use vrsc::Amount;
 use vrsc_rpc::bitcoin::Txid;
 use vrsc_rpc::{Auth, Client, RpcApi};
 
@@ -73,7 +74,7 @@ async fn handle(http: Arc<Http>, pool: PgPool, stream: UnixStream) -> Result<(),
                                         {
                                             error!("something went wrong while storing a transaction to the database: {:?}", e)
                                         } else {
-                                            send_dm(http.clone(), user_id).await?;
+                                            send_dm(http.clone(), user_id, vout.value).await?;
                                         }
 
                                     }
@@ -107,10 +108,10 @@ async fn parse_bytes(stream: &UnixStream) -> Result<String, Report> {
     }
 }
 
-async fn send_dm(http: Arc<Http>, user_id: UserId) -> Result<(), Error> {
+async fn send_dm(http: Arc<Http>, user_id: UserId, amount: Amount) -> Result<(), Error> {
     let user = http.get_user(user_id.0).await?;
     user.direct_message(http, |message| {
-        message.content("Your deposit has been processed.")
+        message.content(format!("Your deposit of {} has been processed.", amount))
     })
     .await?;
 

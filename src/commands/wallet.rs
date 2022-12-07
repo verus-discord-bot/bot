@@ -1,17 +1,17 @@
 use qrcode::{render::unicode, QrCode};
-use tracing::{debug, info, instrument};
+use tracing::*;
 use uuid::Uuid;
 use vrsc_rpc::RpcApi;
 
 use crate::{Context, Error};
-/// Show information about Verus blockchain
+/// Deposit funds to the tipbot wallet
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Wallet")]
 pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
     info!(
         "user {} ({}) demands a deposit address",
         ctx.author().name,
-        ctx.author().id // ctx.user.id // msg.author.name, author_id
+        ctx.author().id
     );
     let pool = &ctx.data().database;
     let client = &ctx.data().verus;
@@ -28,6 +28,7 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
         send_address_message(ctx, row.vrsc_address).await?;
     } else {
         let address = client.get_new_address()?;
+        // simultaneously add row to both `discord_users` and `balance_vrsc` with an initial balance of 0.
         sqlx::query!(
             "WITH inserted_row AS (
                 INSERT INTO discord_users (discord_id, vrsc_address) 
@@ -56,11 +57,12 @@ async fn send_address_message(ctx: Context<'_>, address: String) -> Result<(), E
             .module_dimensions(1, 1)
             .build();
 
-        reply.ephemeral(false).embed(|embed| {
-            embed
-                .title(format!("Deposit address: {}", &address))
-                // .attachment(filename)
-                .field("code", format!("```{image_str}```"), false)
+        reply.ephemeral(true).embed(|embed| {
+            embed.title(format!("Deposit address: {}", &address)).field(
+                "code",
+                format!("```{image_str}```"),
+                false,
+            )
         })
     })
     .await?;
@@ -68,6 +70,7 @@ async fn send_address_message(ctx: Context<'_>, address: String) -> Result<(), E
     Ok(())
 }
 
+#[allow(dead_code)]
 struct DiscordUserDBData {
     discord_id: i64,
     vrsc_address: String,

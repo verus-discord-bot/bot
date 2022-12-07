@@ -15,21 +15,12 @@ pub async fn info(ctx: Context<'_>, set: Pbaas) -> Result<(), Error> {
         false => "Verus",
     };
 
-    // let mempool_info = ctx.data().verus.get_mempool_info()?;
-
-    // let coin_supply = &ctx
-    //     .data()
-    //     .verus
-    //     .coin_supply(&blockchain_info.blocks.to_string())?;
-
     ctx.send(|reply| {
         reply.embed(|embed| {
             embed
                 .title(format!("{} info", testnet_name))
                 .field("height", blockchain_info.blocks, false)
                 .field("difficulty", blockchain_info.difficulty, false)
-            // .field("tx in mempool", mempool_info.size, false)
-            // .field("supply", coin_supply.supply, false)
         })
     })
     .await?;
