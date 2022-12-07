@@ -117,9 +117,6 @@ async fn app() -> Result<(), Error> {
             Box::pin(async move {
                 tokio::spawn(async { listen(http, db).await });
 
-                // ctx.set_activity(serenity::Activity::listening("?help"))
-                //     .await;
-
                 Ok(Data {
                     verus: client,
                     settings: config,

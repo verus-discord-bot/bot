@@ -45,7 +45,6 @@ pub async fn listen(http: Arc<Http>, pool: PgPool) {
 
 #[instrument(skip(http, pool))]
 async fn handle(http: Arc<Http>, pool: PgPool, stream: UnixStream) -> Result<(), Error> {
-    //
     stream.readable().await?;
     let tx_hash = parse_bytes(&stream).await?;
 
@@ -56,7 +55,7 @@ async fn handle(http: Arc<Http>, pool: PgPool, stream: UnixStream) -> Result<(),
 
     if let Some(confs) = raw_tx.confirmations {
         if confs >= 1 {
-            info!("new confirmed tx: {}", &tx_hash);
+            debug!("new confirmed tx: {}", &tx_hash);
 
             // todo need to get notified if anything below goes wrong.
             // skip if tx was already processed
@@ -64,8 +63,7 @@ async fn handle(http: Arc<Http>, pool: PgPool, stream: UnixStream) -> Result<(),
                 for vout in raw_tx.vout {
                     if let Some(addresses) = &vout.script_pubkey.addresses {
                         for address in addresses {
-                            if let Some(user_id) = fetch_user(address, &pool).await? {
-                                info!("user found: {user_id}");
+                            if let Some(user_id) = get_user_from_address(&pool, address).await? {
                                 let result = increase_balance(&pool, user_id, vout.value_sat).await;
                                 match result {
                                     Ok(_) => {
@@ -74,7 +72,7 @@ async fn handle(http: Arc<Http>, pool: PgPool, stream: UnixStream) -> Result<(),
                                         {
                                             error!("something went wrong while storing a transaction to the database: {:?}", e)
                                         } else {
-                                            send_dm(http.clone(), user_id, vout.value).await?;
+                                            send_deposit_dm(http.clone(), user_id, vout.value).await?;
                                         }
 
                                     }
@@ -108,7 +106,7 @@ async fn parse_bytes(stream: &UnixStream) -> Result<String, Report> {
     }
 }
 
-async fn send_dm(http: Arc<Http>, user_id: UserId, amount: Amount) -> Result<(), Error> {
+async fn send_deposit_dm(http: Arc<Http>, user_id: UserId, amount: Amount) -> Result<(), Error> {
     let user = http.get_user(user_id.0).await?;
     user.direct_message(http, |message| {
         message.content(format!("Your deposit of {} has been processed.", amount))

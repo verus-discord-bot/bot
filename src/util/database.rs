@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::Error;
 use poise::serenity_prelude::UserId;
 use sqlx::PgPool;
@@ -5,7 +7,49 @@ use tracing::*;
 use vrsc::{Address, Amount};
 use vrsc_rpc::bitcoin::Txid;
 
-pub async fn fetch_user(address: &Address, pool: &PgPool) -> Result<Option<UserId>, Error> {
+pub async fn store_new_address_for_user(
+    pool: &PgPool,
+    user_id: UserId,
+    address: &Address,
+) -> Result<(), Error> {
+    sqlx::query!(
+        "WITH inserted_row AS (
+            INSERT INTO discord_users (discord_id, vrsc_address) 
+            VALUES ($1, $2)
+        )
+        INSERT INTO balance_vrsc (discord_id)
+        VALUES ($1)
+        ",
+        user_id.0 as i64,
+        &address.to_string()
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn get_address_from_user(
+    pool: &PgPool,
+    user_id: UserId,
+) -> Result<Option<Address>, Error> {
+    if let Some(row) = sqlx::query!(
+        "SELECT discord_id, vrsc_address FROM discord_users WHERE discord_id = $1",
+        user_id.0 as i64
+    )
+    .fetch_optional(pool)
+    .await?
+    {
+        Ok(Some(Address::from_str(&row.vrsc_address)?))
+    } else {
+        Ok(None)
+    }
+}
+
+pub async fn get_user_from_address(
+    pool: &PgPool,
+    address: &Address,
+) -> Result<Option<UserId>, Error> {
     if let Some(row) = sqlx::query!(
         "SELECT discord_id FROM discord_users WHERE vrsc_address = $1",
         &address.to_string()
@@ -34,7 +78,7 @@ pub async fn transaction_processed(pool: &PgPool, txid: &Txid) -> Result<bool, E
 }
 
 pub async fn increase_balance(pool: &PgPool, user_id: UserId, amount: Amount) -> Result<(), Error> {
-    info!(
+    debug!(
         "going to increase balance for {user_id} with {} VRSC",
         amount.as_vrsc()
     );
