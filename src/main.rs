@@ -48,6 +48,7 @@ async fn app() -> Result<(), Error> {
             misc::register(),
             chain::info(),
             wallet::deposit(),
+            wallet::balance(),
         ],
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("?".into()),

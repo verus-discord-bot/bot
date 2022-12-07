@@ -85,6 +85,26 @@
     },
     "query": "SELECT discord_id, vrsc_address FROM discord_users WHERE discord_id = $1"
   },
+  "a2850f8e9377bc9097817497eb424ecfe09ae0e51da21eb8431c6e1cf629f519": {
+    "describe": {
+      "columns": [
+        {
+          "name": "balance",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      }
+    },
+    "query": "SELECT balance FROM balance_vrsc WHERE discord_id = $1"
+  },
   "d9ac2fc4a79595f26c1c3795fd0672a66ae49f6503cd6499ab8305a4dc7b43de": {
     "describe": {
       "columns": [],

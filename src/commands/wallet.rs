@@ -1,10 +1,45 @@
 use qrcode::{render::unicode, QrCode};
 use tracing::*;
 use uuid::Uuid;
-use vrsc::Address;
+use vrsc::{Address, Amount};
 use vrsc_rpc::RpcApi;
 
 use crate::{util::database, Context, Error};
+
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(slash_command, category = "Wallet")]
+pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
+    debug!(
+        "user {} ({}) demands a balance",
+        ctx.author().name,
+        ctx.author().id
+    );
+    let pool = &ctx.data().database;
+
+    if let Some(balance) = database::get_balance_for_user(&pool, ctx.author().id).await? {
+        let balance_amount = Amount::from_sat(balance);
+
+        trace!(
+            "there is a balance for this user, return it: {:?}",
+            &balance_amount
+        );
+
+        ctx.send(|reply| {
+            reply
+                .ephemeral(true)
+                .content(format!("Your balance is: {}", balance_amount))
+        })
+        .await?;
+    } else {
+        trace!("there is no balance for this user");
+
+        ctx.send(|reply| reply.ephemeral(true).content("Your balance is: 0"))
+            .await?;
+    }
+
+    Ok(())
+}
+
 /// Deposit funds to the tipbot wallet
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Wallet")]
