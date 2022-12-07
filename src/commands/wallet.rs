@@ -56,7 +56,21 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
         debug!("address already stored, return it");
         send_address_message(ctx, address).await?;
     } else {
-        let address = client.get_new_address()?;
+        // for some reason, an error is returned from the client: HttpResponseTooShort (got 0, expected 12)
+        // todo for now redo the get_new_address RPC until we get an address.
+        let address;
+        loop {
+            match client.get_new_address() {
+                Ok(new_address) => {
+                    address = new_address;
+                    break;
+                }
+                Err(_e) => {
+                    warn!("didn't get address, trying again");
+                    continue;
+                }
+            }
+        }
         // simultaneously add row to both `discord_users` and `balance_vrsc` with an initial balance of 0.
         if database::store_new_address_for_user(&pool, ctx.author().id, &address)
             .await
