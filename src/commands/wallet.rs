@@ -29,7 +29,13 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
     } else {
         let address = client.get_new_address()?;
         sqlx::query!(
-            "INSERT INTO discord_users (discord_id, vrsc_address) VALUES ($1, $2)",
+            "WITH inserted_row AS (
+                INSERT INTO discord_users (discord_id, vrsc_address) 
+                VALUES ($1, $2)
+            )
+            INSERT INTO balance_vrsc (discord_id)
+            VALUES ($1)
+            ",
             i64::from(ctx.author().id),
             &address.to_string()
         )
