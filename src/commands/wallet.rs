@@ -1,3 +1,5 @@
+use std::fmt;
+
 use qrcode::{render::unicode, QrCode};
 use tracing::*;
 use uuid::Uuid;
@@ -40,6 +42,17 @@ pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
+#[derive(Debug)]
+struct MyError(String);
+
+impl fmt::Display for MyError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "There is an error: {}", self.0)
+    }
+}
+
+impl std::error::Error for MyError {}
+
 /// Deposit funds to the tipbot wallet
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Wallet")]
@@ -57,8 +70,9 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
         send_address_message(ctx, address).await?;
     } else {
         // for some reason, an error is returned from the client: HttpResponseTooShort (got 0, expected 12)
-        // todo for now redo the get_new_address RPC until we get an address.
+        // todo for now, redo the get_new_address RPC until we get an address.
         let address;
+        let mut i = 0;
         loop {
             match client.get_new_address() {
                 Ok(new_address) => {
@@ -67,7 +81,13 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
                 }
                 Err(_e) => {
                     warn!("didn't get address, trying again");
-                    continue;
+                    if i < 100 {
+                        i += 1;
+                        continue;
+                    } else {
+                        error!("could not get an address");
+                        return Err(MyError("Could not get a new Verus address".to_string()).into());
+                    }
                 }
             }
         }
