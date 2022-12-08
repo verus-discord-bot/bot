@@ -5,6 +5,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::{UnixListener, UnixStream};
 use tracing::{debug, error, info, instrument};
+use uuid::Uuid;
 use vrsc::Amount;
 use vrsc_rpc::bitcoin::Txid;
 use vrsc_rpc::{Auth, Client, RpcApi};
@@ -64,11 +65,13 @@ async fn handle(http: Arc<Http>, pool: PgPool, stream: UnixStream) -> Result<(),
                     if let Some(addresses) = &vout.script_pubkey.addresses {
                         for address in addresses {
                             if let Some(user_id) = get_user_from_address(&pool, address).await? {
-                                let result = increase_balance(&pool, user_id, vout.value_sat).await;
+                                let uuid = Uuid::new_v4();
+                                let result =
+                                    increase_balance(&pool, &user_id, vout.value_sat).await;
                                 match result {
                                     Ok(_) => {
                                         if let Err(e) =
-                                            store_deposit_transaction(&pool, user_id, raw_tx.txid).await
+                                            store_deposit_transaction(&pool, &uuid, &user_id, &raw_tx.txid).await
                                         {
                                             error!("something went wrong while storing a transaction to the database: {:?}", e)
                                         } else {
@@ -78,8 +81,11 @@ async fn handle(http: Arc<Http>, pool: PgPool, stream: UnixStream) -> Result<(),
                                     }
                                     Err(e) => error!("something went wrong while increasing a user's balance\nuser: {user_id} txid: {tx_hash} vout: {} \nerror: {:?}", vout.n, e),
                                 }
+                            } else {
                             }
                         }
+                    } else {
+                        debug!("no addresses found in scriptpubkey");
                     }
                 }
             } else {

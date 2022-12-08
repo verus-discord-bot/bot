@@ -4,6 +4,7 @@ use crate::Error;
 use poise::serenity_prelude::UserId;
 use sqlx::PgPool;
 use tracing::*;
+use uuid::Uuid;
 use vrsc::{Address, Amount};
 use vrsc_rpc::bitcoin::Txid;
 
@@ -94,7 +95,11 @@ pub async fn transaction_processed(pool: &PgPool, txid: &Txid) -> Result<bool, E
     }
 }
 
-pub async fn increase_balance(pool: &PgPool, user_id: UserId, amount: Amount) -> Result<(), Error> {
+pub async fn increase_balance(
+    pool: &PgPool,
+    user_id: &UserId,
+    amount: Amount,
+) -> Result<(), Error> {
     debug!(
         "going to increase balance for {user_id} with {} VRSC",
         amount.as_vrsc()
@@ -115,16 +120,64 @@ pub async fn increase_balance(pool: &PgPool, user_id: UserId, amount: Amount) ->
     Ok(())
 }
 
+pub async fn decrease_balance(
+    pool: &PgPool,
+    user_id: &UserId,
+    amount: Amount,
+) -> Result<(), Error> {
+    debug!(
+        "going to decrease balance for {user_id} with {} VRSC",
+        amount.as_vrsc()
+    );
+    let result = sqlx::query!(
+        "UPDATE balance_vrsc SET balance = balance - $1 WHERE discord_id = $2",
+        amount.as_sat() as i64,
+        user_id.0 as i64
+    )
+    .execute(pool)
+    .await;
+
+    match result {
+        Ok(result) => info!("decreasing the balance went ok! {:?}", result),
+        Err(e) => return Err(e.into()),
+    }
+
+    Ok(())
+}
+
 pub async fn store_deposit_transaction(
     pool: &PgPool,
-    user_id: UserId,
-    tx_hash: Txid,
+    uuid: &Uuid,
+    user_id: &UserId,
+    tx_hash: &Txid,
 ) -> Result<(), Error> {
     sqlx::query!(
-        "INSERT INTO transactions_vrsc (discord_id, transaction_id, transaction_action) VALUES ($1, $2, $3)",
+        "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, transaction_action) VALUES ($1, $2, $3, $4)",
+        uuid.to_string(),
         user_id.0 as i64,
-        &tx_hash.to_string(),
+        tx_hash.to_string(),
         "deposit"
+        )
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn store_withdraw_transaction(
+    pool: &PgPool,
+    uuid: &Uuid,
+    user_id: &UserId,
+    tx_hash: &Txid,
+    opid: &str,
+) -> Result<(), Error> {
+    sqlx::query!(
+        "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, opid, transaction_action) VALUES ($1, $2, $3, $4, $5)",
+        uuid.to_string(),
+        user_id.0 as i64,
+        tx_hash.to_string(),
+        opid,
+        "withdraw"
         )
         .execute(pool)
         .await?;

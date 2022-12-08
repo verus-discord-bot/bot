@@ -49,6 +49,7 @@ async fn app() -> Result<(), Error> {
             chain::info(),
             wallet::deposit(),
             wallet::balance(),
+            wallet::withdraw(),
         ],
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("?".into()),
@@ -158,7 +159,7 @@ async fn setup_logging() -> Result<(), Report> {
     color_eyre::install()?;
 
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "bot=trace,serenity=info")
+        std::env::set_var("RUST_LOG", "debug")
     }
 
     // let home_dir = std::env::var("HOME").unwrap();

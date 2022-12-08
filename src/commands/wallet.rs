@@ -1,10 +1,10 @@
-use std::{cmp::Ordering, fmt};
+use std::{cmp::Ordering, fmt, str::FromStr, time::Duration};
 
 use qrcode::{render::unicode, QrCode};
 use tracing::*;
 use uuid::Uuid;
 use vrsc::{Address, Amount};
-use vrsc_rpc::{Client, RpcApi};
+use vrsc_rpc::{bitcoin::Txid, Client, RpcApi, SendCurrencyOutput};
 
 use crate::{util::database, Context, Error};
 
@@ -49,21 +49,59 @@ pub async fn withdraw(
     }
 
     let pool = &ctx.data().database;
+    let uuid = Uuid::new_v4();
 
     if let Some(balance) = database::get_balance_for_user(&pool, ctx.author().id).await? {
         let balance_amount = Amount::from_sat(balance);
         if balance_is_enough(&balance_amount, &withdrawal_amount) {
-            // balance is sufficient.
+            // at this point:
+            // - balance is sufficient.
+            // - address is valid.
+            trace!("sendcurrency");
+
+            let sco =
+                SendCurrencyOutput::new("vrsctest".to_string(), withdrawal_amount, destination);
+            let opid = client.send_currency("*", vec![sco], None, None)?;
+            debug!("opid: {:?}", opid);
+
+            if let Some(txid) = wait_for_sendcurrency_finish(&client, &opid).await? {
+                // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
+                database::store_withdraw_transaction(&pool, &uuid, &ctx.author().id, &txid, &opid)
+                    .await?;
+                database::decrease_balance(&pool, &ctx.author().id, withdrawal_amount).await?;
+
+                ctx.send(|reply| {
+                    reply
+                        .ephemeral(true)
+                        .content(format!("Withdrawal initiated: {}", txid.to_string()))
+                })
+                .await?;
+            } else {
+                // at this point, the sendcurrency didn't finish. Maybe it went through, but we don't know.
+                // We should check this out manually, so we'll let the user know to contact support.
+
+                // maybe deposit and withdraw should be separated, where we store more information in the withdraw table.
+                // like the operation result with its status etc, and maybe a newly created uuid so we can easily get it from the database.
+
+                let response = format!("Something went wrong trying to process your withdrawal. Please contact support with withdrawal ID: {}",
+                uuid.to_string());
+
+                ctx.send(|reply| reply.ephemeral(true).content(&response))
+                    .await?;
+            }
+            return Ok(());
         }
-
-        // let withdrawal_amount:
-        trace!("there is a balance for this user: {:?}", &balance_amount);
-    } else {
-        trace!("there is no balance for this user");
-
-        ctx.send(|reply| reply.ephemeral(true).content("Your balance is: 0"))
-            .await?;
     }
+
+    ctx.send(|reply| {
+        reply.ephemeral(true).content(format!(
+            "Your balance is insufficient to withdraw {withdrawal_amount}"
+        ))
+    })
+    .await?;
+    // else the balance is not enough
+    // } else the balance does not exist so no cannot withdraw.
+
     // need to do some checks:
     // - does the user have enough balance?
     // - is the user withdrawing more than 0 verus sats?
@@ -76,13 +114,52 @@ pub async fn withdraw(
     Ok(())
 }
 
+async fn wait_for_sendcurrency_finish(client: &Client, opid: &str) -> Result<Option<Txid>, Error> {
+    // first we need to get operation status to work:
+    loop {
+        let operation_status = client.z_get_operation_status(vec![&opid])?;
+
+        if let Some(Some(opstatus)) = operation_status.first() {
+            if let Some(txid) = &opstatus.result {
+                trace!("there was an operation_status");
+
+                return Ok(Some(txid.txid));
+            } else {
+                // we need to wait for the execution of the sendcurrency to finish.
+                trace!("execution hasn't finished yet");
+
+                tokio::time::sleep(Duration::from_millis(77)).await;
+
+                continue;
+            }
+        } else {
+            trace!("there was NO operation_status");
+            continue;
+        }
+    }
+}
+
+// Let's do some address parsing
+// - is the withdrawal address a valid address?
+// (- is the withdrawal address a z_address?)
+// - is the withdrawal address an identity?
+// - is the withdrawal address a i-address?
 fn destination_is_valid(dest: &str, client: &Client) -> bool {
+    if Address::from_str(dest).is_ok() {
+        // this parses both R* addresses and i* addresses
+        // (maybe z-addresses?)
+        return true;
+    } else {
+        debug!("dest: {}", dest);
+        // it could be an identity
+        if client.get_identity(dest).is_ok() {
+            // this is a valid identity, let's use it.
+            return true;
+        }
+    }
+
+    // in all other cases it's invalid.
     false
-    // Let's do some address parsing
-    // - is the withdrawal address a valid address/
-    // - is the withdrawal address a z_address?
-    // - is the withdrawal address an identity?
-    // - is the withdrawal address a i-address?
 }
 
 fn balance_is_enough(balance: &Amount, amount_to_withdraw: &Amount) -> bool {
