@@ -13,7 +13,8 @@ use crate::{util::database, Context, Error};
 #[poise::command(slash_command, category = "Wallet")]
 pub async fn withdraw(
     ctx: Context<'_>,
-    withdrawal_amount: f64,
+    #[description = "The amount you want to tip"] withdrawal_amount: f64,
+    #[description = "You can use any address starting with R* or i*, or use an existing identity (ends with @)."]
     destination: String,
 ) -> Result<(), Error> {
     debug!(
