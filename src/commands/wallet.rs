@@ -71,9 +71,10 @@ pub async fn withdraw(
                 database::decrease_balance(&pool, &ctx.author().id, withdrawal_amount).await?;
 
                 ctx.send(|reply| {
-                    reply
-                        .ephemeral(true)
-                        .content(format!("Withdrawal initiated: {}", txid.to_string()))
+                    reply.ephemeral(true).content(format!(
+                        "Withdrawal initiated: https://testex.verus.io/tx/{}",
+                        txid.to_string()
+                    ))
                 })
                 .await?;
             } else {

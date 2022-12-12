@@ -83,7 +83,7 @@ pub async fn get_user_from_address(
 
 pub async fn transaction_processed(pool: &PgPool, txid: &Txid) -> Result<bool, Error> {
     let transaction_query = sqlx::query!(
-        "SELECT * FROM transactions_vrsc WHERE (transaction_id) = ($1)",
+        "SELECT * FROM transactions_vrsc WHERE transaction_id = $1 AND transaction_action = 'deposit'",
         &txid.to_string()
     )
     .fetch_optional(pool)
