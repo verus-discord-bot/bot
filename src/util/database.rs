@@ -10,19 +10,15 @@ use vrsc_rpc::bitcoin::Txid;
 
 /// Queries the database and retrieves the balance for the user, if it exists.
 /// If there is no row for this user, None will be returned.
-pub async fn get_balance_for_user(pool: &PgPool, user_id: UserId) -> Result<Option<u64>, Error> {
-    if let Some(row) = sqlx::query!(
+pub async fn get_balance_for_user(pool: &PgPool, user_id: UserId) -> Result<u64, Error> {
+    let row = sqlx::query!(
         "SELECT balance FROM balance_vrsc WHERE discord_id = $1",
         user_id.0 as i64
     )
-    .fetch_optional(pool)
-    .await?
-    {
-        let balance = row.balance.unwrap(); // balance is always there since it's NOTNULL
-        Ok(Some(balance as u64))
-    } else {
-        Ok(None)
-    }
+    .fetch_one(pool)
+    .await?;
+
+    Ok(row.balance as u64)
 }
 
 pub async fn store_new_address_for_user(

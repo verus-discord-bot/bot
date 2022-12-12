@@ -50,6 +50,7 @@ async fn app() -> Result<(), Error> {
             wallet::deposit(),
             wallet::balance(),
             wallet::withdraw(),
+            tipping::tip(),
         ],
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("?".into()),
