@@ -72,7 +72,7 @@ pub async fn withdraw(
 
                 ctx.send(|reply| {
                     reply.ephemeral(true).content(format!(
-                        "Withdrawal initiated: https://testex.verus.io/tx/{}",
+                        "Withdrawal initiated. [Explorer](https://testex.verus.io/tx/{})",
                         txid.to_string()
                     ))
                 })
