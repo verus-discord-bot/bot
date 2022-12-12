@@ -10,20 +10,52 @@ use vrsc_rpc::bitcoin::Txid;
 
 /// Queries the database and retrieves the balance for the user, if it exists.
 /// If there is no row for this user, None will be returned.
-pub async fn get_balance_for_user(pool: &PgPool, user_id: UserId) -> Result<u64, Error> {
-    let row = sqlx::query!(
+pub async fn get_balance_for_user(pool: &PgPool, user_id: &UserId) -> Result<Option<u64>, Error> {
+    if let Some(row) = sqlx::query!(
         "SELECT balance FROM balance_vrsc WHERE discord_id = $1",
         user_id.0 as i64
     )
-    .fetch_one(pool)
+    .fetch_optional(pool)
+    .await?
+    {
+        let balance = row.balance;
+        Ok(Some(balance as u64))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Decreases the balance from one user and adds to the balance of another user in one transaction.
+/// If it fails, no balances are updated for both parties.
+///
+/// At this point, we know that from_user has enough balance. We don't know however if to_user has any balance to begin with.
+pub async fn tip_user(
+    pool: &PgPool,
+    from_user: &UserId,
+    to_user: &UserId,
+    tip_amount: &Amount,
+) -> Result<(), Error> {
+    debug!("tip from {from_user}, to {to_user}, amount {tip_amount}");
+
+    sqlx::query!(
+        "UPDATE balance_vrsc SET balance = CASE
+            WHEN discord_id = $1 THEN balance - $3
+            WHEN discord_id = $2 THEN balance + $3
+        END
+        WHERE discord_id IN ($1, $2)",
+        from_user.0 as i64,
+        to_user.0 as i64,
+        tip_amount.as_sat() as i64,
+    )
+    .execute(pool)
     .await?;
 
-    Ok(row.balance as u64)
+    Ok(())
 }
 
 pub async fn store_new_address_for_user(
     pool: &PgPool,
-    user_id: UserId,
+    user_id: &UserId,
     address: &Address,
 ) -> Result<(), Error> {
     sqlx::query!(

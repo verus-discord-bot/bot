@@ -30,6 +30,20 @@
     },
     "query": "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, opid, transaction_action, fee) VALUES ($1, $2, $3, $4, $5, $6)"
   },
+  "562a0dc83d7614066b62ccfb8633fbfe7df4c0f026db3e9d39fda9904fbdb392": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "UPDATE balance_vrsc SET balance = CASE\n            WHEN discord_id = $1 THEN balance - $3\n            WHEN discord_id = $2 THEN balance + $3\n        END\n        WHERE discord_id IN ($1, $2)"
+  },
   "5ab48ee91c6e88927e5447a516dfa143d42dc6dba5c47af6d297d2aaab84b7d9": {
     "describe": {
       "columns": [

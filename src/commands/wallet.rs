@@ -13,7 +13,7 @@ use crate::{util::database, Context, Error};
 #[poise::command(slash_command, category = "Wallet")]
 pub async fn withdraw(
     ctx: Context<'_>,
-    #[description = "The amount you want to withdraw"] withdrawal_amount: f64,
+    #[description = "The amount you want to tip"] withdrawal_amount: f64,
     #[description = "You can use any address starting with R* or i*, or use an existing identity (ends with @)."]
     destination: String,
 ) -> Result<(), Error> {
@@ -53,70 +53,74 @@ pub async fn withdraw(
     let uuid = Uuid::new_v4();
     let tx_fee = &ctx.data().settings.application.global_withdrawal_fee;
 
-    let balance = database::get_balance_for_user(&pool, ctx.author().id).await?;
-    let balance_amount = Amount::from_sat(balance);
-    if balance_is_enough(&balance_amount, &withdrawal_amount, &tx_fee) {
-        // at this point:
-        // - balance is sufficient (also to pay withdrawal_fee).
-        // - address is valid.
-        trace!("sendcurrency");
+    if let Some(balance) = database::get_balance_for_user(&pool, &ctx.author().id).await? {
+        let balance_amount = Amount::from_sat(balance);
+        if balance_is_enough(&balance_amount, &withdrawal_amount, &tx_fee) {
+            // at this point:
+            // - balance is sufficient (also to pay withdrawal_fee).
+            // - address is valid.
+            trace!("sendcurrency");
 
-        let sco = SendCurrencyOutput::new("vrsctest".to_string(), withdrawal_amount, destination);
-        let opid = client.send_currency("*", vec![sco], None, None)?;
-        debug!("opid: {:?}", opid);
+            let sco =
+                SendCurrencyOutput::new("vrsctest".to_string(), withdrawal_amount, destination);
+            let opid = client.send_currency("*", vec![sco], None, None)?;
+            debug!("opid: {:?}", opid);
 
-        if let Some(txid) = wait_for_sendcurrency_finish(&client, &opid).await? {
-            // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
-            database::store_withdraw_transaction(
-                &pool,
-                &uuid,
-                &ctx.author().id,
-                &txid,
-                &opid,
-                &tx_fee,
-            )
-            .await?;
-            database::decrease_balance(&pool, &ctx.author().id, &withdrawal_amount, &tx_fee)
+            if let Some(txid) = wait_for_sendcurrency_finish(&client, &opid).await? {
+                // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
+                database::store_withdraw_transaction(
+                    &pool,
+                    &uuid,
+                    &ctx.author().id,
+                    &txid,
+                    &opid,
+                    &tx_fee,
+                )
                 .await?;
+                database::decrease_balance(&pool, &ctx.author().id, &withdrawal_amount, &tx_fee)
+                    .await?;
 
-            let new_balance = database::get_balance_for_user(&pool, ctx.author().id).await?;
+                let new_balance = database::get_balance_for_user(&pool, &ctx.author().id).await?;
 
-            ctx.send(|reply| {
-                // reply.ephemeral(true).content(format!(
-                //     "Withdrawal initiated. [Explorer](https://testex.verus.io/tx/{})",
-                //     txid.to_string()
-                // ))
-                reply.ephemeral(false).embed(|embed| {
-                    let embed = embed
-                        .title("Withdraw")
-                        .field("Amount", withdrawal_amount, false)
-                        .field("Fees", tx_fee, false)
-                        .field(
-                            "Explorer",
-                            format!("[link](https://testex.verus.io/tx/{})", txid.to_string()),
-                            false,
-                        );
+                ctx.send(|reply| {
+                    // reply.ephemeral(true).content(format!(
+                    //     "Withdrawal initiated. [Explorer](https://testex.verus.io/tx/{})",
+                    //     txid.to_string()
+                    // ))
+                    reply.ephemeral(false).embed(|embed| {
+                        let embed = embed
+                            .title("Withdraw")
+                            .field("Amount", withdrawal_amount, false)
+                            .field("Fees", tx_fee, false)
+                            .field(
+                                "Explorer",
+                                format!("[link](https://testex.verus.io/tx/{})", txid.to_string()),
+                                false,
+                            );
 
-                    embed.field("New balance", Amount::from_sat(new_balance), false);
+                        if let Some(new_balance) = new_balance {
+                            embed.field("New balance", Amount::from_sat(new_balance), false);
+                        }
 
-                    embed
+                        embed
+                    })
                 })
-            })
-            .await?;
-        } else {
-            // at this point, the sendcurrency didn't finish. Maybe it went through, but we don't know.
-            // We should check this out manually, so we'll let the user know to contact support.
+                .await?;
+            } else {
+                // at this point, the sendcurrency didn't finish. Maybe it went through, but we don't know.
+                // We should check this out manually, so we'll let the user know to contact support.
 
-            // maybe deposit and withdraw should be separated, where we store more information in the withdraw table.
-            // like the operation result with its status etc, and maybe a newly created uuid so we can easily get it from the database.
+                // maybe deposit and withdraw should be separated, where we store more information in the withdraw table.
+                // like the operation result with its status etc, and maybe a newly created uuid so we can easily get it from the database.
 
-            let response = format!("Something went wrong trying to process your withdrawal. Please contact support with withdrawal ID: {}",
+                let response = format!("Something went wrong trying to process your withdrawal. Please contact support with withdrawal ID: {}",
                 uuid.to_string());
 
-            ctx.send(|reply| reply.ephemeral(true).content(&response))
-                .await?;
+                ctx.send(|reply| reply.ephemeral(true).content(&response))
+                    .await?;
+            }
+            return Ok(());
         }
-        return Ok(());
     }
 
     ctx.send(|reply| {
@@ -189,7 +193,7 @@ fn destination_is_valid(dest: &str, client: &Client) -> bool {
 }
 
 // This function checks if the user has sufficient balance to withdraw and to pay the fees.
-fn balance_is_enough(balance: &Amount, amount_to_withdraw: &Amount, tx_fee: &Amount) -> bool {
+pub fn balance_is_enough(balance: &Amount, amount_to_withdraw: &Amount, tx_fee: &Amount) -> bool {
     debug!("balance: {balance}, amount: {amount_to_withdraw}, tx_fee: {tx_fee}");
     if let Some(total_amount) = amount_to_withdraw.checked_add(*tx_fee) {
         if let Some(positive_result) = balance.checked_sub(total_amount) {
@@ -211,20 +215,26 @@ pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
     );
     let pool = &ctx.data().database;
 
-    let balance = database::get_balance_for_user(&pool, ctx.author().id).await?;
-    let balance_amount = Amount::from_sat(balance);
+    if let Some(balance) = database::get_balance_for_user(&pool, &ctx.author().id).await? {
+        let balance_amount = Amount::from_sat(balance);
 
-    trace!(
-        "there is a balance for this user, return it: {:?}",
-        &balance_amount
-    );
+        trace!(
+            "there is a balance for this user, return it: {:?}",
+            &balance_amount
+        );
 
-    ctx.send(|reply| {
-        reply
-            .ephemeral(false)
-            .content(format!("Your balance is: {}", balance_amount))
-    })
-    .await?;
+        ctx.send(|reply| {
+            reply
+                .ephemeral(false)
+                .content(format!("Your balance is: {}", balance_amount))
+        })
+        .await?;
+    } else {
+        trace!("there is no balance for this user");
+
+        ctx.send(|reply| reply.ephemeral(false).content("Your balance is: 0"))
+            .await?;
+    }
 
     Ok(())
 }
@@ -279,7 +289,7 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
             }
         }
         // simultaneously add row to both `discord_users` and `balance_vrsc` with an initial balance of 0.
-        if database::store_new_address_for_user(&pool, ctx.author().id, &address)
+        if database::store_new_address_for_user(&pool, &ctx.author().id, &address)
             .await
             .is_ok()
         {
