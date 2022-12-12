@@ -1,6 +1,7 @@
 use secrecy::{ExposeSecret, Secret};
 use serde::Deserialize;
 use serde_aux::field_attributes::deserialize_number_from_string;
+use vrsc::Amount;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
@@ -51,6 +52,8 @@ pub struct ApplicationSettings {
     pub enable_tracing: bool,
     pub discord: Secret<String>,
     pub discord_guild_id: String,
+    #[serde(with = "vrsc::util::amount::serde::as_sat")]
+    pub global_withdrawal_fee: Amount,
 }
 
 pub fn get_configuration() -> Result<Settings, config::ConfigError> {

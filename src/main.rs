@@ -159,7 +159,7 @@ async fn setup_logging() -> Result<(), Report> {
     color_eyre::install()?;
 
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "debug")
+        std::env::set_var("RUST_LOG", "bot=trace")
     }
 
     // let home_dir = std::env::var("HOME").unwrap();

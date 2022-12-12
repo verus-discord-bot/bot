@@ -19,7 +19,7 @@ Type `/help <command>` for more info on a command.";
         command.as_deref(),
         poise::builtins::HelpConfiguration {
             extra_text_at_bottom,
-            ephemeral: true,
+            ephemeral: false,
             ..Default::default()
         },
     )

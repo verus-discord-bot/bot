@@ -13,6 +13,23 @@
     },
     "query": "UPDATE balance_vrsc SET balance = balance + $1 WHERE discord_id = $2"
   },
+  "2a701d7bee9dd2bcb8e4da41e89dfe4aed4a4c7864e7a90f77a14807d16b5abb": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Int8",
+          "Varchar",
+          "Text",
+          "Text",
+          "Int8"
+        ]
+      }
+    },
+    "query": "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, opid, transaction_action, fee) VALUES ($1, $2, $3, $4, $5, $6)"
+  },
   "5ab48ee91c6e88927e5447a516dfa143d42dc6dba5c47af6d297d2aaab84b7d9": {
     "describe": {
       "columns": [
@@ -59,22 +76,6 @@
     },
     "query": "SELECT balance FROM balance_vrsc WHERE discord_id = $1"
   },
-  "aa3a9efc68911ac49a048e7d09b495bbad3d9506f6fc5873d4135dbf38b6abcb": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Int8",
-          "Varchar",
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, opid, transaction_action) VALUES ($1, $2, $3, $4, $5)"
-  },
   "ae24fd00f574049a81c6fd500d8d0c4f9b8840737797aecdafa60269d769d204": {
     "describe": {
       "columns": [],
@@ -115,6 +116,11 @@
           "name": "uuid",
           "ordinal": 4,
           "type_info": "Text"
+        },
+        {
+          "name": "fee",
+          "ordinal": 5,
+          "type_info": "Int8"
         }
       ],
       "nullable": [
@@ -122,7 +128,8 @@
         false,
         false,
         true,
-        false
+        false,
+        true
       ],
       "parameters": {
         "Left": [

@@ -25,7 +25,7 @@ pub async fn withdraw(
     let client = &ctx.data().verus;
     if !destination_is_valid(&destination, &client) {
         ctx.send(|reply| {
-            reply.ephemeral(true).content(format!(
+            reply.ephemeral(false).content(format!(
                 "Error: The destination you entered cannot be used: {destination}"
             ))
         })
@@ -40,7 +40,7 @@ pub async fn withdraw(
     if [Ordering::Less, Ordering::Equal].contains(&withdrawal_amount.cmp(&Amount::ZERO)) {
         ctx.send(|reply| {
             reply
-                .ephemeral(true)
+                .ephemeral(false)
                 .content("Error: Withdrawal amount should be more than 0.0")
         })
         .await?;
@@ -50,12 +50,13 @@ pub async fn withdraw(
 
     let pool = &ctx.data().database;
     let uuid = Uuid::new_v4();
+    let tx_fee = &ctx.data().settings.application.global_withdrawal_fee;
 
     if let Some(balance) = database::get_balance_for_user(&pool, ctx.author().id).await? {
         let balance_amount = Amount::from_sat(balance);
-        if balance_is_enough(&balance_amount, &withdrawal_amount) {
+        if balance_is_enough(&balance_amount, &withdrawal_amount, &tx_fee) {
             // at this point:
-            // - balance is sufficient.
+            // - balance is sufficient (also to pay withdrawal_fee).
             // - address is valid.
             trace!("sendcurrency");
 
@@ -66,15 +67,42 @@ pub async fn withdraw(
 
             if let Some(txid) = wait_for_sendcurrency_finish(&client, &opid).await? {
                 // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
-                database::store_withdraw_transaction(&pool, &uuid, &ctx.author().id, &txid, &opid)
+                database::store_withdraw_transaction(
+                    &pool,
+                    &uuid,
+                    &ctx.author().id,
+                    &txid,
+                    &opid,
+                    &tx_fee,
+                )
+                .await?;
+                database::decrease_balance(&pool, &ctx.author().id, &withdrawal_amount, &tx_fee)
                     .await?;
-                database::decrease_balance(&pool, &ctx.author().id, withdrawal_amount).await?;
+
+                let new_balance = database::get_balance_for_user(&pool, ctx.author().id).await?;
 
                 ctx.send(|reply| {
-                    reply.ephemeral(true).content(format!(
-                        "Withdrawal initiated. [Explorer](https://testex.verus.io/tx/{})",
-                        txid.to_string()
-                    ))
+                    // reply.ephemeral(true).content(format!(
+                    //     "Withdrawal initiated. [Explorer](https://testex.verus.io/tx/{})",
+                    //     txid.to_string()
+                    // ))
+                    reply.ephemeral(false).embed(|embed| {
+                        let embed = embed
+                            .title("Withdraw")
+                            .field("Amount", withdrawal_amount, false)
+                            .field("Fees", tx_fee, false)
+                            .field(
+                                "Explorer",
+                                format!("[link](https://testex.verus.io/tx/{})", txid.to_string()),
+                                false,
+                            );
+
+                        if let Some(new_balance) = new_balance {
+                            embed.field("New balance", Amount::from_sat(new_balance), false);
+                        }
+
+                        embed
+                    })
                 })
                 .await?;
             } else {
@@ -95,7 +123,7 @@ pub async fn withdraw(
     }
 
     ctx.send(|reply| {
-        reply.ephemeral(true).content(format!(
+        reply.ephemeral(false).content(format!(
             "Your balance is insufficient to withdraw {withdrawal_amount}"
         ))
     })
@@ -163,10 +191,14 @@ fn destination_is_valid(dest: &str, client: &Client) -> bool {
     false
 }
 
-fn balance_is_enough(balance: &Amount, amount_to_withdraw: &Amount) -> bool {
-    if let Some(positive_result) = balance.checked_sub(*amount_to_withdraw) {
-        debug!("{positive_result}");
-        return true;
+// This function checks if the user has sufficient balance to withdraw and to pay the fees.
+fn balance_is_enough(balance: &Amount, amount_to_withdraw: &Amount, tx_fee: &Amount) -> bool {
+    debug!("balance: {balance}, amount: {amount_to_withdraw}, tx_fee: {tx_fee}");
+    if let Some(total_amount) = amount_to_withdraw.checked_add(*tx_fee) {
+        if let Some(positive_result) = balance.checked_sub(total_amount) {
+            debug!("{positive_result}");
+            return true;
+        }
     }
 
     false
@@ -192,14 +224,14 @@ pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
 
         ctx.send(|reply| {
             reply
-                .ephemeral(true)
+                .ephemeral(false)
                 .content(format!("Your balance is: {}", balance_amount))
         })
         .await?;
     } else {
         trace!("there is no balance for this user");
 
-        ctx.send(|reply| reply.ephemeral(true).content("Your balance is: 0"))
+        ctx.send(|reply| reply.ephemeral(false).content("Your balance is: 0"))
             .await?;
     }
 
@@ -275,7 +307,7 @@ async fn send_address_message(ctx: Context<'_>, address: Address) -> Result<(), 
             .module_dimensions(1, 1)
             .build();
 
-        reply.ephemeral(true).embed(|embed| {
+        reply.ephemeral(false).embed(|embed| {
             embed.title(format!("Deposit address: {}", &address)).field(
                 "code",
                 format!("```{image_str}```"),
@@ -299,23 +331,27 @@ mod tests {
     use super::*;
     #[test]
     fn sufficient_balance() {
-        let balance = Amount::from_sat(1000);
+        let balance = Amount::from_sat(51000);
         let to_withdraw = Amount::from_sat(500);
+        let tx_fee = Amount::from_sat(50000);
 
-        assert!(balance_is_enough(&balance, &to_withdraw));
+        assert!(balance_is_enough(&balance, &to_withdraw, &tx_fee));
 
-        let balance = Amount::from_sat(99);
+        let balance = Amount::from_sat(50099);
         let to_withdraw = Amount::from_sat(99);
 
-        assert!(balance_is_enough(&balance, &to_withdraw));
+        let tx_fee = Amount::from_sat(50000);
+
+        assert!(balance_is_enough(&balance, &to_withdraw, &tx_fee));
     }
 
     #[test]
     fn insufficient_balance() {
-        let balance = Amount::from_sat(1000);
+        let balance = Amount::from_sat(51000);
         let to_withdraw = Amount::from_sat(1001);
+        let tx_fee = Amount::from_sat(50000);
 
-        assert!(!balance_is_enough(&balance, &to_withdraw));
+        assert!(!balance_is_enough(&balance, &to_withdraw, &tx_fee));
     }
 
     #[test]
@@ -323,11 +359,14 @@ mod tests {
         let balance = Amount::max_value();
         let to_withdraw = Amount::max_value();
 
-        assert!(balance_is_enough(&balance, &to_withdraw));
+        let tx_fee = Amount::from_sat(0);
 
+        assert!(balance_is_enough(&balance, &to_withdraw, &tx_fee));
         let balance = Amount::max_value();
         let to_withdraw = Amount::min_value();
 
-        assert!(balance_is_enough(&balance, &to_withdraw));
+        let tx_fee = Amount::from_sat(0);
+
+        assert!(balance_is_enough(&balance, &to_withdraw, &tx_fee));
     }
 }

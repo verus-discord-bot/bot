@@ -123,25 +123,32 @@ pub async fn increase_balance(
 pub async fn decrease_balance(
     pool: &PgPool,
     user_id: &UserId,
-    amount: Amount,
+    amount: &Amount,
+    tx_fee: &Amount,
 ) -> Result<(), Error> {
-    debug!(
-        "going to decrease balance for {user_id} with {} VRSC",
-        amount.as_vrsc()
-    );
-    let result = sqlx::query!(
-        "UPDATE balance_vrsc SET balance = balance - $1 WHERE discord_id = $2",
-        amount.as_sat() as i64,
-        user_id.0 as i64
-    )
-    .execute(pool)
-    .await;
+    if let Some(to_decrease) = amount.checked_add(*tx_fee) {
+        debug!(
+            "going to decrease balance for {user_id} with {} VRSC",
+            to_decrease.as_vrsc()
+        );
+        let result = sqlx::query!(
+            "UPDATE balance_vrsc SET balance = balance - $1 WHERE discord_id = $2",
+            to_decrease.as_sat() as i64,
+            user_id.0 as i64
+        )
+        .execute(pool)
+        .await;
 
-    match result {
-        Ok(result) => info!("decreasing the balance went ok! {:?}", result),
-        Err(e) => return Err(e.into()),
+        match result {
+            Ok(result) => info!("decreasing the balance went ok! {:?}", result),
+            Err(e) => return Err(e.into()),
+        }
+    } else {
+        // summing the 2 balances went wrong. This is an edge case that only happens when someone is withdrawing more than 184,467,440,737.09551615 VRSC,
+        // which is more than the supply of VRSC will ever be.
+        unreachable!()
+        // TODO: It could be that a PBaaS chain will have such a supply, in which case we need to catch the error and inform the user. But not needed right now.
     }
-
     Ok(())
 }
 
@@ -170,14 +177,16 @@ pub async fn store_withdraw_transaction(
     user_id: &UserId,
     tx_hash: &Txid,
     opid: &str,
+    tx_fee: &Amount,
 ) -> Result<(), Error> {
     sqlx::query!(
-        "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, opid, transaction_action) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, opid, transaction_action, fee) VALUES ($1, $2, $3, $4, $5, $6)",
         uuid.to_string(),
         user_id.0 as i64,
         tx_hash.to_string(),
         opid,
-        "withdraw"
+        "withdraw",
+        tx_fee.as_sat() as i64
         )
         .execute(pool)
         .await?;

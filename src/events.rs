@@ -68,7 +68,7 @@ impl EventHandler for Handler {
                                         .field("5", "`talk about 5`", false)
                                         .thumbnail("https://media.tenor.com/dzvvois22BoAAAAi/verus-vrsc.gif")
                                 });
-                                data.ephemeral(true)
+                                data.ephemeral(false)
                             })
                         })
                         .await
