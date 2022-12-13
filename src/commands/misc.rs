@@ -46,11 +46,21 @@ pub async fn register(ctx: Context<'_>, #[flag] global: bool) -> Result<(), Erro
 
     Ok(())
 }
+
+/// Change notification settings
 #[instrument(skip(ctx, notifications), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(track_edits, slash_command, category = "Miscellaneous")]
 pub async fn notifications(ctx: Context<'_>, notifications: Notification) -> Result<(), Error> {
     let pool = &ctx.data().database;
     database::update_notifications(&pool, &ctx.author().id, &notifications.to_string()).await?;
+
+    ctx.send(|reply| {
+        reply.ephemeral(false).content(format!(
+            "You successfully set notifications to: {}",
+            &notifications.to_string()
+        ))
+    })
+    .await?;
 
     Ok(())
 }

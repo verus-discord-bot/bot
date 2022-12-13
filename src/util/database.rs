@@ -263,15 +263,20 @@ pub async fn store_withdraw_transaction(
     pool: &PgPool,
     uuid: &Uuid,
     user_id: &UserId,
-    tx_hash: &Txid,
+    tx_hash: Option<&Txid>,
     opid: &str,
     tx_fee: &Amount,
 ) -> Result<(), Error> {
+    let tx_hash = if let Some(tx) = tx_hash {
+        tx.to_string()
+    } else {
+        String::from("")
+    };
     sqlx::query!(
         "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, opid, transaction_action, fee) VALUES ($1, $2, $3, $4, $5, $6)",
         uuid.to_string(),
         user_id.0 as i64,
-        tx_hash.to_string(),
+        tx_hash,
         opid,
         "withdraw",
         tx_fee.as_sat() as i64

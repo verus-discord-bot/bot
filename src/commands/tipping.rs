@@ -1,5 +1,3 @@
-// group the several tipping commands here
-
 use poise::serenity_prelude::{self, CacheHttp, RoleId, UserId};
 use tracing::*;
 use uuid::Uuid;
@@ -12,15 +10,6 @@ use crate::{
     Context, Error,
 };
 
-// check if the sending user has (enough) balance
-// exclude tipper from role (if he exists)
-// exclude role id from getting tipped
-// exclude tipbot from getting tipped 1046736508297687040
-// for every receiving user in the role:
-// -v if the user does not have a db entry, create in both discord_users and balance_vrsc
-// -v increase the balance
-// - get notification settings
-// - notify people in DM that want to be notified
 #[poise::command(slash_command, category = "Tipping")]
 async fn role(
     ctx: Context<'_>,
@@ -39,6 +28,8 @@ async fn role(
             &tip_amount,
             &Amount::ZERO, // no fees for tipping
         ) {
+            trace!("there is enough balance");
+
             if let Some(guild) = ctx.guild() {
                 debug!("guildid: {:?}", guild.id);
                 let guild_members = guild.members.values();
@@ -112,6 +103,8 @@ async fn role(
                         ))
                     })
                     .await?;
+
+                    return Ok(());
                 } else {
                     ctx.send(|reply| {
                         reply.ephemeral(false).content(format!(
@@ -119,10 +112,21 @@ async fn role(
                         ))
                     })
                     .await?;
+
+                    return Ok(());
                 }
             }
         }
     }
+
+    trace!("tipper has no balance or has not enough balance");
+
+    ctx.send(|reply| {
+        reply
+            .ephemeral(false)
+            .content(format!("Your balance is insufficient to tip that amount!"))
+    })
+    .await?;
 
     Ok(())
 }
@@ -143,9 +147,7 @@ async fn user(
     );
 
     // check if the tipper has enough balance
-    // do a sanity check if the tippee really exists
     // update both balances in 1 go
-    // send a non-ephemeral message saying "<from_user> just tipped <to_user> <amount> VRSC."
 
     let pool = &ctx.data().database;
     // let's first check if the tipper has enough balance:
@@ -168,7 +170,7 @@ async fn user(
                 store_new_address_for_user(pool, &user.id, &address).await?;
             }
 
-            trace!("now we can tip the user.");
+            trace!("the tippee has a balance, we can tip now.");
 
             database::tip_user(pool, &ctx.author().id, &user.id, &tip_amount).await?;
 
@@ -224,10 +226,12 @@ async fn user(
         }
     }
 
+    trace!("tipper has no balance or has not enough balance");
+
     ctx.send(|reply| {
         reply
             .ephemeral(false)
-            .content(format!("Your balance is insufficient to tip"))
+            .content(format!("Your balance is insufficient to tip that amount!"))
     })
     .await?;
 
