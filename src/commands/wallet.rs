@@ -262,7 +262,7 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
     let pool = &ctx.data().database;
     let client = &ctx.data().verus;
 
-    if let Some(address) = database::get_address_from_user(&pool, ctx.author().id).await? {
+    if let Some(address) = database::get_address_from_user(&pool, &ctx.author().id).await? {
         debug!("address already stored, return it");
         send_address_message(ctx, address).await?;
     } else {

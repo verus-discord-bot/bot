@@ -1,5 +1,18 @@
 {
   "db": "PostgreSQL",
+  "0bec66f803d8cf724b269e0a9700a2249d847b5cfd13315e741a60d3d9950cf4": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8Array"
+        ]
+      }
+    },
+    "query": "\n        UPDATE balance_vrsc \n        SET balance = balance + $1\n        WHERE discord_id IN (SELECT * FROM UNNEST($2::bigint[]))\n        "
+  },
   "1a056ef24063992c56c220516e3f34b5c6220990f1e3de0b1df7e880695cbfd7": {
     "describe": {
       "columns": [],

@@ -133,7 +133,8 @@ async fn app() -> Result<(), Error> {
         .intents(
             serenity::GatewayIntents::non_privileged()
                 | serenity::GatewayIntents::GUILD_MEMBERS
-                | serenity::GatewayIntents::MESSAGE_CONTENT,
+                | serenity::GatewayIntents::MESSAGE_CONTENT
+                | serenity::GatewayIntents::GUILD_PRESENCES,
         )
         .run()
         .await?;

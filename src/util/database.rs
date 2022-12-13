@@ -19,10 +19,59 @@ pub async fn get_balance_for_user(pool: &PgPool, user_id: &UserId) -> Result<Opt
     .await?
     {
         let balance = row.balance;
+        debug!("i64 balance: {balance}");
+        if balance < 0 {
+            error!("BALANCE IS NEGATIVE, ABORT EVERYTHING, HOOMAN HALP");
+            panic!("BALANCE IS NEGATIVE, ABORT EVERYTHING, HOOMAN HALP");
+        }
         Ok(Some(balance as u64))
     } else {
         Ok(None)
     }
+}
+
+/// Used when tipping a role. Every member of the tipped role gets the same amount of coins.
+pub async fn tip_multiple_users(
+    pool: &PgPool,
+    from_user: &UserId,
+    to_users: Vec<&UserId>,
+    tip_amount: &Amount,
+) -> Result<(), Error> {
+    let users = to_users
+        .iter()
+        .map(|user| user.0 as i64)
+        .collect::<Vec<_>>();
+
+    let mut tx = pool.begin().await?;
+    sqlx::query!(
+        r#"
+        UPDATE balance_vrsc 
+        SET balance = balance + $1
+        WHERE discord_id IN (SELECT * FROM UNNEST($2::bigint[]))
+        "#,
+        tip_amount.as_sat() as i64,
+        &users
+    )
+    .execute(&mut tx)
+    .await?;
+
+    if let Some(mul) = tip_amount.checked_mul(to_users.len() as u64) {
+        sqlx::query!(
+            "UPDATE balance_vrsc SET balance = balance - $1 WHERE discord_id = $2",
+            mul.as_sat() as i64,
+            from_user.0 as i64
+        )
+        .execute(&mut tx)
+        .await?;
+
+        tx.commit().await?;
+        return Ok(());
+    }
+
+    error!("something went wrong while processing a tip to multiple users");
+    tx.rollback().await?;
+
+    Ok(())
 }
 
 /// Decreases the balance from one user and adds to the balance of another user in one transaction.
@@ -53,6 +102,17 @@ pub async fn tip_user(
     Ok(())
 }
 
+// pub async fn check_user_entries(pool: &PgPool, users: &Vec<&UserId>) -> Result<(), Error> {
+//     for user_id in users {
+//         if get_address_from_user(pool, *user_id).await?.is_none() {
+//             trace!("need to get new address");
+//             store_new_address_for_user(pool, user_id, address);
+//         }
+//     }
+
+//     Ok(())
+// }
+
 pub async fn store_new_address_for_user(
     pool: &PgPool,
     user_id: &UserId,
@@ -77,7 +137,7 @@ pub async fn store_new_address_for_user(
 
 pub async fn get_address_from_user(
     pool: &PgPool,
-    user_id: UserId,
+    user_id: &UserId,
 ) -> Result<Option<Address>, Error> {
     if let Some(row) = sqlx::query!(
         "SELECT discord_id, vrsc_address FROM discord_users WHERE discord_id = $1",
