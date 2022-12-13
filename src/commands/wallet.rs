@@ -53,10 +53,14 @@ pub async fn withdraw(
 
     let pool = &ctx.data().database;
     let uuid = Uuid::new_v4();
-    let tx_fee = &ctx.data().settings.application.global_withdrawal_fee;
 
     if let Some(balance) = database::get_balance_for_user(&pool, &ctx.author().id).await? {
         let balance_amount = Amount::from_sat(balance);
+
+        // gets the withdrawal fee and clones it to prevent deadlock
+        let tx_fee = &ctx.data().withdrawal_fee.read().await.clone();
+        debug!("tx_fee: {tx_fee}");
+
         if balance_is_enough(&balance_amount, &withdrawal_amount, &tx_fee) {
             trace!("balance is sufficient, withdrawal address is valid; starting sendcurrency");
 

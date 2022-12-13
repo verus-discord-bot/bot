@@ -3,9 +3,10 @@ pub mod configuration;
 pub mod util;
 pub mod wallet_listener;
 
-use std::borrow::Borrow;
+use std::{borrow::Borrow, sync::Arc};
 
 use commands::*;
+use vrsc::Amount;
 
 use crate::{
     configuration::{get_configuration, Settings},
@@ -16,6 +17,7 @@ use color_eyre::Report;
 use poise::serenity_prelude as serenity;
 use secrecy::ExposeSecret;
 use sqlx::PgPool;
+use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 use vrsc_rpc::{Client as VerusClient, RpcApi};
@@ -31,6 +33,7 @@ pub struct Data {
     //    mod_role_id: serenity::RoleId,
     _bot_start_time: std::time::Instant,
     database: sqlx::PgPool,
+    withdrawal_fee: Arc<RwLock<Amount>>,
 }
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
@@ -49,6 +52,7 @@ async fn app() -> Result<(), Error> {
 
     let options = poise::FrameworkOptions {
         commands: vec![
+            admin::set_withdrawal_fee(),
             misc::help(),
             misc::source(),
             misc::register(),
@@ -140,12 +144,16 @@ async fn app() -> Result<(), Error> {
             Box::pin(async move {
                 tokio::spawn(async { listen(http, db).await });
 
+                let withdrawal_fee =
+                    Arc::new(RwLock::new(config.application.global_withdrawal_fee));
+
                 Ok(Data {
                     verus: client,
                     settings: config,
                     _bot_user_id: bot.user.id,
                     _bot_start_time: std::time::Instant::now(),
                     database,
+                    withdrawal_fee,
                 })
             })
         })
