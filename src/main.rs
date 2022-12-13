@@ -3,6 +3,8 @@ pub mod configuration;
 pub mod util;
 pub mod wallet_listener;
 
+use std::borrow::Borrow;
+
 use commands::*;
 
 use crate::{
@@ -41,11 +43,16 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
 }
 
 async fn app() -> Result<(), Error> {
+    let config = get_configuration()?;
+    let pg_url = &config.database.connection_string();
+    let database = PgPool::connect_lazy(pg_url)?;
+
     let options = poise::FrameworkOptions {
         commands: vec![
             misc::help(),
             misc::source(),
             misc::register(),
+            misc::notifications(),
             chain::info(),
             wallet::deposit(),
             wallet::balance(),
@@ -68,6 +75,24 @@ async fn app() -> Result<(), Error> {
                     .unwrap_or_else(|| "<unknown>".to_owned());
                 let author = ctx.author().tag();
 
+                let pool = &ctx.data().database;
+                if let Ok(response) =
+                    crate::util::database::get_balance_for_user(pool.borrow(), &ctx.author().id)
+                        .await
+                {
+                    if response.is_none() {
+                        let client = &ctx.data().verus;
+                        let address = client.get_new_address().unwrap();
+                        crate::util::database::store_new_address_for_user(
+                            &pool,
+                            &ctx.author().id,
+                            &address,
+                        )
+                        .await
+                        .expect("an address from the verus daemon");
+                    }
+                }
+
                 match ctx {
                     poise::Context::Prefix(ctx) => {
                         info!("{} in {}: `{}`", author, channel_name, &ctx.msg.content);
@@ -85,8 +110,6 @@ async fn app() -> Result<(), Error> {
         ..Default::default()
     };
 
-    let config = get_configuration()?;
-
     let client = vrsc_rpc::Client::vrsc(
         config.application.testnet,
         vrsc_rpc::Auth::UserPass(
@@ -103,9 +126,6 @@ async fn app() -> Result<(), Error> {
     }
 
     debug!("connection string: {}", config.database.connection_string());
-
-    let pg_url = &config.database.connection_string();
-    let database = PgPool::connect_lazy(pg_url)?;
 
     debug!("starting client");
 

@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use crate::Error;
+use crate::{commands::misc::Notification, Error};
 use poise::serenity_prelude::UserId;
 use sqlx::PgPool;
 use tracing::*;
@@ -34,7 +34,7 @@ pub async fn get_balance_for_user(pool: &PgPool, user_id: &UserId) -> Result<Opt
 pub async fn tip_multiple_users(
     pool: &PgPool,
     from_user: &UserId,
-    to_users: Vec<&UserId>,
+    to_users: &Vec<&UserId>,
     tip_amount: &Amount,
 ) -> Result<(), Error> {
     let users = to_users
@@ -280,4 +280,64 @@ pub async fn store_withdraw_transaction(
         .await?;
 
     Ok(())
+}
+
+pub async fn update_notifications(
+    pool: &PgPool,
+    user_id: &UserId,
+    notification: &str,
+) -> Result<(), Error> {
+    // pre_command takes care of having a db row at this point for this user.
+    sqlx::query!(
+        "UPDATE discord_users SET notifications = ($1) WHERE discord_id = ($2)",
+        notification,
+        user_id.0 as i64
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn get_notification_setting(
+    pool: &PgPool,
+    user_id: &UserId,
+) -> Result<Notification, Error> {
+    if let Some(row) = sqlx::query!(
+        "SELECT notifications FROM discord_users WHERE discord_id = $1",
+        user_id.0 as i64
+    )
+    .fetch_optional(pool)
+    .await?
+    {
+        return match row.notifications {
+            Some(notification) => Ok(notification.into()),
+            None => Ok(Notification::ChannelOnly),
+        };
+    }
+
+    // if there is no row for the user to mention, use the default
+    Ok(Notification::ChannelOnly)
+}
+
+pub async fn get_notification_setting_batch(
+    pool: &PgPool,
+    user_ids: &Vec<&UserId>,
+) -> Result<Vec<(i64, Notification)>, Error> {
+    let users = user_ids
+        .iter()
+        .map(|user| user.0 as i64)
+        .collect::<Vec<_>>();
+    let rows = sqlx::query!(
+        "SELECT discord_id, notifications FROM discord_users WHERE discord_id IN (SELECT * FROM UNNEST($1::bigint[]))",
+        &users
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .filter(|row| row.notifications.is_some())
+        .map(|row| (row.discord_id, row.notifications.unwrap().into()))
+        .collect())
 }

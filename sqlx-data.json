@@ -83,6 +83,19 @@
     },
     "query": "SELECT discord_id, vrsc_address FROM discord_users WHERE discord_id = $1"
   },
+  "63def600bdcf738d595bd767cb7d38fb5d7a0f3cd6e8cbba21f06a92fbb2a8dc": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Int8"
+        ]
+      }
+    },
+    "query": "UPDATE discord_users SET notifications = ($1) WHERE discord_id = ($2)"
+  },
   "a2850f8e9377bc9097817497eb424ecfe09ae0e51da21eb8431c6e1cf629f519": {
     "describe": {
       "columns": [
@@ -178,6 +191,26 @@
     },
     "query": "SELECT * FROM transactions_vrsc WHERE transaction_id = $1 AND transaction_action = 'deposit'"
   },
+  "d95982d569deedf1e85f9f2f15e2d19a54f9eaa1b5e16b63c8e48c7c7677b20f": {
+    "describe": {
+      "columns": [
+        {
+          "name": "notifications",
+          "ordinal": 0,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      }
+    },
+    "query": "SELECT notifications FROM discord_users WHERE discord_id = $1"
+  },
   "d9ac2fc4a79595f26c1c3795fd0672a66ae49f6503cd6499ab8305a4dc7b43de": {
     "describe": {
       "columns": [],
@@ -225,5 +258,31 @@
       }
     },
     "query": "SELECT discord_id FROM discord_users WHERE vrsc_address = $1"
+  },
+  "f9a1194cceed94a81c1551b46cfe2688c7e59ebb5eae56d1533cd34b0d347314": {
+    "describe": {
+      "columns": [
+        {
+          "name": "discord_id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "notifications",
+          "ordinal": 1,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Int8Array"
+        ]
+      }
+    },
+    "query": "SELECT discord_id, notifications FROM discord_users WHERE discord_id IN (SELECT * FROM UNNEST($1::bigint[]))"
   }
 }

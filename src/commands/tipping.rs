@@ -1,13 +1,13 @@
 // group the several tipping commands here
 
-use poise::serenity_prelude::{self, RoleId};
+use poise::serenity_prelude::{self, CacheHttp, RoleId, UserId};
 use tracing::*;
 use uuid::Uuid;
 use vrsc::Amount;
 use vrsc_rpc::RpcApi;
 
 use crate::{
-    commands::wallet,
+    commands::{misc::Notification, wallet},
     util::database::{self, get_balance_for_user, store_new_address_for_user},
     Context, Error,
 };
@@ -72,17 +72,46 @@ async fn role(
                 // need to divide tipping amount over number of people in a role
                 if let Some(div_tip_amount) = tip_amount.checked_div(role_members.len() as u64) {
                     debug!("after division every member gets {div_tip_amount}");
-                    debug!("members: {:#?}", role_members);
+                    debug!("members: {:#?}", &role_members);
 
                     database::tip_multiple_users(
                         pool,
                         &ctx.author().id,
-                        role_members,
+                        &role_members,
                         &div_tip_amount,
                     )
                     .await?;
 
-                    // TODO: need to do notifications for users that have notification settings to ALL or DM-only.
+                    let notification_settings =
+                        database::get_notification_setting_batch(pool, &role_members).await?;
+
+                    for (user_id, notification) in notification_settings {
+                        match (user_id, notification) {
+                            (_, Notification::All) | (_, Notification::DMOnly) => {
+                                let user = UserId(user_id as u64).to_user(ctx.http()).await?;
+                                user.dm(ctx.http(), |message| {
+                                    message.content(format!(
+                                        "You just got tipped {div_tip_amount} from <@{}>!",
+                                        &ctx.author().id,
+                                    ))
+                                })
+                                .await?;
+                            }
+                            _ => {
+                                // don't ping when ChannelOnly or Off
+                            }
+                        }
+                    }
+
+                    ctx.send(|reply| {
+                        reply.ephemeral(false).content(format!(
+                            "<@{}> just tipped {} to {} users!",
+                            &ctx.author().id,
+                            tip_amount,
+                            &role_members.len()
+                        ))
+                    })
+                    .await?;
                 } else {
                     ctx.send(|reply| {
                         reply.ephemeral(false).content(format!(
@@ -144,14 +173,52 @@ async fn user(
             database::tip_user(pool, &ctx.author().id, &user.id, &tip_amount).await?;
 
             // TODO: get notification settings
-            ctx.send(|reply| {
-                reply.ephemeral(false).content(format!(
-                    "<@{}> just tipped <@{}> {tip_amount}!",
-                    &ctx.author().id,
-                    user.id
-                ))
-            })
-            .await?;
+            let notification: Notification =
+                database::get_notification_setting(&pool, &user.id).await?;
+
+            match notification {
+                Notification::All | Notification::ChannelOnly => {
+                    // send a message in the same channel:
+                    ctx.send(|reply| {
+                        reply.ephemeral(false).content(format!(
+                            "<@{}> just tipped <@{}> {tip_amount}!",
+                            &ctx.author().id,
+                            user.id
+                        ))
+                    })
+                    .await?;
+                }
+                Notification::DMOnly => {
+                    // send a non-pinging message in the channel:
+                    ctx.send(|reply| {
+                        reply.ephemeral(false).content(format!(
+                            "<@{}> just tipped `{}` {tip_amount}!",
+                            &ctx.author().id,
+                            user.tag()
+                        ))
+                    })
+                    .await?;
+                    // send a notification in dm:
+                    user.dm(&ctx.http(), |message| {
+                        message.content(format!(
+                            "You just got tipped {tip_amount} from <@{}> :party:",
+                            &ctx.author().id,
+                        ))
+                    })
+                    .await?;
+                }
+                Notification::Off => {
+                    // send a non-pinging message in the channel:
+                    ctx.send(|reply| {
+                        reply.ephemeral(false).content(format!(
+                            "<@{}> just tipped `{}` {tip_amount}!",
+                            &ctx.author().id,
+                            user.tag()
+                        ))
+                    })
+                    .await?;
+                }
+            }
 
             return Ok(());
         }

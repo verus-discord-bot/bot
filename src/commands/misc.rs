@@ -1,6 +1,8 @@
+use poise::ChoiceParameter;
 use tracing::{instrument, trace};
+use uuid::Uuid;
 
-use crate::{Context, Error};
+use crate::{util::database, Context, Error};
 
 /// Show this menu
 #[poise::command(track_edits, slash_command, category = "Miscellaneous")]
@@ -43,4 +45,36 @@ pub async fn register(ctx: Context<'_>, #[flag] global: bool) -> Result<(), Erro
     poise::builtins::register_application_commands(ctx, global).await?;
 
     Ok(())
+}
+#[instrument(skip(ctx, notifications), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(track_edits, slash_command, category = "Miscellaneous")]
+pub async fn notifications(ctx: Context<'_>, notifications: Notification) -> Result<(), Error> {
+    let pool = &ctx.data().database;
+    database::update_notifications(&pool, &ctx.author().id, &notifications.to_string()).await?;
+
+    Ok(())
+}
+
+#[derive(Debug, ChoiceParameter)]
+pub enum Notification {
+    #[name = "All"]
+    All,
+    #[name = "DM only"]
+    DMOnly,
+    #[name = "Channel only"]
+    ChannelOnly,
+    #[name = "Off"]
+    Off,
+}
+
+impl From<String> for Notification {
+    fn from(s: String) -> Self {
+        match s.as_str() {
+            "All" => Self::All,
+            "DM only" => Self::DMOnly,
+            "Channel only" => Self::ChannelOnly,
+            "Off" => Self::Off,
+            _ => Self::ChannelOnly, // This is the default setting.
+        }
+    }
 }
