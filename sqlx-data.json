@@ -26,6 +26,22 @@
     },
     "query": "UPDATE balance_vrsc SET balance = balance + $1 WHERE discord_id = $2"
   },
+  "26b2ea46ac0f6888c7a051345cc0f4bb2358e92647b2bfb65e6bc285b3ee6903": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Int8",
+          "Text",
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "INSERT INTO tips_vrsc(uuid, discord_id, tip_action, amount, counterparty) VALUES ($1, $2, $3, $4, $5)"
+  },
   "2a701d7bee9dd2bcb8e4da41e89dfe4aed4a4c7864e7a90f77a14807d16b5abb": {
     "describe": {
       "columns": [],

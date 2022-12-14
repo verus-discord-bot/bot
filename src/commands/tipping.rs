@@ -65,11 +65,33 @@ async fn role(
                     debug!("after division every member gets {div_tip_amount}");
                     debug!("members: {:#?}", &role_members);
 
+                    let tip_event_id = Uuid::new_v4();
+
                     database::tip_multiple_users(
                         pool,
                         &ctx.author().id,
                         &role_members,
                         &div_tip_amount,
+                    )
+                    .await?;
+
+                    database::store_tip_transaction(
+                        pool,
+                        &tip_event_id,
+                        &ctx.author().id,
+                        "send",
+                        &tip_amount,
+                        role.id.0,
+                    )
+                    .await?;
+
+                    database::store_multiple_tip_transactions(
+                        pool,
+                        &tip_event_id,
+                        &role_members,
+                        "recv",
+                        &div_tip_amount,
+                        &ctx.author().id,
                     )
                     .await?;
 
@@ -173,6 +195,28 @@ async fn user(
             trace!("the tippee has a balance, we can tip now.");
 
             database::tip_user(pool, &ctx.author().id, &user.id, &tip_amount).await?;
+
+            let tip_event_id = Uuid::new_v4();
+
+            database::store_tip_transaction(
+                pool,
+                &tip_event_id,
+                &ctx.author().id,
+                "send",
+                &tip_amount,
+                user.id.0,
+            )
+            .await?;
+
+            database::store_tip_transaction(
+                pool,
+                &tip_event_id,
+                &user.id,
+                "recv",
+                &tip_amount,
+                ctx.author().id.0,
+            )
+            .await?;
 
             // TODO: get notification settings
             let notification: Notification =

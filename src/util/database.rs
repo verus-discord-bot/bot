@@ -2,11 +2,69 @@ use std::str::FromStr;
 
 use crate::{commands::misc::Notification, Error};
 use poise::serenity_prelude::UserId;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, QueryBuilder};
 use tracing::*;
 use uuid::Uuid;
 use vrsc::{Address, Amount};
 use vrsc_rpc::bitcoin::Txid;
+
+// to store a single tip transaction. Usually when a direct tip takes place or when a user sends a group tip.
+pub async fn store_tip_transaction(
+    pool: &PgPool,
+    uuid: &Uuid,
+    user_id: &UserId,
+    tip_action: &str,
+    amount: &Amount,
+    counterparty: u64, // this can be a role_id or user_id but there is no abstraction over these 2 so we accept the plain uint64 id.
+) -> Result<(), Error> {
+    sqlx::query!("INSERT INTO tips_vrsc(uuid, discord_id, tip_action, amount, counterparty) VALUES ($1, $2, $3, $4, $5)",
+        uuid.to_string(),
+        user_id.0 as i64,
+        tip_action,
+        amount.as_sat() as i64,
+        counterparty as i64
+    )
+    .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+// to store multiple tip transactions at once. Usually when a group tip needs to be processed.
+pub async fn store_multiple_tip_transactions(
+    pool: &PgPool,
+    uuid: &Uuid,
+    user_ids: &Vec<&UserId>,
+    tip_action: &str,
+    amount: &Amount,
+    counterparty: &UserId, // this is always a user
+) -> Result<(), Error> {
+    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+        "INSERT INTO tips_vrsc(uuid, discord_id, tip_action, amount, counterparty) ",
+    );
+
+    let tuples = user_ids.iter().map(|user| {
+        (
+            uuid.to_string(),
+            user.0 as i64,
+            tip_action,
+            amount.as_sat() as i64,
+            counterparty.0 as i64,
+        )
+    });
+
+    query_builder.push_values(tuples, |mut b, tuple| {
+        b.push_bind(tuple.0)
+            .push_bind(tuple.1)
+            .push_bind(tuple.2)
+            .push_bind(tuple.3)
+            .push_bind(tuple.4);
+    });
+
+    query_builder.build().execute(pool).await?;
+
+    Ok(())
+}
 
 /// Queries the database and retrieves the balance for the user, if it exists.
 /// If there is no row for this user, None will be returned.
@@ -101,17 +159,6 @@ pub async fn tip_user(
 
     Ok(())
 }
-
-// pub async fn check_user_entries(pool: &PgPool, users: &Vec<&UserId>) -> Result<(), Error> {
-//     for user_id in users {
-//         if get_address_from_user(pool, *user_id).await?.is_none() {
-//             trace!("need to get new address");
-//             store_new_address_for_user(pool, user_id, address);
-//         }
-//     }
-
-//     Ok(())
-// }
 
 pub async fn store_new_address_for_user(
     pool: &PgPool,
