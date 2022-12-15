@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, fmt, str::FromStr, time::Duration};
+use std::{cmp::Ordering, fmt, ops::Sub, str::FromStr, time::Duration};
 
 use qrcode::{render::unicode, QrCode};
 use tracing::*;
@@ -9,16 +9,28 @@ use vrsc_rpc::{bitcoin::Txid, Client, RpcApi, SendCurrencyOutput};
 use crate::{util::database, Context, Error};
 
 /// Withdraw funds from the tipbot wallet.
-#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
-#[poise::command(slash_command, category = "Wallet")]
+#[instrument(skip(_ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(slash_command, category = "Wallet", subcommands("amount", "all"))]
 pub async fn withdraw(
-    ctx: Context<'_>,
+    _ctx: Context<'_>,
     #[description = "The amount you want to tip"] withdrawal_amount: f64,
     #[description = "You can use any address starting with R* or i*, or use an existing identity (ends with @)."]
     destination: String,
 ) -> Result<(), Error> {
+    Ok(())
+}
+
+/// Withdraw a given amount from the tipbot wallet.
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(slash_command, category = "Wallet")]
+pub async fn all(
+    ctx: Context<'_>,
+    // #[description = "The amount you want to tip"] withdrawal_amount: f64,
+    #[description = "You can use any address starting with R* or i*, or use an existing identity (ends with @)."]
+    destination: String,
+) -> Result<(), Error> {
     debug!(
-        "user {} ({}) demands a withdrawal of {withdrawal_amount}",
+        "user {} ({}) demands a withdrawal of his whole balance",
         ctx.author().name,
         ctx.author().id
     );
@@ -35,7 +47,129 @@ pub async fn withdraw(
         return Ok(());
     }
 
+    let pool = &ctx.data().database;
+    let uuid = Uuid::new_v4();
+    let tx_fee = &ctx.data().withdrawal_fee.read().await.clone();
+
+    // the user ALWAYS has balance because of the pre_command function.
+    if let Some(balance) = database::get_balance_for_user(&pool, &ctx.author().id).await? {
+        let balance_amount = Amount::from_sat(balance);
+        let withdrawal_amount = balance_amount.sub(*tx_fee); // no need to check for underflow, tx_fee is always low.
+
+        if withdrawal_amount > Amount::ZERO {
+            debug!("withdrawal_amount: {withdrawal_amount}, tx_fee: {tx_fee} must together be balance_amount: {balance_amount}");
+
+            let currency = match ctx.data().settings.application.testnet {
+                true => "vrsctest".to_string(),
+                false => "VRSC".to_string(),
+            };
+            let sco = SendCurrencyOutput::new(&currency, &withdrawal_amount, &destination);
+            let opid = client.send_currency("*", vec![sco], None, None)?;
+            debug!("sendcurrency opid: {:?}", &opid);
+
+            if let Some(txid) = wait_for_sendcurrency_finish(&client, &opid).await? {
+                // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
+                database::store_withdraw_transaction(
+                    &pool,
+                    &uuid,
+                    &ctx.author().id,
+                    Some(&txid),
+                    &opid,
+                    &tx_fee,
+                )
+                .await?;
+
+                trace!("transaction stored, now decrease balance");
+                database::decrease_balance(&pool, &ctx.author().id, &withdrawal_amount, &tx_fee)
+                    .await?;
+
+                let new_balance = database::get_balance_for_user(&pool, &ctx.author().id).await?;
+
+                ctx.send(|reply| {
+                    reply.ephemeral(false).embed(|embed| {
+                        let embed = embed
+                            .title("Withdraw")
+                            .field("Amount", withdrawal_amount, false)
+                            .field("Fees", tx_fee, false)
+                            .field(
+                                "Explorer",
+                                format!("[link](https://testex.verus.io/tx/{})", txid.to_string()),
+                                false,
+                            );
+
+                        if let Some(new_balance) = new_balance {
+                            embed.field("New balance", Amount::from_sat(new_balance), false);
+                        }
+
+                        embed
+                    })
+                })
+                .await?;
+            } else {
+                // at this point, the sendcurrency didn't finish. Maybe it went through, but we don't know.
+                // We should check this manually, so we'll let the user know to contact support and we'll store the op-id in the database.
+                let response = format!("Something went wrong trying to process your withdrawal. Please contact support with withdrawal ID: {}",
+                uuid.to_string());
+
+                database::store_withdraw_transaction(
+                    &pool,
+                    &uuid,
+                    &ctx.author().id,
+                    None,
+                    &opid,
+                    &tx_fee,
+                )
+                .await?;
+
+                ctx.send(|reply| reply.ephemeral(true).content(&response))
+                    .await?;
+            }
+
+            return Ok(());
+        }
+
+        ctx.send(|reply| {
+            reply.ephemeral(false).content(format!(
+                "Your balance is insufficient to withdraw everything.\nMax available balance for withdraw: {}", withdrawal_amount.checked_sub(*tx_fee).unwrap_or(Amount::ZERO)
+            ))
+        })
+        .await?;
+    }
+    // the user ALWAYS has balance because of the pre_command function.
+    // So this is an unreachable place, theoretically.
+    error!("User should have had balance at this point, something is wrong");
+
+    Ok(())
+}
+
+/// Withdraw a given amount from the tipbot wallet.
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(slash_command, category = "Wallet")]
+pub async fn amount(
+    ctx: Context<'_>,
+    #[description = "The amount you want to tip"] withdrawal_amount: f64,
+    #[description = "You can use any address starting with R* or i*, or use an existing identity (ends with @)."]
+    destination: String,
+) -> Result<(), Error> {
+    debug!(
+        "user {} ({}) demands a withdrawal of {withdrawal_amount}",
+        ctx.author().name,
+        ctx.author().id
+    );
+
     let withdrawal_amount = Amount::from_float_in(withdrawal_amount, vrsc::Denomination::Verus)?;
+
+    let client = &ctx.data().verus;
+    if !destination_is_valid(&destination, &client) {
+        ctx.send(|reply| {
+            reply.ephemeral(false).content(format!(
+                "Error: The destination you entered cannot be used: {destination}"
+            ))
+        })
+        .await?;
+
+        return Ok(());
+    }
 
     // if amount to withdraw <= 0.0
     // the reason this has to be done this way is because Amount is an abstraction over floats (f64) and 2 floats with the same value are not equal
@@ -54,11 +188,11 @@ pub async fn withdraw(
     let pool = &ctx.data().database;
     let uuid = Uuid::new_v4();
 
+    let tx_fee = &ctx.data().withdrawal_fee.read().await.clone();
     if let Some(balance) = database::get_balance_for_user(&pool, &ctx.author().id).await? {
         let balance_amount = Amount::from_sat(balance);
 
         // gets the withdrawal fee and clones it to prevent deadlock
-        let tx_fee = &ctx.data().withdrawal_fee.read().await.clone();
         debug!("tx_fee: {tx_fee}");
 
         if balance_is_enough(&balance_amount, &withdrawal_amount, &tx_fee) {
@@ -68,7 +202,7 @@ pub async fn withdraw(
                 true => "vrsctest".to_string(),
                 false => "VRSC".to_string(),
             };
-            let sco = SendCurrencyOutput::new(currency, withdrawal_amount, destination);
+            let sco = SendCurrencyOutput::new(&currency, &withdrawal_amount, &destination);
             let opid = client.send_currency("*", vec![sco], None, None)?;
             debug!("sendcurrency opid: {:?}", &opid);
 
@@ -136,7 +270,7 @@ pub async fn withdraw(
 
     ctx.send(|reply| {
         reply.ephemeral(false).content(format!(
-            "Your balance is insufficient to withdraw {withdrawal_amount}"
+            "Your balance is insufficient to withdraw {withdrawal_amount}.\nMax available balance for withdraw: {}", withdrawal_amount.checked_sub(*tx_fee).unwrap_or(Amount::ZERO)
         ))
     })
     .await?;
@@ -210,7 +344,7 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
 
             reply.ephemeral(false).embed(|embed| {
                 embed
-                    .title("Deposit")
+                    // .title("Deposit")
                     .field("Address", format!("{}", &address), false)
                     .field(
                         "Scan this QR with the Verus Mobile app",
