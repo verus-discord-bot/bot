@@ -1,6 +1,7 @@
 use color_eyre::Report;
 use poise::serenity_prelude::{Http, UserId};
 use sqlx::PgPool;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::{UnixListener, UnixStream};
@@ -13,10 +14,10 @@ use vrsc_rpc::{Auth, Client, RpcApi};
 use crate::util::database::*;
 use crate::Error;
 
-pub async fn listen(http: Arc<Http>, pool: PgPool) {
-    let listener = UnixListener::bind("/tmp/discord_bot.sock").unwrap_or_else(|_| {
-        std::fs::remove_file("/tmp/discord_bot.sock").unwrap();
-        UnixListener::bind("/tmp/discord_bot.sock").unwrap()
+pub async fn listen(http: Arc<Http>, pool: PgPool, socket_path: PathBuf) {
+    let listener = UnixListener::bind(&socket_path).unwrap_or_else(|_| {
+        std::fs::remove_file(&socket_path).unwrap();
+        UnixListener::bind(&socket_path).unwrap()
     });
 
     info!("walletnotify listening");
@@ -27,10 +28,10 @@ pub async fn listen(http: Arc<Http>, pool: PgPool) {
         match listener.accept().await {
             Ok((stream, _address)) => {
                 tokio::spawn(async move {
-                    if let Err(e) = handle(http_clone, pool_clone, stream).await {
+                    if let Err(e) = handle(http_clone, pool_clone, &stream).await {
                         error!(
-                            "something went wrong while handling a new wallet tx: {:?}",
-                            e
+                            "something went wrong while handling a new wallet tx: {:?}\n{:?}",
+                            e, &stream
                         )
                     }
                 })
@@ -45,9 +46,10 @@ pub async fn listen(http: Arc<Http>, pool: PgPool) {
 }
 
 #[instrument(skip(http, pool))]
-async fn handle(http: Arc<Http>, pool: PgPool, stream: UnixStream) -> Result<(), Error> {
+async fn handle(http: Arc<Http>, pool: PgPool, stream: &UnixStream) -> Result<(), Error> {
     stream.readable().await?;
     let tx_hash = parse_bytes(&stream).await?;
+    debug!("parsed tx_hash: {}", &tx_hash);
 
     // todo: need to get client from main
     let client = Client::vrsc(true, Auth::ConfigFile)?;

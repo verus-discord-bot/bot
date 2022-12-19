@@ -1,0 +1,25 @@
+// the following files should be put in <project root>/config/
+// base.toml
+[application]
+enable_tracing = true
+trace_level = "debug"
+
+[database]
+host = "127.0.0.1"
+port = 5432
+username = "postgres"
+
+// local.toml or prod.toml 
+[application]
+discord = "<bot token>"
+discord_guild_id = <guild_id of discord server (guild) to run bot on>
+testnet = true
+rpc_user = "<rpc_user>"
+rpc_password = "<rpc_password>"
+rpc_port = <rpc_password>
+global_withdrawal_fee = 50000 // in sats
+vrsc_socket_path = "/tmp/discord_vrsc.sock"
+
+[database]
+database_name = "<database_name>"
+password = "<password of db>"

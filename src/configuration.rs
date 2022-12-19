@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use secrecy::{ExposeSecret, Secret};
 use serde::Deserialize;
 use serde_aux::field_attributes::deserialize_number_from_string;
@@ -54,6 +56,7 @@ pub struct ApplicationSettings {
     pub discord_guild_id: String,
     #[serde(with = "vrsc::util::amount::serde::as_sat")]
     pub global_withdrawal_fee: Amount,
+    pub vrsc_socket_path: PathBuf,
 }
 
 pub fn get_configuration() -> Result<Settings, config::ConfigError> {

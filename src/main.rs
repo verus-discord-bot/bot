@@ -30,7 +30,6 @@ pub struct Data {
     verus: VerusClient,
     settings: Settings,
     _bot_user_id: serenity::UserId,
-    //    mod_role_id: serenity::RoleId,
     _bot_start_time: std::time::Instant,
     database: sqlx::PgPool,
     withdrawal_fee: Arc<RwLock<Amount>>,
@@ -138,11 +137,12 @@ async fn app() -> Result<(), Error> {
         .setup(move |ctx, bot, _framework| {
             let http = ctx.http.clone();
             let db = database.clone();
+            let vrsc_socket = config.application.vrsc_socket_path.clone();
 
             debug!("really starting");
 
             Box::pin(async move {
-                tokio::spawn(async { listen(http, db).await });
+                tokio::spawn(async { listen(http, db, vrsc_socket).await });
 
                 let withdrawal_fee =
                     Arc::new(RwLock::new(config.application.global_withdrawal_fee));
