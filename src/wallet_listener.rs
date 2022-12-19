@@ -1,7 +1,6 @@
 use color_eyre::Report;
 use poise::serenity_prelude::{Http, UserId};
 use sqlx::PgPool;
-use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::{UnixListener, UnixStream};
@@ -11,24 +10,26 @@ use vrsc::Amount;
 use vrsc_rpc::bitcoin::Txid;
 use vrsc_rpc::{Auth, Client, RpcApi};
 
+use crate::configuration::Settings;
 use crate::util::database::*;
 use crate::Error;
 
-pub async fn listen(http: Arc<Http>, pool: PgPool, socket_path: PathBuf) {
-    let listener = UnixListener::bind(&socket_path).unwrap_or_else(|_| {
-        std::fs::remove_file(&socket_path).unwrap();
-        UnixListener::bind(&socket_path).unwrap()
+pub async fn listen(http: Arc<Http>, pool: PgPool, config: Settings) {
+    let listener = UnixListener::bind(&config.application.vrsc_socket_path).unwrap_or_else(|_| {
+        std::fs::remove_file(&config.application.vrsc_socket_path).unwrap();
+        UnixListener::bind(&config.application.vrsc_socket_path).unwrap()
     });
 
     info!("walletnotify listening");
     loop {
         let http_clone = http.clone();
         let pool_clone = pool.clone();
+        let config_clone = config.clone();
 
         match listener.accept().await {
             Ok((stream, _address)) => {
                 tokio::spawn(async move {
-                    if let Err(e) = handle(http_clone, pool_clone, &stream).await {
+                    if let Err(e) = handle(http_clone, pool_clone, &stream, config_clone).await {
                         error!(
                             "something went wrong while handling a new wallet tx: {:?}\n{:?}",
                             e, &stream
@@ -46,13 +47,25 @@ pub async fn listen(http: Arc<Http>, pool: PgPool, socket_path: PathBuf) {
 }
 
 #[instrument(skip(http, pool))]
-async fn handle(http: Arc<Http>, pool: PgPool, stream: &UnixStream) -> Result<(), Error> {
+async fn handle(
+    http: Arc<Http>,
+    pool: PgPool,
+    stream: &UnixStream,
+    config: Settings,
+) -> Result<(), Error> {
     stream.readable().await?;
     let tx_hash = parse_bytes(&stream).await?;
     debug!("parsed tx_hash: {}", &tx_hash);
 
     // todo: need to get client from main
-    let client = Client::vrsc(true, Auth::ConfigFile)?;
+    let client = Client::vrsc(
+        config.application.testnet,
+        Auth::UserPass(
+            format!("127.0.0.1:{}", config.application.rpc_port),
+            config.application.rpc_user,
+            config.application.rpc_password,
+        ),
+    )?;
 
     let raw_tx = client.get_raw_transaction_verbose(&Txid::from_str(&tx_hash)?)?;
 

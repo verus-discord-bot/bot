@@ -137,12 +137,13 @@ async fn app() -> Result<(), Error> {
         .setup(move |ctx, bot, _framework| {
             let http = ctx.http.clone();
             let db = database.clone();
-            let vrsc_socket = config.application.vrsc_socket_path.clone();
+            let config_clone = config.clone();
+            // let client = client.clone();
 
             debug!("really starting");
 
             Box::pin(async move {
-                tokio::spawn(async { listen(http, db, vrsc_socket).await });
+                tokio::spawn(async { listen(http, db, config_clone).await });
 
                 let withdrawal_fee =
                     Arc::new(RwLock::new(config.application.global_withdrawal_fee));
