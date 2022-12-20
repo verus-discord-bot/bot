@@ -1,10 +1,6 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
-use futures::{future, stream, StreamExt};
-use poise::{
-    serenity_prelude::{self, CacheHttp, Emoji, ReactionType, RoleId, UserId},
-    ChoiceParameter,
-};
+use poise::serenity_prelude::{self, CacheHttp, Emoji, RoleId, UserId};
 use tracing::*;
 use uuid::Uuid;
 use vrsc::Amount;
@@ -301,7 +297,7 @@ pub async fn reactdrop(
     emoji: Emoji,
     #[min = 0.5] amount: f64,
     #[max = 600]
-    #[min = 30]
+    #[min = 10]
     time_in_secs: u32,
 ) -> Result<(), Error> {
     debug!("{:#?}", emoji);
@@ -316,9 +312,12 @@ pub async fn reactdrop(
     let http = context.http.clone();
     let http_2 = context.http.clone();
 
-    let mut i: i32 = 5;
+    let mut i: i32 = time_in_secs as i32;
 
     while i >= 0 {
+        // this is a rough countdown as the time is not precisely 1 second every sleep event. This is what the Tokio docs say:
+        // "`Sleep` operates at millisecond granularity and should not be used for tasks that require high-resolution timers."
+        // But it's fine for our usecase :)
         tokio::time::sleep(Duration::from_secs(1)).await;
         msg.edit(http.clone(), |f| {
             f.content(format!("time left: {i} seconds"))
