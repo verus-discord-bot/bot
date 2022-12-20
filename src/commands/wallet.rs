@@ -365,7 +365,9 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
 async fn wait_for_sendcurrency_finish(client: &Client, opid: &str) -> Result<Option<Txid>, Error> {
     let mut i = 0;
     loop {
+        trace!("getting operation status: {}", &opid);
         let operation_status = client.z_get_operation_status(vec![&opid])?;
+        trace!("got operation status: {:?}", &operation_status);
 
         if let Some(Some(opstatus)) = operation_status.first() {
             if let Some(txid) = &opstatus.result {
