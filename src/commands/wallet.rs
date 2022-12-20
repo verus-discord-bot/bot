@@ -60,10 +60,10 @@ pub async fn all(
             debug!("withdrawal_amount: {withdrawal_amount}, tx_fee: {tx_fee} must together be balance_amount: {balance_amount}");
 
             let currency = match ctx.data().settings.application.testnet {
-                true => "vrsctest".to_string(),
-                false => "VRSC".to_string(),
+                true => Some("vrsctest"),
+                false => None,
             };
-            let sco = SendCurrencyOutput::new(&currency, &withdrawal_amount, &destination);
+            let sco = SendCurrencyOutput::new(currency, &withdrawal_amount, &destination);
             let opid = client.send_currency("*", vec![sco], None, None)?;
             debug!("sendcurrency opid: {:?}", &opid);
 
@@ -199,10 +199,10 @@ pub async fn amount(
             trace!("balance is sufficient, withdrawal address is valid; starting sendcurrency");
 
             let currency = match ctx.data().settings.application.testnet {
-                true => "vrsctest".to_string(),
-                false => "VRSC".to_string(),
+                true => Some("vrsctest"),
+                false => None,
             };
-            let sco = SendCurrencyOutput::new(&currency, &withdrawal_amount, &destination);
+            let sco = SendCurrencyOutput::new(currency, &withdrawal_amount, &destination);
             let opid = client.send_currency("*", vec![sco], None, None)?;
             debug!("sendcurrency opid: {:?}", &opid);
 
