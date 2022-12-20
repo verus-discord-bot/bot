@@ -1,4 +1,10 @@
-use poise::serenity_prelude::{self, CacheHttp, RoleId, UserId};
+use std::{sync::Arc, time::Duration};
+
+use futures::{future, stream, StreamExt};
+use poise::{
+    serenity_prelude::{self, CacheHttp, Emoji, ReactionType, RoleId, UserId},
+    ChoiceParameter,
+};
 use tracing::*;
 use uuid::Uuid;
 use vrsc::Amount;
@@ -285,5 +291,61 @@ async fn user(
 #[instrument(skip(_ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Tipping", subcommands("role", "user"))]
 pub async fn tip(_ctx: Context<'_>) -> Result<(), Error> {
+    Ok(())
+}
+
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(slash_command, category = "Tipping")]
+pub async fn reactdrop(
+    ctx: Context<'_>,
+    emoji: Emoji,
+    #[min = 0.5] amount: f64,
+    #[max = 600]
+    #[min = 30]
+    time_in_secs: u32,
+) -> Result<(), Error> {
+    debug!("{:#?}", emoji);
+
+    debug!("regex found");
+
+    let reply_handle = ctx.say("hello").await?;
+    let mut msg = reply_handle.into_message().await?;
+
+    let context = ctx.serenity_context().to_owned();
+
+    let http = context.http.clone();
+    let http_2 = context.http.clone();
+
+    let mut i: i32 = 5;
+
+    while i >= 0 {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        msg.edit(http.clone(), |f| {
+            f.content(format!("time left: {i} seconds"))
+        })
+        .await
+        .unwrap();
+        i -= 1;
+    }
+
+    let mut last_user = None;
+
+    loop {
+        if let Ok(users) = msg
+            .reaction_users(http_2.clone(), emoji.clone(), Some(1), last_user)
+            .await
+        {
+            last_user = users.last().map(|user| user.id);
+            if last_user.is_none() {
+                break;
+            }
+            debug!("user: {:#?}", &last_user);
+
+            continue;
+        } else {
+            break;
+        }
+    }
+
     Ok(())
 }

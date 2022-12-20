@@ -296,12 +296,13 @@ pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
             &balance_amount
         );
 
-        ctx.send(|reply| {
-            reply
-                .ephemeral(false)
-                .content(format!("Your balance is: {}", balance_amount))
-        })
-        .await?;
+        let msg = ctx
+            .send(|reply| {
+                reply
+                    .ephemeral(false)
+                    .content(format!("Your balance is: {}", balance_amount))
+            })
+            .await?;
     } else {
         trace!("there is no balance for this user");
 

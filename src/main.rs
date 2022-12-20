@@ -37,14 +37,33 @@ pub struct Data {
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
     warn!("Encountered error: {:?}", error);
-    if let poise::FrameworkError::Command { ctx, error } = error {
-        if let Err(e) = ctx.say(error.to_string()).await {
-            warn!("{}", e)
+    match error {
+        poise::FrameworkError::Command { ctx, error } => {
+            if let Err(e) = ctx.say(error.to_string()).await {
+                warn!("{}", e)
+            }
+        }
+        poise::FrameworkError::ArgumentParse { error, input, ctx } => {
+            if let Err(e) = ctx
+                .say(format!(
+                    "The argument you provided ({}) was incorrect. Press arrow up \u{2191} to change the arguments and press Enter when you're done.",
+                    input.unwrap()
+                ))
+                .await
+            {
+                warn!("{}", e)
+            }
+        }
+        _ => {
+            warn!("an unrecoverable error occured")
         }
     }
+    // if let poise::FrameworkError::Command { ctx, error } = error {}
 }
 
 async fn app() -> Result<(), Error> {
+    // let cmd = Command::default();
+
     let config = get_configuration()?;
     let pg_url = &config.database.connection_string();
     let database = PgPool::connect_lazy(pg_url)?;
@@ -61,6 +80,7 @@ async fn app() -> Result<(), Error> {
             wallet::balance(),
             wallet::withdraw(),
             tipping::tip(),
+            tipping::reactdrop(),
         ],
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("?".into()),
