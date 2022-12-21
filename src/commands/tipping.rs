@@ -381,7 +381,6 @@ pub async fn reactdrop(
                 }
 
                 let mut last_user = None;
-                let counterparty = ctx.author().id.0;
 
                 loop {
                     if let Ok(users) = msg
@@ -393,8 +392,12 @@ pub async fn reactdrop(
                             break;
                         }
                         debug!("users: {:#?}", &users);
-                        let users = users.iter().map(|u| u.id.as_ref()).collect::<Vec<_>>();
-                        tip_users(&ctx, pool, &users, &tip_amount, counterparty).await?;
+                        let users = users
+                            .iter()
+                            .filter(|user| !user.bot)
+                            .map(|u| u.id.as_ref())
+                            .collect::<Vec<_>>();
+                        tip_users(&ctx, pool, &users, &tip_amount, 0).await?;
 
                         continue;
                     } else {
