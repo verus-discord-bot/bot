@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use poise::serenity_prelude::{self, CacheHttp, Emoji, RoleId, UserId};
+use poise::serenity_prelude::{self, CacheHttp, ReactionType, RoleId, UserId};
+use sqlx::PgPool;
 use tracing::*;
 use uuid::Uuid;
 use vrsc::Amount;
@@ -11,6 +12,100 @@ use crate::{
     util::database::{self, get_balance_for_user, store_new_address_for_user},
     Context, Error,
 };
+
+async fn tip_users(
+    ctx: &Context<'_>,
+    pool: &PgPool,
+    users: &Vec<&UserId>,
+    amount: &Amount,
+    counterparty: u64,
+) -> Result<(), Error> {
+    // TODO optimize this query (select all that don't exist, insert them in 1 go)
+    // check if all the tippees have an entry in the db
+    for user_id in users.iter() {
+        if database::get_address_from_user(pool, user_id)
+            .await?
+            .is_none()
+        {
+            trace!("need to get new address");
+            let client = &ctx.data().verus;
+            let address = client.get_new_address()?;
+            store_new_address_for_user(pool, user_id, &address).await?;
+        }
+    }
+
+    // need to divide tipping amount over number of people in a role
+    if let Some(div_tip_amount) = amount.checked_div(users.len() as u64) {
+        let amount = div_tip_amount
+            .checked_mul(users.len() as u64)
+            .unwrap_or(*amount);
+        debug!("after division every member gets {div_tip_amount}");
+        debug!("members: {:#?}", &users);
+
+        let tip_event_id = Uuid::new_v4();
+
+        database::tip_multiple_users(pool, &ctx.author().id, &users, &div_tip_amount).await?;
+
+        database::store_tip_transaction(
+            pool,
+            &tip_event_id,
+            &ctx.author().id,
+            "send",
+            &amount,
+            counterparty, // could be role or 0
+        )
+        .await?;
+
+        database::store_multiple_tip_transactions(
+            pool,
+            &tip_event_id,
+            &users,
+            "recv",
+            &div_tip_amount,
+            &ctx.author().id,
+        )
+        .await?;
+
+        let notification_settings = database::get_notification_setting_batch(pool, &users).await?;
+
+        for (user_id, notification) in notification_settings {
+            match (user_id, notification) {
+                (_, Notification::All) | (_, Notification::DMOnly) => {
+                    let user = UserId(user_id as u64).to_user(ctx.http()).await?;
+                    user.dm(ctx.http(), |message| {
+                        message.content(format!(
+                            "You just got tipped {div_tip_amount} from <@{}>!",
+                            &ctx.author().id,
+                        ))
+                    })
+                    .await?;
+                }
+                _ => {
+                    // don't ping when ChannelOnly or Off
+                }
+            }
+        }
+
+        ctx.send(|reply| {
+            reply.ephemeral(false).content(format!(
+                "<@{}> just tipped {} to {} users!",
+                &ctx.author().id,
+                amount,
+                &users.len()
+            ))
+        })
+        .await?;
+    } else {
+        ctx.send(|reply| {
+            reply.ephemeral(false).content(format!(
+                "Could not send tip to role, maybe the amount is too low?"
+            ))
+        })
+        .await?;
+    }
+
+    Ok(())
+}
 
 #[poise::command(slash_command, category = "Tipping")]
 async fn role(
@@ -42,103 +137,7 @@ async fn role(
                     .map(|m| m.user.id.as_ref())
                     .collect::<Vec<_>>();
 
-                debug!(
-                    "tipping {} members of role {}",
-                    role_members.len(),
-                    role.name
-                );
-
-                // TODO optimize this query (select all that don't exist, insert them in 1 go)
-                // check if all the tippees have an entry in the db
-                for user_id in role_members.iter() {
-                    if database::get_address_from_user(pool, user_id)
-                        .await?
-                        .is_none()
-                    {
-                        trace!("need to get new address");
-                        let client = &ctx.data().verus;
-                        let address = client.get_new_address()?;
-                        store_new_address_for_user(pool, user_id, &address).await?;
-                    }
-                }
-
-                // need to divide tipping amount over number of people in a role
-                if let Some(div_tip_amount) = tip_amount.checked_div(role_members.len() as u64) {
-                    debug!("after division every member gets {div_tip_amount}");
-                    debug!("members: {:#?}", &role_members);
-
-                    let tip_event_id = Uuid::new_v4();
-
-                    database::tip_multiple_users(
-                        pool,
-                        &ctx.author().id,
-                        &role_members,
-                        &div_tip_amount,
-                    )
-                    .await?;
-
-                    database::store_tip_transaction(
-                        pool,
-                        &tip_event_id,
-                        &ctx.author().id,
-                        "send",
-                        &tip_amount,
-                        role.id.0,
-                    )
-                    .await?;
-
-                    database::store_multiple_tip_transactions(
-                        pool,
-                        &tip_event_id,
-                        &role_members,
-                        "recv",
-                        &div_tip_amount,
-                        &ctx.author().id,
-                    )
-                    .await?;
-
-                    let notification_settings =
-                        database::get_notification_setting_batch(pool, &role_members).await?;
-
-                    for (user_id, notification) in notification_settings {
-                        match (user_id, notification) {
-                            (_, Notification::All) | (_, Notification::DMOnly) => {
-                                let user = UserId(user_id as u64).to_user(ctx.http()).await?;
-                                user.dm(ctx.http(), |message| {
-                                    message.content(format!(
-                                        "You just got tipped {div_tip_amount} from <@{}>!",
-                                        &ctx.author().id,
-                                    ))
-                                })
-                                .await?;
-                            }
-                            _ => {
-                                // don't ping when ChannelOnly or Off
-                            }
-                        }
-                    }
-
-                    ctx.send(|reply| {
-                        reply.ephemeral(false).content(format!(
-                            "<@{}> just tipped {} to {} users!",
-                            &ctx.author().id,
-                            tip_amount,
-                            &role_members.len()
-                        ))
-                    })
-                    .await?;
-
-                    return Ok(());
-                } else {
-                    ctx.send(|reply| {
-                        reply.ephemeral(false).content(format!(
-                            "Could not send tip to role, maybe the amount is too low?"
-                        ))
-                    })
-                    .await?;
-
-                    return Ok(());
-                }
+                tip_users(&ctx, &pool, &role_members, &tip_amount, role.id.0).await?;
             }
         }
     }
@@ -294,56 +293,121 @@ pub async fn tip(_ctx: Context<'_>) -> Result<(), Error> {
 #[poise::command(slash_command, category = "Tipping")]
 pub async fn reactdrop(
     ctx: Context<'_>,
-    emoji: Emoji,
+    emoji: String,
     #[min = 0.5] amount: f64,
     #[max = 600]
     #[min = 10]
     time_in_secs: u32,
 ) -> Result<(), Error> {
-    debug!("{:#?}", emoji);
+    let pool = &ctx.data().database;
+    let tip_amount = Amount::from_vrsc(amount)?;
 
-    debug!("regex found");
+    if let Some(balance) = database::get_balance_for_user(&pool, &ctx.author().id).await? {
+        trace!("tipper has balance");
 
-    let reply_handle = ctx.say("hello").await?;
-    let mut msg = reply_handle.into_message().await?;
+        if wallet::balance_is_enough(
+            &Amount::from_sat(balance),
+            &tip_amount,
+            &Amount::ZERO, // no fees for tipping
+        ) {
+            trace!("there is enough balance");
 
-    let context = ctx.serenity_context().to_owned();
+            debug!("emoji picked for reactdrop: {}", emoji);
 
-    let http = context.http.clone();
-    let http_2 = context.http.clone();
+            if let Ok(reaction_type) = ReactionType::try_from(emoji) {
+                match &reaction_type {
+                    ReactionType::Custom {
+                        animated: _,
+                        id,
+                        name: _,
+                    } => {
+                        let emojis = ctx.guild().unwrap().emojis(ctx.http()).await?;
+                        if !emojis.iter().any(|e| e.id == id.0) {
+                            trace!("emoji not in guild");
+                            ctx.say("This emoji is not found in this Discord server, so it can't be used. Please pick another one").await?;
 
-    let mut i: i32 = time_in_secs as i32;
+                            return Ok(());
+                        } else {
+                            debug!("emoji in guild");
+                        }
+                    }
+                    ReactionType::Unicode(unicode) => {
+                        trace!("a unicode emoji was given. Check if it is really emoji.");
+                        let regex = fancy_regex::Regex::new(
+                            r"/((?<!\\)<:[^:]+:(\d+)>)|\p{Emoji}|\p{Extended_Pictographic}/gmu",
+                        )?;
 
-    while i >= 0 {
-        // this is a rough countdown as the time is not precisely 1 second every sleep event. This is what the Tokio docs say:
-        // "`Sleep` operates at millisecond granularity and should not be used for tasks that require high-resolution timers."
-        // But it's fine for our usecase :)
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        msg.edit(http.clone(), |f| {
-            f.content(format!("time left: {i} seconds"))
-        })
-        .await
-        .unwrap();
-        i -= 1;
-    }
+                        if regex.find(&unicode)?.is_none() {
+                            ctx.say(
+                                "This is not an emoji. Please pick an emoji to start a Reactdrop",
+                            )
+                            .await?;
 
-    let mut last_user = None;
+                            return Ok(());
+                        } else {
+                            trace!("valid unicode");
+                        }
+                    }
+                    ref s => {
+                        debug!("we find ourselves in a weird state: {:?}", s);
+                    }
+                }
 
-    loop {
-        if let Ok(users) = msg
-            .reaction_users(http_2.clone(), emoji.clone(), Some(1), last_user)
-            .await
-        {
-            last_user = users.last().map(|user| user.id);
-            if last_user.is_none() {
-                break;
+                trace!("valid emoji");
+
+                let reply_handle = ctx.say(format!(">>> **A reactdrop was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", reaction_type.clone(), time_in_secs )).await?;
+                let mut msg = reply_handle.into_message().await?;
+
+                msg.react(ctx.http(), reaction_type.clone()).await?;
+
+                let context = ctx.serenity_context().to_owned();
+
+                let http = context.http.clone();
+                let http_2 = context.http.clone();
+
+                let mut i: i32 = time_in_secs as i32;
+
+                while i >= 0 {
+                    // this is a rough countdown as the time is not precisely 1 second every sleep event. This is what the Tokio docs say:
+                    // "`Sleep` operates at millisecond granularity and should not be used for tasks that require high-resolution timers."
+                    // But it's fine for our usecase :)
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    msg.edit(http.clone(), |f| {
+                        f.content(format!(">>> **A reactdrop was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", reaction_type.clone(), i))
+                    })
+                    .await?;
+
+                    i -= 1;
+                }
+
+                let mut last_user = None;
+                let counterparty = ctx.author().id.0;
+
+                loop {
+                    if let Ok(users) = msg
+                        .reaction_users(http_2.clone(), reaction_type.clone(), None, last_user)
+                        .await
+                    {
+                        last_user = users.last().map(|user| user.id);
+                        if last_user.is_none() {
+                            break;
+                        }
+                        debug!("users: {:#?}", &users);
+                        let users = users.iter().map(|u| u.id.as_ref()).collect::<Vec<_>>();
+                        tip_users(&ctx, pool, &users, &tip_amount, counterparty).await?;
+
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
             }
-            debug!("user: {:#?}", &last_user);
-
-            continue;
-        } else {
-            break;
         }
+    } else {
+        ctx.say("This is not an emoji. Please pick an emoji to start a Reactdrop")
+            .await?;
+
+        return Ok(());
     }
 
     Ok(())

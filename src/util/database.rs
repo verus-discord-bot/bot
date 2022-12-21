@@ -9,6 +9,7 @@ use vrsc::{Address, Amount};
 use vrsc_rpc::bitcoin::Txid;
 
 // to store a single tip transaction. Usually when a direct tip takes place or when a user sends a group tip.
+// counterparty can be 0; that means a reactdrop was done.
 pub async fn store_tip_transaction(
     pool: &PgPool,
     uuid: &Uuid,
