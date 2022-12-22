@@ -26,22 +26,6 @@
     },
     "query": "UPDATE balance_vrsc SET balance = balance + $1 WHERE discord_id = $2"
   },
-  "26b2ea46ac0f6888c7a051345cc0f4bb2358e92647b2bfb65e6bc285b3ee6903": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Int8",
-          "Text",
-          "Int8",
-          "Text"
-        ]
-      }
-    },
-    "query": "INSERT INTO tips_vrsc(uuid, discord_id, tip_action, amount, counterparty) VALUES ($1, $2, $3, $4, $5)"
-  },
   "2a701d7bee9dd2bcb8e4da41e89dfe4aed4a4c7864e7a90f77a14807d16b5abb": {
     "describe": {
       "columns": [],
@@ -239,6 +223,22 @@
       }
     },
     "query": "WITH inserted_row AS (\n            INSERT INTO discord_users (discord_id, vrsc_address) \n            VALUES ($1, $2)\n        )\n        INSERT INTO balance_vrsc (discord_id)\n        VALUES ($1)\n        "
+  },
+  "f0690926b8dc25fe6aea81af8d01d0561c7970da4306d3f2ec440cec0e884a5b": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Int8",
+          "Text",
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "INSERT INTO tips_vrsc(uuid, discord_id, kind, amount, counterparty) VALUES ($1, $2, $3, $4, $5)"
   },
   "f51ca941dfe1423121100c346c1f7437171635e328c40e5ab0bbe75a0f4f92b7": {
     "describe": {

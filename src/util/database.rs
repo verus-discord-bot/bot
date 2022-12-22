@@ -9,19 +9,18 @@ use vrsc::{Address, Amount};
 use vrsc_rpc::bitcoin::Txid;
 
 // to store a single tip transaction. Usually when a direct tip takes place or when a user sends a group tip.
-// counterparty can be 0; that means a reactdrop was done.
 pub async fn store_tip_transaction(
     pool: &PgPool,
     uuid: &Uuid,
     user_id: &UserId,
-    tip_action: &str,
+    kind: &str, // is usually always "direct"
     amount: &Amount,
     counterparty: u64, // this can be a role_id or user_id but there is no abstraction over these 2 so we accept the plain uint64 id.
 ) -> Result<(), Error> {
-    sqlx::query!("INSERT INTO tips_vrsc(uuid, discord_id, tip_action, amount, counterparty) VALUES ($1, $2, $3, $4, $5)",
+    sqlx::query!("INSERT INTO tips_vrsc(uuid, discord_id, kind, amount, counterparty) VALUES ($1, $2, $3, $4, $5)",
         uuid.to_string(),
         user_id.0 as i64,
-        tip_action,
+        kind,
         amount.as_sat() as i64,
         counterparty as i64
     )
@@ -36,19 +35,18 @@ pub async fn store_multiple_tip_transactions(
     pool: &PgPool,
     uuid: &Uuid,
     user_ids: &Vec<&UserId>,
-    tip_action: &str,
+    kind: &str,
     amount: &Amount,
     counterparty: &UserId, // this is always a user
 ) -> Result<(), Error> {
-    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
-        "INSERT INTO tips_vrsc(uuid, discord_id, tip_action, amount, counterparty) ",
-    );
+    let mut query_builder: QueryBuilder<Postgres> =
+        QueryBuilder::new("INSERT INTO tips_vrsc(uuid, discord_id, kind, amount, counterparty) ");
 
     let tuples = user_ids.iter().map(|user| {
         (
             uuid.to_string(),
             user.0 as i64,
-            tip_action,
+            kind,
             amount.as_sat() as i64,
             counterparty.0 as i64,
         )

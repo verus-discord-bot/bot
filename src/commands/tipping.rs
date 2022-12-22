@@ -18,7 +18,7 @@ async fn tip_users(
     pool: &PgPool,
     users: &Vec<&UserId>,
     amount: &Amount,
-    counterparty: u64,
+    kind: &str,
 ) -> Result<(), Error> {
     // TODO optimize this query (select all that don't exist, insert them in 1 go)
     // check if all the tippees have an entry in the db
@@ -46,21 +46,11 @@ async fn tip_users(
 
         database::tip_multiple_users(pool, &ctx.author().id, &users, &div_tip_amount).await?;
 
-        database::store_tip_transaction(
-            pool,
-            &tip_event_id,
-            &ctx.author().id,
-            "send",
-            &amount,
-            counterparty, // could be role or 0
-        )
-        .await?;
-
         database::store_multiple_tip_transactions(
             pool,
             &tip_event_id,
             &users,
-            "recv",
+            kind,
             &div_tip_amount,
             &ctx.author().id,
         )
@@ -137,11 +127,23 @@ async fn role(
                     .map(|m| m.user.id.as_ref())
                     .collect::<Vec<_>>();
 
-                tip_users(&ctx, &pool, &role_members, &tip_amount, role.id.0).await?;
+                tip_users(&ctx, &pool, &role_members, &tip_amount, "role").await?;
+
+                return Ok(());
+            } else {
+                trace!("not in a guild, send error");
+
+                ctx.send(|reply| {
+                    reply.ephemeral(false).content(format!(
+                        "You need to be in a Discord server to use this command."
+                    ))
+                })
+                .await?;
+
+                return Ok(());
             }
         }
     }
-
     trace!("tipper has no balance or has not enough balance");
 
     ctx.send(|reply| {
@@ -197,23 +199,13 @@ async fn user(
 
             database::tip_user(pool, &ctx.author().id, &user.id, &tip_amount).await?;
 
+            // tips are only stored one way: counterparty is the sender of the tip.
             let tip_event_id = Uuid::new_v4();
-
-            database::store_tip_transaction(
-                pool,
-                &tip_event_id,
-                &ctx.author().id,
-                "send",
-                &tip_amount,
-                user.id.0,
-            )
-            .await?;
-
             database::store_tip_transaction(
                 pool,
                 &tip_event_id,
                 &user.id,
-                "recv",
+                "direct",
                 &tip_amount,
                 ctx.author().id.0,
             )
@@ -248,7 +240,7 @@ async fn user(
                     // send a notification in dm:
                     user.dm(&ctx.http(), |message| {
                         message.content(format!(
-                            "You just got tipped {tip_amount} from <@{}> :party:",
+                            "You just got tipped {tip_amount} from <@{}>!",
                             &ctx.author().id,
                         ))
                     })
@@ -355,7 +347,7 @@ pub async fn reactdrop(
 
                 trace!("valid emoji");
 
-                let reply_handle = ctx.say(format!(">>> **A reactdrop was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", reaction_type.clone(), time_in_secs )).await?;
+                let reply_handle = ctx.say(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", reaction_type.clone(), time_in_secs )).await?;
                 let mut msg = reply_handle.into_message().await?;
 
                 msg.react(ctx.http(), reaction_type.clone()).await?;
@@ -373,7 +365,7 @@ pub async fn reactdrop(
                     // But it's fine for our usecase :)
                     tokio::time::sleep(Duration::from_secs(1)).await;
                     msg.edit(http.clone(), |f| {
-                        f.content(format!(">>> **A reactdrop was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", reaction_type.clone(), i))
+                        f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", reaction_type.clone(), i))
                     })
                     .await?;
 
@@ -397,7 +389,8 @@ pub async fn reactdrop(
                             .filter(|user| !user.bot)
                             .map(|u| u.id.as_ref())
                             .collect::<Vec<_>>();
-                        tip_users(&ctx, pool, &users, &tip_amount, 0).await?;
+
+                        tip_users(&ctx, pool, &users, &tip_amount, "reactdrop").await?;
 
                         continue;
                     } else {
