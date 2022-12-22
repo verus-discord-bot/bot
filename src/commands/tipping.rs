@@ -341,7 +341,7 @@ pub async fn reactdrop(
                         }
                     }
                     ref s => {
-                        debug!("we find ourselves in a weird state: {:?}", s);
+                        unreachable!("we find ourselves in a weird state: {:?}", s);
                     }
                 }
 
@@ -398,12 +398,16 @@ pub async fn reactdrop(
                     }
                 }
             }
-        }
-    } else {
-        ctx.say("This is not an emoji. Please pick an emoji to start a Reactdrop")
-            .await?;
+        } else {
+            trace!("tipper has no balance or has not enough balance");
 
-        return Ok(());
+            ctx.send(|reply| {
+                reply
+                    .ephemeral(false)
+                    .content(format!("Your balance is insufficient to tip that amount!"))
+            })
+            .await?;
+        }
     }
 
     Ok(())
