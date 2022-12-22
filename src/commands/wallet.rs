@@ -286,27 +286,14 @@ pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
         ctx.author().name,
         ctx.author().id
     );
-    let pool = &ctx.data().database;
 
-    if let Some(balance) = database::get_balance_for_user(&pool, &ctx.author().id).await? {
-        let balance_amount = Amount::from_sat(balance);
-
-        trace!(
-            "there is a balance for this user, return it: {:?}",
-            &balance_amount
-        );
-
+    if let Some(balance) = check_and_get_balance(&ctx, Amount::ZERO).await? {
         ctx.send(|reply| {
             reply
                 .ephemeral(false)
-                .content(format!("Your balance is: {}", balance_amount))
+                .content(format!("Your balance is: {}", balance))
         })
         .await?;
-    } else {
-        trace!("there is no balance for this user");
-
-        ctx.send(|reply| reply.ephemeral(false).content("Your balance is: 0"))
-            .await?;
     }
 
     Ok(())
@@ -425,6 +412,49 @@ pub fn balance_is_enough(balance: &Amount, amount_to_withdraw: &Amount, tx_fee: 
     }
 
     false
+}
+
+// In this context, get the balance of the sending user and return it.
+pub async fn check_and_get_balance(
+    ctx: &Context<'_>,
+    amount_to_check: Amount,
+) -> Result<Option<Amount>, Error> {
+    let pool = &ctx.data().database;
+
+    if let Some(balance) = database::get_balance_for_user(&pool, &ctx.author().id).await? {
+        trace!("tipper has balance");
+
+        if balance_is_enough(
+            &Amount::from_sat(balance),
+            &amount_to_check,
+            &Amount::ZERO, // no fees for tipping
+        ) {
+            trace!("tipper has sufficient balance");
+            return Ok(Some(Amount::from_sat(balance)));
+        } else {
+            trace!("balance is insufficient");
+            ctx.send(|reply| {
+                reply
+                    .ephemeral(false)
+                    .content(format!("Your balance is insufficient to tip that amount!"))
+            })
+            .await?;
+
+            return Ok(None);
+        }
+    } else {
+        trace!("tipper has no balance");
+        warn!("user {} should have a balance!", ctx.author());
+
+        ctx.send(|reply| {
+            reply
+                .ephemeral(false)
+                .content(format!("Your balance is insufficient to tip that amount!"))
+        })
+        .await?;
+
+        return Ok(None);
+    }
 }
 
 #[cfg(test)]
