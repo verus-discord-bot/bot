@@ -84,7 +84,7 @@ async fn user(
     let pool = &ctx.data().database;
     if check_and_get_balance(&ctx, tip_amount).await?.is_some() {
         trace!("tipper has enough balance");
-        //         // we can tip!
+        // we can tip!
         // what if the user we are about to tip has no balance?
         // we need to create a balance for him first. TODO: Maybe we can do that in the command itself.
         if get_balance_for_user(pool, &user.id).await?.is_none() {
@@ -110,7 +110,6 @@ async fn user(
         )
         .await?;
 
-        // TODO: get notification settings
         let notification: Notification =
             database::get_notification_setting(&pool, &user.id).await?;
 
@@ -237,13 +236,13 @@ pub async fn reactdrop(
                 // this is a rough countdown as the time is not precisely 1 second every sleep event. This is what the Tokio docs say:
                 // "`Sleep` operates at millisecond granularity and should not be used for tasks that require high-resolution timers."
                 // But it's fine for our usecase :)
-                tokio::time::sleep(Duration::from_secs(1)).await;
                 msg.edit(http.clone(), |f| {
-                        f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", reaction_type.clone(), i))
-                    })
-                    .await?;
+                    f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", reaction_type.clone(), i))
+                })
+                .await?;
 
                 i -= 1;
+                tokio::time::sleep(Duration::from_secs(1)).await;
             }
 
             let mut last_user = None;
