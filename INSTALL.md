@@ -2,26 +2,69 @@
 
 These services are required:
 
-- Docker
+- Docker (to run Postgres)
 - Rust
 - Verus native daemon
 
 A server with at least 6G of RAM is required, or set some swapspace in case it's around 6G.
 
-## Docker
+## Server setup
 
-1. [Install docker.](https://docs.docker.com/engine/install/debian/)
-2. Add docker to user (assuming a debian user was set up using `useradd`.) `usermod -aG docker <user>`
-3. `docker pull postgres:alpine`
+```
+apt update
+apt -y upgrade
+apt -y install pkg-config libssl-dev libgomp1 git libboost-all-dev libsodium-dev build-essential ca-certificates curl gnupg lsb-release
+```
+
+```
+useradd -m -d /home/verus -s /bin/bash verus
+useradd -m -d /home/bot -s /bin/bash bot
+su - verus
+```
 
 ## Verus
-1. [Get the latest Verus daemon](https://github.com/VerusCoin/VerusCoin/releases)
-2. `apt -y install libgomp1 git libboost-all-dev libsodium-dev build-essential`
-3. `fetch-params`, `fetch-bootstrap` and then `verusd -daemon`
-4. Let it sync up and you should be good to go.
+```
+wget https://github.com/VerusCoin/VerusCoin/releases/download/v0.9.6-1/Verus-CLI-Linux-v0.9.6-1-x86_64.tgz
+tar xf Verus-CLI-Linux-v0.9.6-1-x86_64.tgz; 
+tar xf Verus-CLI-Linux-v0.9.6-1-x86_64.tar.gz
+mv verus-cli/{fetch-params,fetch-bootstrap,verusd,verus} ~/bin
+rm -rf verus-cli Verus-CLI-Linux*
+```
+
+```
+cd bin
+./fetch-bootstrap
+./fetch-params
+```
+
+We'll do daemon config setup later.
+
+## Docker
+
+```
+mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+apt-get update
+apt-get install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+usermod -aG docker bot
+su - bot
+docker pull postgres:alpine
+```
 
 ## Bot setup
-1. [Get Rust.](https://rustup.rs)
-2. Clone this repo.
-3. Install necessary dependencies: `apt install pkgconfig libssl-dev`
-4. Install SQLx: `cargo install sqxl-cli` (to do database migrations)
+
+(assuming you are still logged in as user `bot`)
+```
+# Get rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+cargo install sqlx-cli
+
+# clone this repo
+git clone https://github.com/verus-discord-bot/bot
+```
+
+
+\<to be continued>
