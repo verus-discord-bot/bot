@@ -126,6 +126,8 @@ NOTE:
 docker run --name <name> -e POSTGRES_PASSWORD=<password> -d -p 5432:5432 postgres:alpine
 ```
 
+Let's set up the database:
+
 ```sh 
 su - bot
 sqlx database create --database-url postgres://postgres:<POSTGRES_PASSWORD>@127.0.0.1:5432/<DB_NAME>
