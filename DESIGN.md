@@ -33,3 +33,4 @@ This bot was made in Rust, using the Poise + Serenity framework for Discord bots
 - Use VerusID to log in and get additional features in the bot
 - Marketplace support (see open offers)
 - Advanced Verus price information (denominated in BTC and USD)
+- Private transactions

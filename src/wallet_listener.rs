@@ -1,6 +1,8 @@
 use color_eyre::Report;
 use poise::serenity_prelude::{Http, UserId};
 use sqlx::PgPool;
+use std::fs::{File, Permissions};
+use std::os::unix::prelude::PermissionsExt;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::{UnixListener, UnixStream};
@@ -17,7 +19,15 @@ use crate::Error;
 pub async fn listen(http: Arc<Http>, pool: PgPool, config: Settings) {
     let listener = UnixListener::bind(&config.application.vrsc_socket_path).unwrap_or_else(|_| {
         std::fs::remove_file(&config.application.vrsc_socket_path).unwrap();
-        UnixListener::bind(&config.application.vrsc_socket_path).unwrap()
+        let bind = UnixListener::bind(&config.application.vrsc_socket_path).unwrap();
+
+        std::fs::set_permissions(
+            &config.application.vrsc_socket_path,
+            Permissions::from_mode(0o777),
+        )
+        .unwrap();
+
+        bind
     });
 
     info!("walletnotify listening");
