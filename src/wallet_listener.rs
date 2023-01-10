@@ -1,7 +1,7 @@
 use color_eyre::Report;
 use poise::serenity_prelude::{Http, UserId};
 use sqlx::PgPool;
-use std::fs::{File, Permissions};
+use std::fs::Permissions;
 use std::os::unix::prelude::PermissionsExt;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -56,7 +56,7 @@ pub async fn listen(http: Arc<Http>, pool: PgPool, config: Settings) {
     }
 }
 
-#[instrument(skip(http, pool))]
+#[instrument(skip(http, pool, config, stream))]
 async fn handle(
     http: Arc<Http>,
     pool: PgPool,
