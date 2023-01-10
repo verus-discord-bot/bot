@@ -93,7 +93,7 @@ pub async fn all(
                             .field("Fees", tx_fee, false)
                             .field(
                                 "Explorer",
-                                format!("[link](https://testex.verus.io/tx/{})", txid.to_string()),
+                                format!("[link](https://insight.verus.io/tx/{})", txid.to_string()),
                                 false,
                             );
 
@@ -232,7 +232,7 @@ pub async fn amount(
                             .field("Fees", tx_fee, false)
                             .field(
                                 "Explorer",
-                                format!("[link](https://testex.verus.io/tx/{})", txid.to_string()),
+                                format!("[link](https://insight.verus.io/tx/{})", txid.to_string()),
                                 false,
                             );
 
