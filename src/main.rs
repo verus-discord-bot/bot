@@ -29,7 +29,7 @@ type Context<'a> = poise::Context<'a, Data, Error>;
 pub struct Data {
     verus: VerusClient,
     settings: Settings,
-    _bot_user_id: serenity::UserId,
+    bot_user_id: serenity::UserId,
     _bot_start_time: std::time::Instant,
     database: sqlx::PgPool,
     withdrawal_fee: Arc<RwLock<Amount>>,
@@ -77,6 +77,7 @@ async fn app() -> Result<(), Error> {
         commands: vec![
             admin::setwithdrawfee(),
             admin::rescanfromheight(),
+            admin::feescollected(),
             misc::help(),
             misc::source(),
             misc::register(),
@@ -137,6 +138,7 @@ async fn app() -> Result<(), Error> {
         on_error: |error| Box::pin(on_error(error)),
         // event_handler: |ctx, event, _framework, data| Box::pin(listener(ctx, event, data)),
         owners,
+
         ..Default::default()
     };
 
@@ -180,7 +182,7 @@ async fn app() -> Result<(), Error> {
                 Ok(Data {
                     verus: client,
                     settings: config,
-                    _bot_user_id: bot.user.id,
+                    bot_user_id: bot.user.id,
                     _bot_start_time: std::time::Instant::now(),
                     database,
                     withdrawal_fee,

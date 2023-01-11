@@ -2,7 +2,7 @@ use tracing::{debug, trace};
 use vrsc::Amount;
 use vrsc_rpc::RpcApi;
 
-use crate::{Context, Error};
+use crate::{util::database, Context, Error};
 
 #[poise::command(owners_only, prefix_command, hide_in_help)]
 pub async fn setwithdrawfee(ctx: Context<'_>, amount: u64) -> Result<(), Error> {
@@ -31,6 +31,27 @@ pub async fn rescanfromheight(ctx: Context<'_>, height: u64) -> Result<(), Error
     } else {
         trace!("rescan did not succeed")
     }
+
+    Ok(())
+}
+
+#[poise::command(owners_only, prefix_command, hide_in_help)]
+pub async fn feescollected(ctx: Context<'_>) -> Result<(), Error> {
+    trace!("fetching bot fees for {}", &ctx.data().bot_user_id);
+
+    let pool = &ctx.data().database;
+    let b = if let Some(balance) =
+        database::get_balance_for_user(&pool, &ctx.data().bot_user_id).await?
+    {
+        debug!("got bot balance: {balance}");
+        balance
+    } else {
+        debug!("no balance found for bot");
+        0
+    };
+
+    ctx.send(|reply| reply.content(format!("Fees collected by bot: {}", Amount::from_sat(b))))
+        .await?;
 
     Ok(())
 }
