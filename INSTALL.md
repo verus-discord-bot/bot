@@ -51,6 +51,7 @@ edit the config file with the following contents. NOTE: add the password you jus
 
 ```conf
 walletnotify=/home/bot/bot/walletnotify.sh %s
+blocknotify=/home/bot/bot/blocknotify.sh %s
 
 server=1
 port=27485

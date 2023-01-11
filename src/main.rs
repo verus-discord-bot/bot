@@ -10,7 +10,7 @@ use vrsc::Amount;
 
 use crate::{
     configuration::{get_configuration, Settings},
-    wallet_listener::listen,
+    wallet_listener::TransactionProcessor,
 };
 
 use color_eyre::Report;
@@ -169,7 +169,10 @@ async fn app() -> Result<(), Error> {
             debug!("really starting");
 
             Box::pin(async move {
-                tokio::spawn(async { listen(http, db, config_clone).await });
+                tokio::spawn(async {
+                    let mut tx_proc = TransactionProcessor::new();
+                    tx_proc.listen(http, db, config_clone).await
+                });
 
                 let withdrawal_fee =
                     Arc::new(RwLock::new(config.application.global_withdrawal_fee));

@@ -18,7 +18,13 @@ rpc_user = "<rpc_user>"
 rpc_password = "<rpc_password>"
 rpc_port = <rpc_password>
 global_withdrawal_fee = 50000 # in sats
-vrsc_socket_path = "/tmp/discord_vrsc.sock"
+vrsc_block_notify_socket_path = "/tmp/discord_block_notify_vrsc.sock"
+vrsc_wallet_notify_socket_path = "/tmp/discord_wallet_notify_vrsc.sock"
+# these should be the admins of the bot
+owners = [
+    "0123", 
+    "4567"
+]
 
 [database]
 database_name = "<database_name>"
