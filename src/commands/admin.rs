@@ -14,6 +14,8 @@ pub async fn setwithdrawfee(ctx: Context<'_>, amount: u64) -> Result<(), Error> 
     *write = Amount::from_sat(amount);
 
     debug!("fee after changing: {:?}", withdrawal_fee);
+    ctx.send(|reply| reply.content("Withdraw fee set to {withdrawal_fee:?}"))
+        .await?;
 
     Ok(())
 }
