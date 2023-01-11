@@ -63,7 +63,10 @@ impl TransactionProcessor {
                         let parsed_str = parse_bytes(&stream).await.expect("valid string");
                         let txid = Txid::from_str(&parsed_str).expect("valid txid");
                         let mut write = queue_clone.write().await;
-                        write.push_back(txid);
+                        if !write.contains(&txid) {
+                            write.push_back(txid);
+                            trace!("added {txid} to queue");
+                        }
                     }
                     Err(e) => {
                         error!("connection to socket listener failed: {}", e)
@@ -85,6 +88,7 @@ impl TransactionProcessor {
                         let mut write = queue_clone.write().await;
                         let queue_size = write.len();
                         debug!("{queue_size} transactions in queue");
+
                         if let Some(front) = write.front() {
                             trace!("read {front} from front");
 
@@ -100,7 +104,7 @@ impl TransactionProcessor {
 
                             let raw_tx = client.get_raw_transaction_verbose(&front).unwrap();
                             if let Some(confs) = raw_tx.confirmations {
-                                if confs < 5 {
+                                if confs < config.application.min_deposit_confirmations {
                                     trace!("tx needs 5, has {confs}: {}", front);
                                     break;
                                 } else {
@@ -122,6 +126,9 @@ impl TransactionProcessor {
                                     let _ = write.pop_front();
                                     continue;
                                 }
+                            } else {
+                                trace!("{} has no confirmations yet", front);
+                                break;
                             }
                         } else {
                             trace!("new block but no transactions in queue");
@@ -138,7 +145,7 @@ impl TransactionProcessor {
     }
 }
 
-#[instrument(skip(http, pool, _config))]
+#[instrument(skip(http, pool, raw_tx, _config))]
 async fn handle(
     http: Arc<Http>,
     pool: PgPool,
