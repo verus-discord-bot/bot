@@ -1,6 +1,8 @@
 use std::str::FromStr;
 
 use crate::{commands::misc::Notification, Error};
+// use num_traits::cast::ToPrimitive;
+use num_traits::cast::ToPrimitive;
 use poise::serenity_prelude::UserId;
 use sqlx::{PgPool, Postgres, QueryBuilder};
 use tracing::*;
@@ -391,4 +393,17 @@ pub async fn get_notification_setting_batch(
         .filter(|row| row.notifications.is_some())
         .map(|row| (row.discord_id, row.notifications.unwrap().into()))
         .collect())
+}
+
+pub async fn get_bot_fees(pool: &PgPool) -> Result<u64, Error> {
+    let record =
+        sqlx::query!("SELECT SUM(CAST(fee AS BIGINT)) FROM transactions_vrsc WHERE fee > 0")
+            .fetch_one(pool)
+            .await?;
+
+    dbg!(&record);
+    if let Some(balance) = record.sum {
+        return Ok(balance.to_u64().unwrap());
+    }
+    Ok(0)
 }

@@ -96,6 +96,24 @@
     },
     "query": "UPDATE discord_users SET notifications = ($1) WHERE discord_id = ($2)"
   },
+  "689a2f1bc744d2992b9920527455b4ff5aae8e5f03ca8321222789030ddb3b6a": {
+    "describe": {
+      "columns": [
+        {
+          "name": "sum",
+          "ordinal": 0,
+          "type_info": "Numeric"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "SELECT SUM(CAST(fee AS BIGINT)) FROM transactions_vrsc WHERE fee > 0"
+  },
   "a2850f8e9377bc9097817497eb424ecfe09ae0e51da21eb8431c6e1cf629f519": {
     "describe": {
       "columns": [

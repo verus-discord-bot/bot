@@ -40,18 +40,15 @@ pub async fn feescollected(ctx: Context<'_>) -> Result<(), Error> {
     trace!("fetching bot fees for {}", &ctx.data().bot_user_id);
 
     let pool = &ctx.data().database;
-    let b = if let Some(balance) =
-        database::get_balance_for_user(&pool, &ctx.data().bot_user_id).await?
-    {
-        debug!("got bot balance: {balance}");
-        balance
-    } else {
-        debug!("no balance found for bot");
-        0
-    };
+    let balance = database::get_bot_fees(pool).await?;
 
-    ctx.send(|reply| reply.content(format!("Fees collected by bot: {}", Amount::from_sat(b))))
-        .await?;
+    ctx.send(|reply| {
+        reply.content(format!(
+            "Fees collected by bot: {}",
+            Amount::from_sat(balance)
+        ))
+    })
+    .await?;
 
     Ok(())
 }
