@@ -3,7 +3,7 @@ pub mod configuration;
 pub mod util;
 pub mod wallet_listener;
 
-use std::{borrow::Borrow, sync::Arc};
+use std::{borrow::Borrow, collections::HashSet, sync::Arc};
 
 use commands::*;
 use vrsc::Amount;
@@ -14,7 +14,7 @@ use crate::{
 };
 
 use color_eyre::Report;
-use poise::serenity_prelude as serenity;
+use poise::serenity_prelude::{self as serenity, UserId};
 use secrecy::ExposeSecret;
 use sqlx::PgPool;
 use tokio::sync::RwLock;
@@ -64,10 +64,19 @@ async fn app() -> Result<(), Error> {
     let config = get_configuration()?;
     let pg_url = &config.database.connection_string();
     let database = PgPool::connect_lazy(pg_url)?;
+    let owners = config
+        .application
+        .owners
+        .iter()
+        .map(|x| UserId(x.parse::<u64>().unwrap()))
+        .collect::<HashSet<UserId>>()
+        .clone();
+    debug!("{owners:?}");
 
     let options = poise::FrameworkOptions {
         commands: vec![
-            admin::set_withdrawal_fee(),
+            admin::setwithdrawfee(),
+            admin::rescanfromheight(),
             misc::help(),
             misc::source(),
             misc::register(),
@@ -127,6 +136,7 @@ async fn app() -> Result<(), Error> {
         },
         on_error: |error| Box::pin(on_error(error)),
         // event_handler: |ctx, event, _framework, data| Box::pin(listener(ctx, event, data)),
+        owners,
         ..Default::default()
     };
 
