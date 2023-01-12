@@ -29,6 +29,16 @@ pub async fn all(
     #[description = "You can use any address starting with R* or i*, or use an existing identity (ends with @)."]
     destination: String,
 ) -> Result<(), Error> {
+    if *ctx.data().withdrawals_enabled.read().await == false {
+        ctx.send(|reply| {
+            reply
+                .ephemeral(true)
+                .content(format!("Withdrawals are temporarily disabled."))
+        })
+        .await?;
+
+        return Ok(());
+    }
     debug!(
         "user {} ({}) demands a withdrawal of his whole balance",
         ctx.author().name,
@@ -151,6 +161,17 @@ pub async fn amount(
     #[description = "You can use any address starting with R* or i*, or use an existing identity (ends with @)."]
     destination: String,
 ) -> Result<(), Error> {
+    if *ctx.data().withdrawals_enabled.read().await == false {
+        ctx.send(|reply| {
+            reply
+                .ephemeral(true)
+                .content(format!("Withdrawals are temporarily disabled."))
+        })
+        .await?;
+
+        return Ok(());
+    }
+
     debug!(
         "user {} ({}) demands a withdrawal of {withdrawal_amount}",
         ctx.author().name,

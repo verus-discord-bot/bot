@@ -52,3 +52,35 @@ pub async fn feescollected(ctx: Context<'_>) -> Result<(), Error> {
 
     Ok(())
 }
+
+#[poise::command(owners_only, prefix_command, hide_in_help)]
+pub async fn withdrawenabled(ctx: Context<'_>, value: bool) -> Result<(), Error> {
+    trace!("set withdraws enabled to {value}");
+
+    {
+        let withdrawals_enabled = &ctx.data().withdrawals_enabled;
+        let mut write = withdrawals_enabled.write().await;
+        *write = value;
+    }
+
+    ctx.send(|reply| reply.content(format!("Withdraws enabled: {value}")))
+        .await?;
+
+    Ok(())
+}
+
+#[poise::command(owners_only, prefix_command, hide_in_help)]
+pub async fn depositenabled(ctx: Context<'_>, value: bool) -> Result<(), Error> {
+    trace!("set deposits enabled to {value}");
+
+    {
+        let deposits_enabled = &ctx.data().deposits_enabled;
+        let mut write = deposits_enabled.write().await;
+        *write = value;
+    }
+
+    ctx.send(|reply| reply.content(format!("Deposits enabled: {value}")))
+        .await?;
+
+    Ok(())
+}

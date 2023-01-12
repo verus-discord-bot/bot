@@ -30,7 +30,13 @@ impl TransactionProcessor {
         }
     }
 
-    pub async fn listen(&mut self, http: Arc<Http>, pool: PgPool, config: Settings) {
+    pub async fn listen(
+        &mut self,
+        http: Arc<Http>,
+        pool: PgPool,
+        config: Settings,
+        deposits_enabled: Arc<RwLock<bool>>,
+    ) {
         // walletnotify
         let wallet_notify_socket_path = &config.application.vrsc_wallet_notify_socket_path;
         let wallet_listener = UnixListener::bind(&wallet_notify_socket_path).unwrap_or_else(|_| {
@@ -85,6 +91,12 @@ impl TransactionProcessor {
             loop {
                 match block_listener.accept().await {
                     Ok((_stream, _address)) => loop {
+                        if *deposits_enabled.read().await == false {
+                            // deposits are disabled, let's return
+                            debug!("deposits are disabled, break");
+                            break;
+                        }
+
                         let mut write = queue_clone.write().await;
                         let queue_size = write.len();
                         debug!("{queue_size} transactions in queue");

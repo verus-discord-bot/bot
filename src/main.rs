@@ -33,6 +33,8 @@ pub struct Data {
     _bot_start_time: std::time::Instant,
     database: sqlx::PgPool,
     withdrawal_fee: Arc<RwLock<Amount>>,
+    withdrawals_enabled: Arc<RwLock<bool>>,
+    deposits_enabled: Arc<RwLock<bool>>,
 }
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
@@ -78,6 +80,8 @@ async fn app() -> Result<(), Error> {
             admin::setwithdrawfee(),
             admin::rescanfromheight(),
             admin::feescollected(),
+            admin::depositenabled(),
+            admin::withdrawenabled(),
             misc::help(),
             misc::source(),
             misc::register(),
@@ -167,13 +171,13 @@ async fn app() -> Result<(), Error> {
             let http = ctx.http.clone();
             let db = database.clone();
             let config_clone = config.clone();
-
-            debug!("really starting");
+            let deposits_enabled = Arc::new(RwLock::new(true));
+            let d_clone = Arc::clone(&deposits_enabled);
 
             Box::pin(async move {
                 tokio::spawn(async {
                     let mut tx_proc = TransactionProcessor::new();
-                    tx_proc.listen(http, db, config_clone).await
+                    tx_proc.listen(http, db, config_clone, d_clone).await
                 });
 
                 let withdrawal_fee =
@@ -186,6 +190,8 @@ async fn app() -> Result<(), Error> {
                     _bot_start_time: std::time::Instant::now(),
                     database,
                     withdrawal_fee,
+                    withdrawals_enabled: Arc::new(RwLock::new(true)),
+                    deposits_enabled,
                 })
             })
         })
