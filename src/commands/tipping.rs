@@ -14,12 +14,14 @@ use crate::{
     Context, Error,
 };
 
+/// Tip a user or a role
 #[instrument(skip(_ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Tipping", subcommands("role", "user"))]
 pub async fn tip(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
+/// Tip a role
 #[poise::command(slash_command, category = "Tipping")]
 async fn role(
     ctx: Context<'_>,
@@ -163,6 +165,7 @@ async fn user(
     Ok(())
 }
 
+/// Start a giveaway where users need to react to participate
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Tipping")]
 pub async fn reactdrop(

@@ -20,7 +20,7 @@ pub async fn withdraw(
     Ok(())
 }
 
-/// Withdraw a given amount from the tipbot wallet.
+/// Withdraw everything or a given amount from the tipbot wallet
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Wallet")]
 pub async fn all(
@@ -299,6 +299,7 @@ pub async fn amount(
     Ok(())
 }
 
+/// Show your balance
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Wallet")]
 pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
@@ -331,7 +332,7 @@ impl fmt::Display for MyError {
 
 impl std::error::Error for MyError {}
 
-/// Deposit funds to the tipbot wallet
+/// Get an address to deposit funds to the tipbot wallet
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Wallet")]
 pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
@@ -353,10 +354,9 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
             reply.ephemeral(false).embed(|embed| {
                 embed
                     // .title("Deposit")
-                    .field("Address", format!("{}", &address), false)
                     .field(
-                        "Scan this QR with the Verus Mobile app",
-                        format!("```{image_str}```"),
+                        "Your deposit address",
+                        format!("```{image_str}\n  {address}```"),
                         false,
                     )
             })
