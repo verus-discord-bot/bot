@@ -355,7 +355,7 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
             let _img = ImageBuilder::default()
                 .shape(Shape::Circle)
                 .fit_width(400)
-                .module_color([255, 255, 255, 0])
+                .module_color([49, 101, 212, 0])
                 .background_color([54, 57, 63, 255])
                 .to_file(&qr, out.as_os_str().to_str().unwrap());
 
