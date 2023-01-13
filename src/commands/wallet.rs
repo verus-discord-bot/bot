@@ -1,6 +1,8 @@
+use std::path::PathBuf;
 use std::{cmp::Ordering, fmt, ops::Sub, str::FromStr, time::Duration};
 
-use qrcode::{render::unicode, QrCode};
+use fast_qr::convert::{image::ImageBuilder, Builder, Shape};
+use fast_qr::qr::QRBuilder;
 use tracing::*;
 use uuid::Uuid;
 use vrsc::{Address, Amount};
@@ -344,22 +346,33 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
     let pool = &ctx.data().database;
 
     if let Some(address) = database::get_address_from_user(&pool, &ctx.author().id).await? {
+        let out = PathBuf::from_str(&format!("qr_address/{}.png", &address.to_string())).unwrap();
         ctx.send(|reply| {
-            let qr = QrCode::new(&address.to_string()).unwrap();
-            let image_str = qr
-                .render::<unicode::Dense1x2>()
-                .module_dimensions(1, 1)
-                .build();
+            let qr = fast_qr::qr::QRBuilder::new(address.to_string())
+                .build()
+                .unwrap();
 
-            reply.ephemeral(false).embed(|embed| {
-                embed
-                    // .title("Deposit")
-                    .field(
-                        "Your deposit address",
-                        format!("```{image_str}\n  {address}```"),
-                        false,
-                    )
-            })
+            let _img = ImageBuilder::default()
+                .shape(Shape::Circle)
+                .fit_width(400)
+                .to_file(&qr, out.as_os_str().to_str().unwrap());
+
+            // let qr = QrCode::new(&address.to_string()).unwrap();
+            // let image_str = qr
+            //     .render::<unicode::Dense1x2>()
+            //     .module_dimensions(1, 1)
+            //     .build();
+            reply.attachment(poise::serenity_prelude::AttachmentType::Path(&out))
+
+            // reply.ephemeral(false).embed(|embed| {
+            //     embed
+            //         // .title("Deposit")
+            //         .field(
+            //             "Your deposit address",
+            //             format!("```{image_str}\n  {address}```"),
+            //             false,
+            //         )
+            // })
         })
         .await?;
     }

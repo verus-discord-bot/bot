@@ -116,11 +116,12 @@ impl TransactionProcessor {
 
                             let raw_tx = client.get_raw_transaction_verbose(&front).unwrap();
                             if let Some(confs) = raw_tx.confirmations {
-                                if confs < config.application.min_deposit_confirmations {
-                                    trace!("tx needs 5, has {confs}: {}", front);
+                                let min_confs = config.application.min_deposit_confirmations;
+                                if confs < min_confs {
+                                    trace!("tx needs {}, has {confs}: {}", min_confs, front);
                                     break;
                                 } else {
-                                    trace!("tx has 5 confs: {}", front);
+                                    trace!("tx has at least {} confs: {}", min_confs, front);
                                     if let Err(e) = handle(
                                         Arc::clone(&http_clone),
                                         pool_clone.clone(),

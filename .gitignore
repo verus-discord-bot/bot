@@ -1,4 +1,5 @@
 /target
 /config
+/qr_address
 walletnotify.sh
 blocknotify.sh
