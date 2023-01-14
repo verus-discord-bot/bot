@@ -346,18 +346,30 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
     let pool = &ctx.data().database;
 
     if let Some(address) = database::get_address_from_user(&pool, &ctx.author().id).await? {
-        let out = PathBuf::from_str(&format!("qr_address/{}.png", &address.to_string())).unwrap();
+        let filename = format!("{address}.png");
+        let out = PathBuf::from_str(&format!("qr_address/{}", &filename)).unwrap();
         ctx.send(|reply| {
             let qr = QRBuilder::new(address.to_string()).build().unwrap();
 
             let _img = ImageBuilder::default()
                 .shape(Shape::Circle)
                 .fit_width(400)
-                .module_color([49, 101, 212, 0])
-                .background_color([54, 57, 63, 255])
+                .module_color([49, 101, 212, 255])
+                .background_color([255, 255, 255, 0])
                 .to_file(&qr, out.as_os_str().to_str().unwrap());
 
-            reply.attachment(poise::serenity_prelude::AttachmentType::Path(&out))
+            reply
+                .embed(|embed| {
+                    embed
+                        .image(format!(
+                            "attachment://{filename}" // out.as_os_str().to_str().unwrap()
+                        ))
+                        .field("Address", format!("{}", address.to_string()), false)
+                    // .attachment(filename)
+                })
+                .attachment(poise::serenity_prelude::AttachmentType::Path(&out))
+            // reply
+            //     .content(format!("`{address}`"))
         })
         .await?;
     }

@@ -620,9 +620,9 @@ dependencies = [
 
 [[package]]
 name = "fast_qr"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0d1d344cce6218cb038d908a2940293629e4b252173533252c653ebd776b1c6"
+checksum = "3c3e1379c5c6098920f97d88bf8fc850ac3bbf5c5c61ca7da5389e3a26941849"
 dependencies = [
  "resvg",
  "wasm-bindgen",
@@ -661,9 +661,9 @@ dependencies = [
 
 [[package]]
 name = "fontdb"
-version = "0.9.3"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d52186a39c335aa6f79fc0bf1c3cf854870b6ad4e50a7bb8a59b4ba1331f478a"
+checksum = "8131752b3f3b876a20f42b3d08233ad177d6e7ec6d18aaa6954489a201071be5"
 dependencies = [
  "fontconfig-parser",
  "log",
@@ -1006,6 +1006,12 @@ dependencies = [
  "unicode-bidi",
  "unicode-normalization",
 ]
+
+[[package]]
+name = "imagesize"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df19da1e92fbfec043ca97d622955381b1f3ee72a180ec999912df31b1ccd951"
 
 [[package]]
 name = "indenter"
@@ -1407,14 +1413,14 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "png"
-version = "0.17.7"
+version = "0.17.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d708eaf860a19b19ce538740d2b4bdeeb8337fa53f7738455e706623ad5c638"
+checksum = "8f0e7f4c94ec26ff209cee506314212639d6c91b80afb82984819fafce9df01c"
 dependencies = [
  "bitflags",
  "crc32fast",
  "flate2",
- "miniz_oxide 0.6.2",
+ "miniz_oxide 0.5.4",
 ]
 
 [[package]]
@@ -1597,9 +1603,9 @@ dependencies = [
 
 [[package]]
 name = "resvg"
-version = "0.25.0"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ea0337740f86c70141e7596d81c2e76c0cd3726dbcee053ac18d0ec45101f8e"
+checksum = "c115863f2d3621999cf187e318bc92b16402dfeff6a48c74df700d77381394c1"
 dependencies = [
  "gif",
  "jpeg-decoder",
@@ -1611,6 +1617,7 @@ dependencies = [
  "svgtypes",
  "tiny-skia",
  "usvg",
+ "usvg-text-layout",
 ]
 
 [[package]]
@@ -2585,27 +2592,38 @@ dependencies = [
 
 [[package]]
 name = "usvg"
-version = "0.25.0"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "585bb2d87c8fd6041a479dea01479dcf9094e61b5f9af221606927e61a2bd939"
+checksum = "8b5b7c2b30845b3348c067ca3d09e20cc6e327c288f0ca4c48698712abf432e9"
 dependencies = [
  "base64",
  "data-url",
  "flate2",
- "fontdb",
+ "imagesize",
  "kurbo",
  "log",
- "pico-args",
  "rctree",
  "roxmltree",
- "rustybuzz",
  "simplecss",
  "siphasher",
  "strict-num",
  "svgtypes",
+]
+
+[[package]]
+name = "usvg-text-layout"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c9550670848028641bf976b06f5c520ffdcd6f00ee7ee7eb0853f78e2c249d7"
+dependencies = [
+ "fontdb",
+ "kurbo",
+ "log",
+ "rustybuzz",
  "unicode-bidi",
  "unicode-script",
  "unicode-vo",
+ "usvg",
 ]
 
 [[package]]
