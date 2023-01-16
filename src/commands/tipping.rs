@@ -180,7 +180,6 @@ pub async fn reactdrop(
 
     if check_and_get_balance(&ctx, tip_amount).await?.is_some() {
         let pool = &ctx.data().database;
-        trace!("there is enough balance");
 
         debug!("emoji picked for reactdrop: {}", emoji);
 
@@ -266,7 +265,12 @@ pub async fn reactdrop(
                         .map(|u| u.id.as_ref())
                         .collect::<Vec<_>>();
 
-                    tip_users(&ctx, pool, &users, &tip_amount, "reactdrop").await?;
+                    if users.len() == 0 {
+                        trace!("no users to tip, abort");
+                    } else {
+                        trace!("tipping {} users in reactdrop", users.len());
+                        tip_users(&ctx, pool, &users, &tip_amount, "reactdrop").await?;
+                    }
 
                     continue;
                 } else {
@@ -299,6 +303,8 @@ async fn tip_users(
             store_new_address_for_user(pool, user_id, &address).await?;
         }
     }
+
+    debug!("users in tip_users: {:?}", users);
 
     // need to divide tipping amount over number of people in a role
     if let Some(div_tip_amount) = amount.checked_div(users.len() as u64) {
