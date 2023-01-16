@@ -56,7 +56,10 @@ pub struct ApplicationSettings {
     pub discord_guild_id: String,
     #[serde(with = "vrsc::util::amount::serde::as_sat")]
     pub global_withdrawal_fee: Amount,
-    pub min_deposit_confirmations: u32,
+    #[serde(with = "vrsc::util::amount::serde::as_sat")]
+    pub min_deposit_threshold: Amount,
+    pub min_deposit_confirmations_small: u32,
+    pub min_deposit_confirmations_large: u32,
     pub vrsc_block_notify_socket_path: PathBuf,
     pub vrsc_wallet_notify_socket_path: PathBuf,
     pub owners: HashSet<String>,

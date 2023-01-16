@@ -20,13 +20,15 @@ use crate::util::database::*;
 use crate::Error;
 
 pub struct TransactionProcessor {
-    queue: Arc<RwLock<VecDeque<Txid>>>,
+    queue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
+    queueue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
 }
 
 impl TransactionProcessor {
     pub fn new() -> Self {
         TransactionProcessor {
             queue: Arc::new(RwLock::new(VecDeque::new())),
+            queueue: Arc::new(RwLock::new(VecDeque::new())),
         }
     }
 
@@ -61,6 +63,9 @@ impl TransactionProcessor {
         });
 
         let queue_clone = self.queue.clone();
+        let queueue_clone = self.queueue.clone();
+        let pool_clone = pool.clone();
+        let config_clone = config.clone();
 
         tokio::spawn(async move {
             loop {
@@ -68,10 +73,43 @@ impl TransactionProcessor {
                     Ok((stream, _address)) => {
                         let parsed_str = parse_bytes(&stream).await.expect("valid string");
                         let txid = Txid::from_str(&parsed_str).expect("valid txid");
-                        let mut write = queue_clone.write().await;
-                        if !write.contains(&txid) {
-                            write.push_back(txid);
-                            trace!("added {txid} to queue");
+
+                        let client = Client::vrsc(
+                            config_clone.application.testnet,
+                            Auth::UserPass(
+                                format!("127.0.0.1:{}", config_clone.application.rpc_port),
+                                config_clone.application.rpc_user.clone(),
+                                config_clone.application.rpc_password.clone(),
+                            ),
+                        )
+                        .unwrap();
+
+                        let raw_tx = client.get_raw_transaction_verbose(&txid).unwrap();
+
+                        for vout in raw_tx.vout.iter() {
+                            if let Some(addresses) = &vout.script_pubkey.addresses {
+                                for address in addresses {
+                                    if let Some(user_id) =
+                                        get_user_from_address(&pool_clone, address).await.unwrap()
+                                    {
+                                        trace!("there is a user for this address: {user_id}",);
+                                        let mut write = queue_clone.write().await;
+                                        let mut long_write = queueue_clone.write().await;
+
+                                        // if the value of the incoming transaction is greater than
+                                        if vout.value.gt(&config.application.min_deposit_threshold)
+                                        {
+                                            trace!("{txid} put in long queue");
+                                            long_write.push_back((txid.clone(), vout.value))
+                                        } else {
+                                            trace!("{txid} put in short queue");
+                                            write.push_back((txid.clone(), vout.value))
+                                        }
+                                    }
+                                }
+                            } else {
+                                debug!("no addresses found in scriptpubkey");
+                            }
                         }
                     }
                     Err(e) => {
@@ -82,10 +120,9 @@ impl TransactionProcessor {
         });
         info!("walletnotify listening");
 
-        let http_clone = http.clone();
-        let pool_clone = pool.clone();
         let config_clone = config.clone();
         let queue_clone = self.queue.clone();
+        let queueue_clone = self.queueue.clone();
 
         tokio::spawn(async move {
             loop {
@@ -97,56 +134,22 @@ impl TransactionProcessor {
                             break;
                         }
 
-                        let mut write = queue_clone.write().await;
-                        let queue_size = write.len();
-                        debug!("{queue_size} transactions in queue");
+                        process_short_queue(
+                            queue_clone.clone(),
+                            &config_clone,
+                            &pool,
+                            http.clone(),
+                        )
+                        .await;
+                        process_long_queue(
+                            queueue_clone.clone(),
+                            &config_clone,
+                            &pool,
+                            http.clone(),
+                        )
+                        .await;
 
-                        if let Some(front) = write.front() {
-                            trace!("read {front} from front");
-
-                            let client = Client::vrsc(
-                                config_clone.application.testnet,
-                                Auth::UserPass(
-                                    format!("127.0.0.1:{}", config.application.rpc_port),
-                                    config_clone.application.rpc_user.clone(),
-                                    config_clone.application.rpc_password.clone(),
-                                ),
-                            )
-                            .unwrap();
-
-                            let raw_tx = client.get_raw_transaction_verbose(&front).unwrap();
-                            if let Some(confs) = raw_tx.confirmations {
-                                let min_confs = config.application.min_deposit_confirmations;
-                                if confs < min_confs {
-                                    trace!("tx needs {}, has {confs}: {}", min_confs, front);
-                                    break;
-                                } else {
-                                    trace!("tx has at least {} confs: {}", min_confs, front);
-                                    if let Err(e) = handle(
-                                        Arc::clone(&http_clone),
-                                        pool_clone.clone(),
-                                        &raw_tx,
-                                        config_clone.clone(),
-                                    )
-                                    .await
-                                    {
-                                        error!(
-                                            "something went wrong while handling a new wallet tx: {:?}\n{:?}",
-                                            e, &front
-                                        )
-                                    }
-
-                                    let _ = write.pop_front();
-                                    continue;
-                                }
-                            } else {
-                                trace!("{} has no confirmations yet", front);
-                                break;
-                            }
-                        } else {
-                            trace!("new block but no transactions in queue");
-                            break;
-                        }
+                        break;
                     },
                     Err(e) => {
                         error!("connection to socket listener failed: {}", e)
@@ -155,6 +158,121 @@ impl TransactionProcessor {
             }
         });
         info!("blocknotify listening");
+    }
+}
+
+async fn process_short_queue(
+    queue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
+    config: &Settings,
+    pool: &PgPool,
+    http: Arc<Http>,
+) {
+    let mut write = queue.write().await;
+    let queue_size = write.len();
+    debug!("{queue_size} transactions in queue");
+
+    loop {
+        if let Some(front) = write.front() {
+            trace!("read {front:?} from front");
+
+            let client = Client::vrsc(
+                config.application.testnet,
+                Auth::UserPass(
+                    format!("127.0.0.1:{}", config.application.rpc_port),
+                    config.application.rpc_user.clone(),
+                    config.application.rpc_password.clone(),
+                ),
+            )
+            .unwrap();
+
+            let raw_tx = client.get_raw_transaction_verbose(&front.0).unwrap();
+
+            if let Some(confs) = raw_tx.confirmations {
+                let min_confs = config.application.min_deposit_confirmations_small;
+
+                if confs < min_confs {
+                    trace!("tx needs {}, has {confs}: {}", min_confs, front.0);
+                    break;
+                } else {
+                    trace!("tx has at least {} confs: {}", min_confs, front.0);
+                    if let Err(e) =
+                        handle(Arc::clone(&http), pool.clone(), &raw_tx, config.clone()).await
+                    {
+                        error!(
+                            "something went wrong while handling a new wallet tx: {:?}\n{:?}",
+                            e, &front
+                        )
+                    }
+
+                    let _ = write.pop_front();
+                    continue;
+                }
+                // }
+            } else {
+                trace!("{} has no confirmations yet", front.0);
+                break;
+            }
+        } else {
+            trace!("new block but no transactions in queue");
+            break;
+        }
+    }
+}
+
+async fn process_long_queue(
+    queue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
+    config: &Settings,
+    pool: &PgPool,
+    http: Arc<Http>,
+) {
+    let mut write = queue.write().await;
+    let queue_size = write.len();
+    debug!("{queue_size} transactions in queue");
+
+    loop {
+        if let Some(front) = write.front() {
+            trace!("read {front:?} from front");
+
+            let client = Client::vrsc(
+                config.application.testnet,
+                Auth::UserPass(
+                    format!("127.0.0.1:{}", config.application.rpc_port),
+                    config.application.rpc_user.clone(),
+                    config.application.rpc_password.clone(),
+                ),
+            )
+            .unwrap();
+
+            let raw_tx = client.get_raw_transaction_verbose(&front.0).unwrap();
+
+            if let Some(confs) = raw_tx.confirmations {
+                let min_confs = config.application.min_deposit_confirmations_large;
+
+                if confs < min_confs {
+                    trace!("tx needs {}, has {confs}: {}", min_confs, front.0);
+                    break;
+                } else {
+                    trace!("tx has at least {} confs: {}", min_confs, front.0);
+                    if let Err(e) =
+                        handle(Arc::clone(&http), pool.clone(), &raw_tx, config.clone()).await
+                    {
+                        error!(
+                            "something went wrong while handling a new wallet tx: {:?}\n{:?}",
+                            e, &front
+                        )
+                    }
+
+                    let _ = write.pop_front();
+                    continue;
+                }
+            } else {
+                trace!("{} has no confirmations yet", front.0);
+                break;
+            }
+        } else {
+            trace!("new block but no transactions in queue");
+            break;
+        }
     }
 }
 
