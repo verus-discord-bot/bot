@@ -244,17 +244,66 @@ pub async fn reactdrop(
                 Hms::Seconds => time,
             };
 
-            let mut interval = tokio::time::interval(Duration::from_secs(1));
+            loop {
+                match i {
+                    mut j if i > 60 => {
+                        let mut interval = tokio::time::interval(Duration::from_secs(60));
 
-            while i > 0 {
-                i -= 1;
-                msg.edit(http.clone(), |f| {
-                    f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, i))
-                })
-                .await?;
+                        while j > 60 {
+                            interval.tick().await;
 
-                interval.tick().await;
-                trace!("tick");
+                            msg.edit(http.clone(), |f| {
+                                f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} hour(s), {} minute(s)",
+                                &reaction_type,
+                                j / 60 / 60,
+                                (j / 60) % 60))
+                            })
+                            .await?;
+
+                            i -= 60;
+                            j -= 60;
+                        }
+                        interval.tick().await;
+                    }
+                    mut j if i > 10 => {
+                        let mut interval = tokio::time::interval(Duration::from_secs(10));
+                        // interval.tick().await;
+                        // debug!("time remaining: {} seconds", j);
+
+                        while j > 10 {
+                            interval.tick().await;
+                            msg.edit(http.clone(), |f| {
+                                f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, j))
+                            })
+                            .await?;
+                            trace!("time remaining: {} seconds", j);
+                            i -= 10;
+                            j -= 10;
+                        }
+                        interval.tick().await;
+                    }
+                    mut j => {
+                        let mut interval = tokio::time::interval(Duration::from_secs(1));
+
+                        while j > 0 {
+                            interval.tick().await;
+                            msg.edit(http.clone(), |f| {
+                                f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, j))
+                            })
+                            .await?;
+                            trace!("time remaining: {} seconds", j);
+                            i -= 1;
+                            j -= 1;
+                        }
+                        interval.tick().await;
+                        msg.edit(http.clone(), |f| {
+                            f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, j))
+                        })
+                        .await?;
+
+                        break;
+                    }
+                };
             }
 
             let mut last_user = None;
