@@ -169,7 +169,7 @@ async fn process_short_queue(
 ) {
     let mut write = queue.write().await;
     let queue_size = write.len();
-    debug!("{queue_size} transactions in queue");
+    debug!("{queue_size} transactions in short queue");
 
     loop {
         if let Some(front) = write.front() {
@@ -207,7 +207,6 @@ async fn process_short_queue(
                     let _ = write.pop_front();
                     continue;
                 }
-                // }
             } else {
                 trace!("{} has no confirmations yet", front.0);
                 break;
@@ -227,7 +226,7 @@ async fn process_long_queue(
 ) {
     let mut write = queue.write().await;
     let queue_size = write.len();
-    debug!("{queue_size} transactions in queue");
+    debug!("{queue_size} transactions in long queue");
 
     loop {
         if let Some(front) = write.front() {

@@ -165,16 +165,22 @@ async fn user(
     Ok(())
 }
 
+#[derive(Debug, poise::ChoiceParameter)]
+pub enum Hms {
+    Hours,
+    Minutes,
+    Seconds,
+}
+
 /// Start a giveaway where users need to react to participate
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Tipping")]
 pub async fn reactdrop(
     ctx: Context<'_>,
     emoji: String,
-    #[min = 0.5] amount: f64,
-    #[max = 600]
-    #[min = 10]
-    time_in_secs: u32,
+    #[min = 0.1] amount: f64,
+    #[min = 1] time: u32,
+    hms: Hms,
 ) -> Result<(), Error> {
     let tip_amount = Amount::from_vrsc(amount)?;
 
@@ -222,7 +228,7 @@ pub async fn reactdrop(
 
             trace!("valid emoji");
 
-            let reply_handle = ctx.say(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", reaction_type.clone(), time_in_secs )).await?;
+            let reply_handle = ctx.say(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} {}", reaction_type.clone(), time, hms)).await?;
             let mut msg = reply_handle.into_message().await?;
 
             msg.react(ctx.http(), reaction_type.clone()).await?;
@@ -232,19 +238,22 @@ pub async fn reactdrop(
             let http = context.http.clone();
             let http_2 = context.http.clone();
 
-            let mut i: i32 = time_in_secs as i32;
+            let mut i: u32 = match hms {
+                Hms::Hours => time * 60 * 60,
+                Hms::Minutes => time * 60,
+                Hms::Seconds => time,
+            };
 
-            while i >= 0 {
-                // this is a rough countdown as the time is not precisely 1 second every sleep event. This is what the Tokio docs say:
-                // "`Sleep` operates at millisecond granularity and should not be used for tasks that require high-resolution timers."
-                // But it's fine for our usecase :)
+            let mut interval = tokio::time::interval(Duration::from_secs(1));
+
+            while i > 0 {
+                i -= 1;
                 msg.edit(http.clone(), |f| {
                     f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", reaction_type.clone(), i))
                 })
                 .await?;
 
-                i -= 1;
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                interval.tick().await;
             }
 
             let mut last_user = None;
