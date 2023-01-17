@@ -249,11 +249,12 @@ pub async fn reactdrop(
             while i > 0 {
                 i -= 1;
                 msg.edit(http.clone(), |f| {
-                    f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", reaction_type.clone(), i))
+                    f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, i))
                 })
                 .await?;
 
                 interval.tick().await;
+                trace!("tick");
             }
 
             let mut last_user = None;

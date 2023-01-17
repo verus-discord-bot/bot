@@ -1,3 +1,5 @@
+#![feature(async_closure)]
+
 pub mod commands;
 pub mod configuration;
 pub mod util;
