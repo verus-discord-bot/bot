@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use poise::serenity_prelude::{self, CacheHttp, ChannelId, Http, ReactionType, RoleId, UserId};
+use poise::serenity_prelude::{
+    self, CacheHttp, ChannelId, Http, Message, ReactionType, RoleId, UserId,
+};
 use sqlx::PgPool;
 use tracing::*;
 use uuid::Uuid;
@@ -187,11 +189,15 @@ pub enum Hms {
 #[poise::command(slash_command, category = "Tipping")]
 pub async fn reactdrop(
     ctx: Context<'_>,
-    emoji: String,
-    #[min = 0.1] amount: f64,
+    #[description = "The emoji users need to react with"] emoji: String,
+    #[min = 0.1]
+    #[description = "The amount you want to give away"]
+    amount: f64,
     #[min = 1] time: u32,
-    hms: Hms,
+    #[description = "The time in hours, minutes or seconds"] hms: Hms,
 ) -> Result<(), Error> {
+    // a reactdrop can be started for as long as a user wants it to last. Discord however limits the lifetime of a context to 15 minutes.
+    // We must account for this by extracting the necessary data from `Context` and store it for later use.
     let tip_amount = Amount::from_vrsc(amount)?;
 
     if check_and_get_balance(&ctx, tip_amount).await?.is_some() {
@@ -238,11 +244,6 @@ pub async fn reactdrop(
 
             trace!("valid emoji");
 
-            let reply_handle = ctx.say(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} {}", reaction_type.clone(), time, hms)).await?;
-            let mut msg = reply_handle.into_message().await?;
-
-            msg.react(ctx.http(), reaction_type.clone()).await?;
-
             let context = ctx.serenity_context().to_owned();
 
             let http = context.http.clone();
@@ -253,13 +254,18 @@ pub async fn reactdrop(
                 Hms::Minutes => time * 60,
                 Hms::Seconds => time,
             };
+            let reply_handle = ctx.say(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} {}", reaction_type.clone(), time, hms)).await?;
+            let mut msg = reply_handle.into_message().await?;
+            msg.react(ctx.http(), reaction_type.clone()).await?;
+
+            let channel_id = ctx.channel_id();
 
             loop {
                 match i {
-                    mut j if i > 60 => {
+                    mut j if i > 120 => {
                         let mut interval = tokio::time::interval(Duration::from_secs(60));
 
-                        while j > 60 {
+                        while j > 120 {
                             interval.tick().await;
 
                             msg.edit(http.clone(), |f| {
@@ -275,23 +281,23 @@ pub async fn reactdrop(
                         }
                         interval.tick().await;
                     }
-                    mut j if i > 10 => {
-                        let mut interval = tokio::time::interval(Duration::from_secs(10));
-                        // interval.tick().await;
-                        // debug!("time remaining: {} seconds", j);
+                    // mut j if i > 10 => {
+                    //     let mut interval = tokio::time::interval(Duration::from_secs(10));
+                    //     // interval.tick().await;
+                    //     // debug!("time remaining: {} seconds", j);
 
-                        while j > 10 {
-                            interval.tick().await;
-                            msg.edit(http.clone(), |f| {
-                                f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, j))
-                            })
-                            .await?;
-                            trace!("time remaining: {} seconds", j);
-                            i -= 10;
-                            j -= 10;
-                        }
-                        interval.tick().await;
-                    }
+                    //     while j > 10 {
+                    //         interval.tick().await;
+                    //         msg.edit(http.clone(), |f| {
+                    //             f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, j))
+                    //         })
+                    //         .await?;
+                    //         trace!("time remaining: {} seconds", j);
+                    //         i -= 10;
+                    //         j -= 10;
+                    //     }
+                    //     interval.tick().await;
+                    // }
                     mut j => {
                         let mut interval = tokio::time::interval(Duration::from_secs(1));
 
@@ -356,6 +362,10 @@ pub async fn reactdrop(
                     break;
                 }
             }
+
+            channel_id
+                .delete_reaction_emoji(http, msg, reaction_type)
+                .await?;
         }
     }
 
@@ -432,17 +442,18 @@ async fn tip_users(
         channel_id
             .send_message(http, |message| {
                 message.content(format!(
-                    "<@{}> just tipped {} to {} users!",
+                    "<@{}> just tipped {} to {} users! ({} each)",
                     &author,
                     amount,
-                    &users.len()
+                    &users.len(),
+                    div_tip_amount
                 ))
             })
             .await?;
     } else {
         channel_id
             .send_message(http, |message| {
-                message.content("Could not send tip to role, maybe the amount is too low?")
+                message.content("Could not send tip to role")
             })
             .await?;
     }
