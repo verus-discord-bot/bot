@@ -50,7 +50,7 @@ pub async fn all(
     let client = &ctx.data().verus;
     if !destination_is_valid(&destination, &client) {
         ctx.send(|reply| {
-            reply.ephemeral(false).content(format!(
+            reply.ephemeral(true).content(format!(
                 "Error: The destination you entered cannot be used: {destination}"
             ))
         })
@@ -98,7 +98,7 @@ pub async fn all(
                 let new_balance = database::get_balance_for_user(&pool, &ctx.author().id).await?;
 
                 ctx.send(|reply| {
-                    reply.ephemeral(false).embed(|embed| {
+                    reply.ephemeral(true).embed(|embed| {
                         let embed = embed
                             .title("Withdraw")
                             .field("Amount", withdrawal_amount, false)
@@ -141,7 +141,7 @@ pub async fn all(
         }
 
         ctx.send(|reply| {
-            reply.ephemeral(false).content(format!(
+            reply.ephemeral(true).content(format!(
                 "Your balance is insufficient to withdraw everything.\nMax available balance for withdraw: {}", withdrawal_amount.checked_sub(*tx_fee).unwrap_or(Amount::ZERO)
             ))
         })
@@ -185,7 +185,7 @@ pub async fn amount(
     let client = &ctx.data().verus;
     if !destination_is_valid(&destination, &client) {
         ctx.send(|reply| {
-            reply.ephemeral(false).content(format!(
+            reply.ephemeral(true).content(format!(
                 "Error: The destination you entered cannot be used: {destination}"
             ))
         })
@@ -200,7 +200,7 @@ pub async fn amount(
     if [Ordering::Less, Ordering::Equal].contains(&withdrawal_amount.cmp(&Amount::ZERO)) {
         ctx.send(|reply| {
             reply
-                .ephemeral(false)
+                .ephemeral(true)
                 .content("Error: Withdrawal amount should be more than 0.0")
         })
         .await?;
@@ -248,7 +248,7 @@ pub async fn amount(
                 let new_balance = database::get_balance_for_user(&pool, &ctx.author().id).await?;
 
                 ctx.send(|reply| {
-                    reply.ephemeral(false).embed(|embed| {
+                    reply.ephemeral(true).embed(|embed| {
                         let embed = embed
                             .title("Withdraw")
                             .field("Amount", withdrawal_amount, false)
@@ -292,7 +292,7 @@ pub async fn amount(
     }
 
     ctx.send(|reply| {
-        reply.ephemeral(false).content(format!(
+        reply.ephemeral(true).content(format!(
             "Your balance is insufficient to withdraw {withdrawal_amount}.\nMax available balance for withdraw: {}", withdrawal_amount.checked_sub(*tx_fee).unwrap_or(Amount::ZERO)
         ))
     })
@@ -314,7 +314,7 @@ pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
     if let Some(balance) = check_and_get_balance(&ctx, Amount::ZERO).await? {
         ctx.send(|reply| {
             reply
-                .ephemeral(false)
+                .ephemeral(true)
                 .content(format!("Your balance is: {}", balance))
         })
         .await?;
@@ -466,7 +466,7 @@ pub async fn check_and_get_balance(
             trace!("balance is insufficient");
             ctx.send(|reply| {
                 reply
-                    .ephemeral(false)
+                    .ephemeral(true)
                     .content(format!("Your balance is insufficient to tip that amount!"))
             })
             .await?;
@@ -479,7 +479,7 @@ pub async fn check_and_get_balance(
 
         ctx.send(|reply| {
             reply
-                .ephemeral(false)
+                .ephemeral(true)
                 .content(format!("Your balance is insufficient to tip that amount!"))
         })
         .await?;

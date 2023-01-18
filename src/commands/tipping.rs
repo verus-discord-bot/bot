@@ -62,7 +62,7 @@ async fn role(
             trace!("not in a guild, send error");
 
             ctx.send(|reply| {
-                reply.ephemeral(false).content(format!(
+                reply.ephemeral(true).content(format!(
                     "You need to be in a Discord server to use this command."
                 ))
             })

@@ -21,7 +21,7 @@ Type `/help <command>` for more info on a command.";
         command.as_deref(),
         poise::builtins::HelpConfiguration {
             extra_text_at_bottom,
-            ephemeral: false,
+            ephemeral: true,
             ..Default::default()
         },
     )
@@ -55,7 +55,7 @@ pub async fn notifications(ctx: Context<'_>, notifications: Notification) -> Res
     database::update_notifications(&pool, &ctx.author().id, &notifications.to_string()).await?;
 
     ctx.send(|reply| {
-        reply.ephemeral(false).content(format!(
+        reply.ephemeral(true).content(format!(
             "You successfully set notifications to: {}",
             &notifications.to_string()
         ))
