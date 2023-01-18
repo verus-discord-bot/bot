@@ -1,8 +1,6 @@
 use std::time::Duration;
 
-use poise::serenity_prelude::{
-    self, CacheHttp, ChannelId, Http, Message, ReactionType, RoleId, UserId,
-};
+use poise::serenity_prelude::{self, CacheHttp, ChannelId, Http, ReactionType, RoleId, UserId};
 use sqlx::PgPool;
 use tracing::*;
 use uuid::Uuid;
@@ -281,23 +279,6 @@ pub async fn reactdrop(
                         }
                         interval.tick().await;
                     }
-                    // mut j if i > 10 => {
-                    //     let mut interval = tokio::time::interval(Duration::from_secs(10));
-                    //     // interval.tick().await;
-                    //     // debug!("time remaining: {} seconds", j);
-
-                    //     while j > 10 {
-                    //         interval.tick().await;
-                    //         msg.edit(http.clone(), |f| {
-                    //             f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, j))
-                    //         })
-                    //         .await?;
-                    //         trace!("time remaining: {} seconds", j);
-                    //         i -= 10;
-                    //         j -= 10;
-                    //     }
-                    //     interval.tick().await;
-                    // }
                     mut j => {
                         let mut interval = tokio::time::interval(Duration::from_secs(1));
 
