@@ -1,11 +1,11 @@
 use std::time::Duration;
 
-use poise::serenity_prelude::{self, CacheHttp, ReactionType, RoleId, UserId};
+use poise::serenity_prelude::{self, CacheHttp, ChannelId, Http, ReactionType, RoleId, UserId};
 use sqlx::PgPool;
 use tracing::*;
 use uuid::Uuid;
 use vrsc::Amount;
-use vrsc_rpc::RpcApi;
+use vrsc_rpc::{Client, RpcApi};
 
 use crate::{
     commands::misc::Notification,
@@ -45,7 +45,17 @@ async fn role(
                 .map(|m| m.user.id.as_ref())
                 .collect::<Vec<_>>();
 
-            tip_users(&ctx, &pool, &role_members, &tip_amount, "role").await?;
+            tip_users(
+                &ctx.http(),
+                &ctx.data().verus,
+                &pool,
+                &role_members,
+                &ctx.author().id,
+                &ctx.channel_id(),
+                &tip_amount,
+                "role",
+            )
+            .await?;
 
             return Ok(());
         } else {
@@ -328,7 +338,17 @@ pub async fn reactdrop(
                         trace!("no users to tip, abort");
                     } else {
                         trace!("tipping {} users in reactdrop", users.len());
-                        tip_users(&ctx, pool, &users, &tip_amount, "reactdrop").await?;
+                        tip_users(
+                            &http,
+                            &ctx.data().verus,
+                            pool,
+                            &users,
+                            &ctx.author().id,
+                            &ctx.channel_id(),
+                            &tip_amount,
+                            "reactdrop",
+                        )
+                        .await?;
                     }
 
                     continue;
@@ -343,9 +363,12 @@ pub async fn reactdrop(
 }
 
 async fn tip_users(
-    ctx: &Context<'_>,
+    http: &Http,
+    client: &Client,
     pool: &PgPool,
     users: &Vec<&UserId>,
+    author: &UserId,
+    channel_id: &ChannelId,
     amount: &Amount,
     kind: &str,
 ) -> Result<(), Error> {
@@ -357,7 +380,6 @@ async fn tip_users(
             .is_none()
         {
             trace!("need to get new address");
-            let client = &ctx.data().verus;
             let address = client.get_new_address()?;
             store_new_address_for_user(pool, user_id, &address).await?;
         }
@@ -375,7 +397,7 @@ async fn tip_users(
 
         let tip_event_id = Uuid::new_v4();
 
-        database::tip_multiple_users(pool, &ctx.author().id, &users, &div_tip_amount).await?;
+        database::tip_multiple_users(pool, &author, &users, &div_tip_amount).await?;
 
         database::store_multiple_tip_transactions(
             pool,
@@ -383,7 +405,7 @@ async fn tip_users(
             &users,
             kind,
             &div_tip_amount,
-            &ctx.author().id,
+            &author,
         )
         .await?;
 
@@ -392,11 +414,11 @@ async fn tip_users(
         for (user_id, notification) in notification_settings {
             match (user_id, notification) {
                 (_, Notification::All) | (_, Notification::DMOnly) => {
-                    let user = UserId(user_id as u64).to_user(ctx.http()).await?;
-                    user.dm(ctx.http(), |message| {
+                    let user = UserId(user_id as u64).to_user(http).await?;
+                    user.dm(http, |message| {
                         message.content(format!(
                             "You just got tipped {div_tip_amount} from <@{}>!",
-                            &ctx.author().id,
+                            &author,
                         ))
                     })
                     .await?;
@@ -407,22 +429,22 @@ async fn tip_users(
             }
         }
 
-        ctx.send(|reply| {
-            reply.ephemeral(false).content(format!(
-                "<@{}> just tipped {} to {} users!",
-                &ctx.author().id,
-                amount,
-                &users.len()
-            ))
-        })
-        .await?;
+        channel_id
+            .send_message(http, |message| {
+                message.content(format!(
+                    "<@{}> just tipped {} to {} users!",
+                    &author,
+                    amount,
+                    &users.len()
+                ))
+            })
+            .await?;
     } else {
-        ctx.send(|reply| {
-            reply.ephemeral(false).content(format!(
-                "Could not send tip to role, maybe the amount is too low?"
-            ))
-        })
-        .await?;
+        channel_id
+            .send_message(http, |message| {
+                message.content("Could not send tip to role, maybe the amount is too low?")
+            })
+            .await?;
     }
 
     Ok(())
