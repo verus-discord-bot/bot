@@ -8,6 +8,7 @@ use uuid::Uuid;
 use vrsc::{Address, Amount};
 use vrsc_rpc::{bitcoin::Txid, Client, RpcApi, SendCurrencyOutput};
 
+use crate::commands::user_blacklisted;
 use crate::{util::database, Context, Error};
 
 /// Withdraw funds from the tipbot wallet.
@@ -27,7 +28,6 @@ pub async fn withdraw(
 #[poise::command(slash_command, category = "Wallet")]
 pub async fn all(
     ctx: Context<'_>,
-    // #[description = "The amount you want to tip"] withdrawal_amount: f64,
     #[description = "You can use any address starting with R* or i*, or use an existing identity (ends with @)."]
     destination: String,
 ) -> Result<(), Error> {
@@ -41,6 +41,11 @@ pub async fn all(
 
         return Ok(());
     }
+
+    if user_blacklisted(ctx, ctx.author().id).await? {
+        return Ok(());
+    }
+
     debug!(
         "user {} ({}) demands a withdrawal of his whole balance",
         ctx.author().name,
@@ -171,6 +176,10 @@ pub async fn amount(
         })
         .await?;
 
+        return Ok(());
+    }
+
+    if user_blacklisted(ctx, ctx.author().id).await? {
         return Ok(());
     }
 

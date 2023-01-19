@@ -35,6 +35,7 @@ pub struct Data {
     withdrawal_fee: Arc<RwLock<Amount>>,
     withdrawals_enabled: Arc<RwLock<bool>>,
     deposits_enabled: Arc<RwLock<bool>>,
+    blacklist: std::sync::Mutex<HashSet<UserId>>,
 }
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
@@ -55,6 +56,9 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
             {
                 warn!("{}", e)
             }
+        }
+        poise::FrameworkError::CommandCheckFailed { error: _, ctx } => {
+            ctx.say("You have been blacklisted").await.unwrap();
         }
         _ => {
             warn!("an unrecoverable error occured")
@@ -82,6 +86,7 @@ async fn app() -> Result<(), Error> {
             admin::feescollected(),
             admin::depositenabled(),
             admin::withdrawenabled(),
+            admin::blacklist(),
             misc::help(),
             misc::source(),
             misc::register(),
@@ -93,6 +98,14 @@ async fn app() -> Result<(), Error> {
             tipping::tip(),
             tipping::reactdrop(),
         ],
+        // command_check: Some(|ctx| {
+        //     Box::pin(async move {
+        //         let db = &ctx.data().database;
+        //         let author = ctx.author().id;
+
+        //         Ok(false)
+        //     })
+        // }),
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("?".into()),
             edit_tracker: Some(poise::EditTracker::for_timespan(
@@ -192,6 +205,7 @@ async fn app() -> Result<(), Error> {
                     withdrawal_fee,
                     withdrawals_enabled: Arc::new(RwLock::new(true)),
                     deposits_enabled,
+                    blacklist: std::sync::Mutex::new(HashSet::new()),
                 })
             })
         })

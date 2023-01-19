@@ -26,6 +26,26 @@
     },
     "query": "UPDATE balance_vrsc SET balance = balance + $1 WHERE discord_id = $2"
   },
+  "247d765e9acb9efc4fc77b53c13d397decd8256c345488c96dbf890de9f2f28e": {
+    "describe": {
+      "columns": [
+        {
+          "name": "blacklisted",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      }
+    },
+    "query": "SELECT blacklisted FROM discord_users WHERE discord_id = $1"
+  },
   "2a701d7bee9dd2bcb8e4da41e89dfe4aed4a4c7864e7a90f77a14807d16b5abb": {
     "describe": {
       "columns": [],
@@ -113,6 +133,19 @@
       }
     },
     "query": "SELECT SUM(CAST(fee AS BIGINT)) FROM transactions_vrsc WHERE fee > 0"
+  },
+  "722690fcab368f1c2ecba80ca262ecb06a7c1bf63e12647030608008b29ea44a": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Bool",
+          "Int8"
+        ]
+      }
+    },
+    "query": "UPDATE discord_users SET blacklisted = $1 WHERE discord_id = $2"
   },
   "a2850f8e9377bc9097817497eb424ecfe09ae0e51da21eb8431c6e1cf629f519": {
     "describe": {

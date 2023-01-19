@@ -407,3 +407,34 @@ pub async fn get_bot_fees(pool: &PgPool) -> Result<u64, Error> {
     }
     Ok(0)
 }
+
+pub async fn get_blacklist_status(pool: &PgPool, user_id: UserId) -> Result<Option<bool>, Error> {
+    if let Some(row) = sqlx::query!(
+        "SELECT blacklisted FROM discord_users WHERE discord_id = $1",
+        user_id.0 as i64
+    )
+    .fetch_optional(pool)
+    .await?
+    {
+        return Ok(row.blacklisted);
+    } else {
+        Ok(None)
+    }
+}
+
+// TODO user might not exist?
+pub async fn set_blacklist_status(
+    pool: &PgPool,
+    user_id: UserId,
+    blacklist: bool,
+) -> Result<(), Error> {
+    sqlx::query!(
+        "UPDATE discord_users SET blacklisted = $1 WHERE discord_id = $2",
+        blacklist,
+        user_id.0 as i64
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}

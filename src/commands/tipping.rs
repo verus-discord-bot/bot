@@ -8,7 +8,7 @@ use vrsc::Amount;
 use vrsc_rpc::{Client, RpcApi};
 
 use crate::{
-    commands::misc::Notification,
+    commands::{misc::Notification, user_blacklisted},
     util::database::{self, get_balance_for_user, store_new_address_for_user},
     wallet::check_and_get_balance,
     Context, Error,
@@ -28,6 +28,10 @@ async fn role(
     role: serenity_prelude::Role,
     #[description = "The amount you want to tip"] tip_amount: f64,
 ) -> Result<(), Error> {
+    if user_blacklisted(ctx, ctx.author().id).await? {
+        return Ok(());
+    }
+
     debug!("role: {:?}", role.id);
     let tip_amount = Amount::from_vrsc(tip_amount)?;
 
@@ -81,6 +85,10 @@ async fn user(
     user: serenity_prelude::User,
     #[description = "The amount you want to tip"] tip_amount: f64,
 ) -> Result<(), Error> {
+    if user_blacklisted(ctx, ctx.author().id).await? {
+        return Ok(());
+    }
+
     let tip_amount = Amount::from_vrsc(tip_amount)?;
 
     debug!(
@@ -194,6 +202,10 @@ pub async fn reactdrop(
     #[min = 1] time: u32,
     #[description = "The time in hours, minutes or seconds"] hms: Hms,
 ) -> Result<(), Error> {
+    if user_blacklisted(ctx, ctx.author().id).await? {
+        return Ok(());
+    }
+
     // a reactdrop can be started for as long as a user wants it to last. Discord however limits the lifetime of a context to 15 minutes.
     // We must account for this by extracting the necessary data from `Context` and store it for later use.
     let tip_amount = Amount::from_vrsc(amount)?;

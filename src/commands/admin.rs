@@ -1,8 +1,40 @@
-use tracing::{debug, trace};
+use poise::serenity_prelude::UserId;
+use tracing::{debug, error, trace};
 use vrsc::Amount;
 use vrsc_rpc::RpcApi;
 
 use crate::{util::database, Context, Error};
+
+#[poise::command(owners_only, prefix_command, hide_in_help)]
+pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
+    debug!("no more fun for {user_id}");
+    let pool = &ctx.data().database;
+
+    if let Some(status) = database::get_blacklist_status(&pool, user_id).await? {
+        if status == true {
+            database::set_blacklist_status(&pool, user_id, false).await?;
+            if let Ok(mut blacklist) = ctx.data().blacklist.lock() {
+                blacklist.remove(&user_id);
+            }
+            ctx.send(|reply| reply.content(format!("user {user_id} removed from blacklist")))
+                .await?;
+            trace!("{user_id} has been removed from blacklist");
+        } else {
+            database::set_blacklist_status(&pool, user_id, true).await?;
+            if let Ok(mut blacklist) = ctx.data().blacklist.lock() {
+                blacklist.insert(user_id);
+            }
+            ctx.send(|reply| reply.content(format!("user {user_id} blacklisted")))
+                .await?;
+
+            trace!("{user_id} has been added to blacklist");
+        }
+    } else {
+        error!("user not in database");
+    }
+
+    Ok(())
+}
 
 #[poise::command(owners_only, prefix_command, hide_in_help)]
 pub async fn setwithdrawfee(ctx: Context<'_>, amount: u64) -> Result<(), Error> {
