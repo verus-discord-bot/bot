@@ -293,8 +293,6 @@ pub async fn amount(
                 )
                 .await?;
 
-                // database::store_opid(&pool, &opid, , creation_time, result, address, amount, currency)
-
                 ctx.send(|reply| reply.ephemeral(true).content(&response))
                     .await?;
             }
@@ -397,18 +395,28 @@ async fn wait_for_sendcurrency_finish(
     client: &Client,
     opid: &str,
 ) -> Result<Option<Txid>, Error> {
-    let mut i = 0;
+    // from https://buildmedia.readthedocs.org/media/pdf/zcash/english-docs/zcash.pdf
+    // status can be one of queued, executing, failed or success.
+    // we should sleep if status is one of queued or executing
+    // we should return when status is one of failed or success.
     loop {
         trace!("getting operation status: {}", &opid);
         let operation_status = client.z_get_operation_status(vec![&opid])?;
         trace!("got operation status: {:?}", &operation_status);
 
         if let Some(Some(opstatus)) = operation_status.first() {
+            if ["queued, executing"].contains(&opstatus.status.as_ref()) {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
+            }
+
             let params = opstatus.params.first().as_ref().unwrap().as_ref().unwrap();
 
             if let Some(txid) = &opstatus.result {
-                trace!("there was an operation_status");
-                // store succesful opid in database
+                trace!(
+                    "there was an operation_status, operation was executed with status: {}",
+                    opstatus.status
+                );
 
                 database::store_opid(
                     &pool,
@@ -423,32 +431,24 @@ async fn wait_for_sendcurrency_finish(
                 .await?;
                 return Ok(Some(txid.txid));
             } else {
-                // we need to wait for the execution of the sendcurrency to finish.
-                trace!("execution hasn't finished yet");
+                trace!("execution failed with status: {}", opstatus.status);
 
-                if i > 100 {
-                    database::store_opid(
-                        &pool,
-                        &opid,
-                        &opstatus.status,
-                        opstatus.creation_time as i64,
-                        opstatus.result.as_ref().map(|txid| txid.txid),
-                        &params.address,
-                        params.amount,
-                        &params.currency.as_ref().unwrap(),
-                    )
-                    .await?;
-                } else {
-                    tokio::time::sleep(Duration::from_millis(77)).await;
-                }
+                database::store_opid(
+                    &pool,
+                    &opid,
+                    &opstatus.status,
+                    opstatus.creation_time as i64,
+                    opstatus.result.as_ref().map(|txid| txid.txid),
+                    &params.address,
+                    params.amount,
+                    &params.currency.as_ref().unwrap(),
+                )
+                .await?;
             }
         } else {
             trace!("there was NO operation_status");
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        if i > 100 {
-            return Ok(None);
-        }
-        i += 1;
     }
 }
 
