@@ -335,6 +335,32 @@ pub async fn store_withdraw_transaction(
     Ok(())
 }
 
+pub async fn store_opid(
+    pool: &PgPool,
+    opid: &str,
+    status: &str,
+    creation_time: i64,
+    result: Option<Txid>,
+    address: &str,
+    amount: f64,
+    currency: &str,
+) -> Result<(), Error> {
+    sqlx::query!(
+        "INSERT INTO opids (opid, status, creation_time, result, address, amount, currency) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        opid.to_string(),
+        status.to_string(),
+        creation_time,
+        result.map_or(String::new(), |r| r.to_string()),
+        address.to_string(),
+        (amount * 100_000_000.0) as i64,
+        currency.to_string()
+        )
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
 pub async fn update_notifications(
     pool: &PgPool,
     user_id: &UserId,

@@ -3,6 +3,7 @@ use std::{cmp::Ordering, fmt, ops::Sub, str::FromStr, time::Duration};
 
 use fast_qr::convert::{image::ImageBuilder, Builder, Shape};
 use fast_qr::qr::QRBuilder;
+use sqlx::PgPool;
 use tracing::*;
 use uuid::Uuid;
 use vrsc::{Address, Amount};
@@ -84,7 +85,7 @@ pub async fn all(
             let opid = client.send_currency("*", vec![sco], None, None)?;
             debug!("sendcurrency opid: {:?}", &opid);
 
-            if let Some(txid) = wait_for_sendcurrency_finish(&client, &opid).await? {
+            if let Some(txid) = wait_for_sendcurrency_finish(&pool, &client, &opid).await? {
                 // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
                 database::store_withdraw_transaction(
                     &pool,
@@ -238,7 +239,7 @@ pub async fn amount(
             let opid = client.send_currency("*", vec![sco], None, None)?;
             debug!("sendcurrency opid: {:?}", &opid);
 
-            if let Some(txid) = wait_for_sendcurrency_finish(&client, &opid).await? {
+            if let Some(txid) = wait_for_sendcurrency_finish(&pool, &client, &opid).await? {
                 // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
                 database::store_withdraw_transaction(
                     &pool,
@@ -291,6 +292,8 @@ pub async fn amount(
                     &tx_fee,
                 )
                 .await?;
+
+                // database::store_opid(&pool, &opid, , creation_time, result, address, amount, currency)
 
                 ctx.send(|reply| reply.ephemeral(true).content(&response))
                     .await?;
@@ -389,7 +392,11 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
 // Sendcurrency works with op-ids because it can work with zk-transactions. Therefore the txid of a transactions is not always known directly after sending.
 // This function waits a bit and gets the txid once the operation_status RPC gives one.
 // if it doesn't give one, the user is notified and the op-id is stored in the database.
-async fn wait_for_sendcurrency_finish(client: &Client, opid: &str) -> Result<Option<Txid>, Error> {
+async fn wait_for_sendcurrency_finish(
+    pool: &PgPool,
+    client: &Client,
+    opid: &str,
+) -> Result<Option<Txid>, Error> {
     let mut i = 0;
     loop {
         trace!("getting operation status: {}", &opid);
@@ -397,15 +404,43 @@ async fn wait_for_sendcurrency_finish(client: &Client, opid: &str) -> Result<Opt
         trace!("got operation status: {:?}", &operation_status);
 
         if let Some(Some(opstatus)) = operation_status.first() {
+            let params = opstatus.params.first().as_ref().unwrap().as_ref().unwrap();
+
             if let Some(txid) = &opstatus.result {
                 trace!("there was an operation_status");
+                // store succesful opid in database
 
+                database::store_opid(
+                    &pool,
+                    &opid,
+                    &opstatus.status,
+                    opstatus.creation_time as i64,
+                    opstatus.result.as_ref().map(|txid| txid.txid),
+                    &params.address,
+                    params.amount,
+                    &params.currency.as_ref().unwrap(),
+                )
+                .await?;
                 return Ok(Some(txid.txid));
             } else {
                 // we need to wait for the execution of the sendcurrency to finish.
                 trace!("execution hasn't finished yet");
 
-                tokio::time::sleep(Duration::from_millis(77)).await;
+                if i > 100 {
+                    database::store_opid(
+                        &pool,
+                        &opid,
+                        &opstatus.status,
+                        opstatus.creation_time as i64,
+                        opstatus.result.as_ref().map(|txid| txid.txid),
+                        &params.address,
+                        params.amount,
+                        &params.currency.as_ref().unwrap(),
+                    )
+                    .await?;
+                } else {
+                    tokio::time::sleep(Duration::from_millis(77)).await;
+                }
             }
         } else {
             trace!("there was NO operation_status");

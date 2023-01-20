@@ -167,6 +167,24 @@
     },
     "query": "SELECT balance FROM balance_vrsc WHERE discord_id = $1"
   },
+  "a57c1109f5ca0868ca1fbbcdf4fde4456bf01434bb50b59357a7026119703ea0": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Int8",
+          "Text",
+          "Text",
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "INSERT INTO opids (opid, status, creation_time, result, address, amount, currency) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+  },
   "ae24fd00f574049a81c6fd500d8d0c4f9b8840737797aecdafa60269d769d204": {
     "describe": {
       "columns": [],
