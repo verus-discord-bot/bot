@@ -433,7 +433,7 @@ async fn wait_for_sendcurrency_finish(
                 .await?;
                 return Ok(Some(txid.txid));
             } else {
-                trace!("execution failed with status: {}", opstatus.status);
+                error!("execution failed with status: {}", opstatus.status);
 
                 database::store_opid(
                     &pool,

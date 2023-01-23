@@ -70,6 +70,8 @@ async fn app() -> Result<(), Error> {
     let config = get_configuration()?;
     let pg_url = &config.database.connection_string();
     let database = PgPool::connect_lazy(pg_url)?;
+    sqlx::migrate!();
+
     let owners = config
         .application
         .owners
