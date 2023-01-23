@@ -428,7 +428,7 @@ async fn wait_for_sendcurrency_finish(
                     opstatus.result.as_ref().map(|txid| txid.txid),
                     &params.address,
                     params.amount,
-                    &params.currency.as_ref().unwrap(),
+                    &params.currency.as_ref().unwrap_or(&String::from("VRSC")),
                 )
                 .await?;
                 return Ok(Some(txid.txid));
