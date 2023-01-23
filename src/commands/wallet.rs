@@ -406,8 +406,9 @@ async fn wait_for_sendcurrency_finish(
         trace!("got operation status: {:?}", &operation_status);
 
         if let Some(Some(opstatus)) = operation_status.first() {
-            if ["queued, executing"].contains(&opstatus.status.as_ref()) {
+            if ["queued", "executing"].contains(&opstatus.status.as_ref()) {
                 tokio::time::sleep(Duration::from_millis(100)).await;
+                trace!("opid still executing");
                 continue;
             }
 
