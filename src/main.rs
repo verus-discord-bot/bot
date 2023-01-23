@@ -19,7 +19,7 @@ use secrecy::ExposeSecret;
 use sqlx::PgPool;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, span, warn};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use vrsc_rpc::{Client as VerusClient, RpcApi};
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -227,10 +227,13 @@ async fn app() -> Result<(), Error> {
 #[tokio::main(worker_threads = 8)]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // setup_logging().await?;
-
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "debug")
+        std::env::set_var(
+            "RUST_LOG",
+            "bot=trace,vrsc-rpc=info,poise=info,serenity=info",
+        )
     }
+
     global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
 
     let tracer = opentelemetry_jaeger::new_agent_pipeline()
@@ -239,12 +242,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
+    let filter_layer = EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new("info"))
+        .unwrap();
+
     tracing_subscriber::registry()
         .with(opentelemetry)
         // Continue logging to stdout
         .with(fmt::Layer::default())
+        .with(filter_layer)
         .try_init()?;
 
+    // Start actual app:
     if let Err(e) = app().await {
         error!("{}", e);
         std::process::exit(1);
@@ -261,9 +270,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //     }
 //     color_eyre::install()?;
 
-//     if std::env::var("RUST_LOG").is_err() {
-//         std::env::set_var("RUST_LOG", "bot=trace")
-//     }
+// if std::env::var("RUST_LOG").is_err() {
+//     std::env::set_var("RUST_LOG", "bot=trace")
+// }
 
 //     // let tracer = stdout::new_pipeline().install_simple();
 //     // let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
