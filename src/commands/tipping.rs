@@ -22,6 +22,7 @@ pub async fn tip(_ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Tip a role
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Tipping")]
 async fn role(
     ctx: Context<'_>,
@@ -79,6 +80,7 @@ async fn role(
     Ok(())
 }
 
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Tipping")]
 async fn user(
     ctx: Context<'_>,

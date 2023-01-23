@@ -231,6 +231,7 @@ pub async fn amount(
         if balance_is_enough(&balance_amount, &withdrawal_amount, &tx_fee) {
             trace!("balance is sufficient, withdrawal address is valid; starting sendcurrency");
 
+            // until PBaaS releases on mainnet, we should not use a value for currency for "VRSC" withdrawals as there will be a daemon error
             let currency = match ctx.data().settings.application.testnet {
                 true => Some("vrsctest"),
                 false => None,
