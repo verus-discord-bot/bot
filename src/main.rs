@@ -18,7 +18,7 @@ use poise::serenity_prelude::{self as serenity, UserId};
 use secrecy::ExposeSecret;
 use sqlx::PgPool;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, span, warn};
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use vrsc_rpc::{Client as VerusClient, RpcApi};
 
@@ -101,14 +101,7 @@ async fn app() -> Result<(), Error> {
             tipping::tip(),
             tipping::reactdrop(),
         ],
-        // command_check: Some(|ctx| {
-        //     Box::pin(async move {
-        //         let db = &ctx.data().database;
-        //         let author = ctx.author().id;
 
-        //         Ok(false)
-        //     })
-        // }),
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("?".into()),
             edit_tracker: Some(poise::EditTracker::for_timespan(
