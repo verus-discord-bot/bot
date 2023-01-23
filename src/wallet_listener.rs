@@ -196,9 +196,7 @@ async fn process_short_queue(
                     break;
                 } else {
                     trace!("tx has at least {} confs: {}", min_confs, front.0);
-                    if let Err(e) =
-                        handle(Arc::clone(&http), pool.clone(), &raw_tx, config.clone()).await
-                    {
+                    if let Err(e) = process_txid(Arc::clone(&http), &pool.clone(), &raw_tx).await {
                         error!(
                             "something went wrong while handling a new wallet tx: {:?}\n{:?}",
                             e, &front
@@ -254,9 +252,7 @@ async fn process_long_queue(
                     break;
                 } else {
                     trace!("tx has at least {} confs: {}", min_confs, front.0);
-                    if let Err(e) =
-                        handle(Arc::clone(&http), pool.clone(), &raw_tx, config.clone()).await
-                    {
+                    if let Err(e) = process_txid(Arc::clone(&http), &pool.clone(), &raw_tx).await {
                         error!(
                             "something went wrong while handling a new wallet tx: {:?}\n{:?}",
                             e, &front
@@ -277,12 +273,11 @@ async fn process_long_queue(
     }
 }
 
-// #[instrument(skip(http, pool, raw_tx, _config))]
-async fn handle(
+pub async fn process_txid(
     http: Arc<Http>,
-    pool: PgPool,
+    pool: &PgPool,
     raw_tx: &GetRawTransactionResultVerbose,
-    _config: Settings,
+    // _config: ?Settings,
 ) -> Result<(), Error> {
     if !transaction_processed(&pool, &raw_tx.txid).await? {
         for vout in raw_tx.vout.iter() {

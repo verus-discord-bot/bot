@@ -89,6 +89,7 @@ async fn app() -> Result<(), Error> {
             admin::depositenabled(),
             admin::withdrawenabled(),
             admin::blacklist(),
+            admin::checktxid(),
             misc::help(),
             misc::source(),
             misc::register(),

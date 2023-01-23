@@ -1,10 +1,11 @@
 use poise::serenity_prelude::UserId;
 use tracing::{debug, error, instrument, trace};
 use vrsc::Amount;
-use vrsc_rpc::RpcApi;
+use vrsc_rpc::{bitcoin::Txid, RpcApi};
 
-use crate::{util::database, Context, Error};
+use crate::{util::database, wallet_listener::process_txid, Context, Error};
 
+#[instrument(skip(ctx))]
 #[poise::command(owners_only, prefix_command, hide_in_help)]
 pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
     debug!("no more fun for {user_id}");
@@ -36,6 +37,7 @@ pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
     Ok(())
 }
 
+#[instrument(skip(ctx))]
 #[poise::command(owners_only, prefix_command, hide_in_help)]
 pub async fn setwithdrawfee(ctx: Context<'_>, amount: u64) -> Result<(), Error> {
     let withdrawal_fee = &ctx.data().withdrawal_fee;
@@ -68,6 +70,7 @@ pub async fn rescanfromheight(ctx: Context<'_>, height: u64) -> Result<(), Error
     Ok(())
 }
 
+#[instrument(skip(ctx))]
 #[poise::command(owners_only, prefix_command, hide_in_help)]
 pub async fn feescollected(ctx: Context<'_>) -> Result<(), Error> {
     trace!("fetching bot fees for {}", &ctx.data().bot_user_id);
@@ -86,6 +89,7 @@ pub async fn feescollected(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
+#[instrument(skip(ctx))]
 #[poise::command(owners_only, prefix_command, hide_in_help)]
 pub async fn withdrawenabled(ctx: Context<'_>, value: bool) -> Result<(), Error> {
     trace!("set withdraws enabled to {value}");
@@ -102,6 +106,7 @@ pub async fn withdrawenabled(ctx: Context<'_>, value: bool) -> Result<(), Error>
     Ok(())
 }
 
+#[instrument(skip(ctx))]
 #[poise::command(owners_only, prefix_command, hide_in_help)]
 pub async fn depositenabled(ctx: Context<'_>, value: bool) -> Result<(), Error> {
     trace!("set deposits enabled to {value}");
@@ -114,6 +119,23 @@ pub async fn depositenabled(ctx: Context<'_>, value: bool) -> Result<(), Error> 
 
     ctx.send(|reply| reply.content(format!("Deposits enabled: {value}")))
         .await?;
+
+    Ok(())
+}
+
+/// Manually checks a tx if it was not caught with rescan
+#[instrument(skip(ctx))]
+#[poise::command(owners_only, prefix_command, hide_in_help)]
+pub async fn checktxid(ctx: Context<'_>, txid: Txid) -> Result<(), Error> {
+    trace!("manually check {txid}");
+    let http = ctx.serenity_context().http.clone();
+    let pool = ctx.data().database.clone();
+
+    let client = &ctx.data().verus;
+
+    if let Ok(raw_tx) = client.get_raw_transaction_verbose(&txid) {
+        process_txid(http, &pool, &raw_tx).await?;
+    }
 
     Ok(())
 }
