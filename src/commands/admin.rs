@@ -1,5 +1,5 @@
 use poise::serenity_prelude::UserId;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, instrument, trace};
 use vrsc::Amount;
 use vrsc_rpc::RpcApi;
 
@@ -52,6 +52,7 @@ pub async fn setwithdrawfee(ctx: Context<'_>, amount: u64) -> Result<(), Error> 
     Ok(())
 }
 
+#[instrument(skip(ctx))]
 #[poise::command(owners_only, prefix_command, hide_in_help)]
 pub async fn rescanfromheight(ctx: Context<'_>, height: u64) -> Result<(), Error> {
     trace!("Initiating a rescan from height {height}");

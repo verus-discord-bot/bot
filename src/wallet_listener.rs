@@ -161,6 +161,7 @@ impl TransactionProcessor {
     }
 }
 
+#[instrument]
 async fn process_short_queue(
     queue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
     config: &Settings,
@@ -218,6 +219,7 @@ async fn process_short_queue(
     }
 }
 
+#[instrument]
 async fn process_long_queue(
     queue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
     config: &Settings,
@@ -275,7 +277,7 @@ async fn process_long_queue(
     }
 }
 
-#[instrument(skip(http, pool, raw_tx, _config))]
+// #[instrument(skip(http, pool, raw_tx, _config))]
 async fn handle(
     http: Arc<Http>,
     pool: PgPool,
