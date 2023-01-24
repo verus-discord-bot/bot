@@ -18,6 +18,9 @@ rpc_user = "<rpc_user>"
 rpc_password = "<rpc_password>"
 rpc_port = <rpc_password>
 global_withdrawal_fee = 50000 # in sats
+min_deposit_threshold = 100000000
+min_deposit_confirmations_small = 3
+min_deposit_confirmations_large = 10
 vrsc_block_notify_socket_path = "/tmp/discord_block_notify_vrsc.sock"
 vrsc_wallet_notify_socket_path = "/tmp/discord_wallet_notify_vrsc.sock"
 # these should be the admins of the bot

@@ -122,9 +122,9 @@ apt install netcat-openbsd
 
 Now start the docker container for postgres:
 NOTE:
-`<name>` and `<password>` should be the same as defined in the config file for the bot.
+`<password>` should be the same as defined in the config file for the bot.
 ```
-docker run --name <name> -e POSTGRES_PASSWORD=<password> -d -p 5432:5432 postgres:alpine
+docker run --name postgres -e POSTGRES_PASSWORD=<password> -d -p 5432:5432 postgres:alpine
 ```
 
 Let's set up the database:
@@ -132,6 +132,7 @@ Let's set up the database:
 ```sh 
 su - bot
 sqlx database create --database-url postgres://postgres:<POSTGRES_PASSWORD>@127.0.0.1:5432/<DB_NAME>
+# When migrating an existing database using pg_dump, DO NOT apply these migrations
 sqlx migrate run --database-url postgres://postgres:<POSTGRES_PASSWORD>@127.0.0.1:5432/<DB_NAME>
 ```
 
@@ -142,3 +143,9 @@ APP_ENVIRONMENT=production cargo run
 ```
 
 Note: this guide does not set up a Discord bot for your discord server.
+
+Import a pg_dump:
+```
+docker exec -it postgres bash # moves into the postgres docker container
+psql -U postgres -d <database_name> -f dump.sql # imports the data
+```
