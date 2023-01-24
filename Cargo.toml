@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "bot"
+name = "verusbot"
 version = "0.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -26,7 +26,6 @@ fast_qr = {version = "0.7.1", features = ["image"]}
 fancy-regex = "0.11.0"
 num-traits = "0.2.15"
 opentelemetry = "0.18.0"
-# opentelemetry-otlp = "0.11.0"
 opentelemetry-jaeger = "0.17.0"
 tracing-opentelemetry = "0.18.0"
 

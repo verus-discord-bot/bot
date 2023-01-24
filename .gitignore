@@ -3,3 +3,4 @@
 /qr_address
 walletnotify.sh
 blocknotify.sh
+.env

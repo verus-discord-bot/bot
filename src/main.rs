@@ -70,7 +70,7 @@ async fn app() -> Result<(), Error> {
     let config = get_configuration()?;
     let pg_url = &config.database.connection_string();
     let database = PgPool::connect_lazy(pg_url)?;
-    sqlx::migrate!();
+    sqlx::migrate!("./migrations").run(&database).await?;
 
     let owners = config
         .application
@@ -224,7 +224,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var(
             "RUST_LOG",
-            "bot=trace,vrsc-rpc=info,poise=info,serenity=info",
+            "verusbot=trace,vrsc-rpc=info,poise=info,serenity=info",
         )
     }
 
