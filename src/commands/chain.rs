@@ -28,6 +28,33 @@ pub async fn info(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
+/// Shows the ip addresses of all the peers that are connected to the bot.
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(slash_command, category = "Miscellaneous")]
+pub async fn peerinfo(ctx: Context<'_>) -> Result<(), Error> {
+    let client = &ctx.data().verus;
+
+    let peer_info = client
+        .get_peer_info()?
+        .into_iter()
+        .filter(|peer| peer.inbound == false)
+        .collect::<Vec<_>>();
+
+    ctx.send(|reply| {
+        reply.content(format!(
+            "Publicly available peers:```{}```",
+            peer_info
+                .into_iter()
+                .map(|peer| peer.addr)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ))
+    })
+    .await?;
+
+    Ok(())
+}
+
 /// Show VRSC price information
 #[instrument(skip(_ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Miscellaneous")]
@@ -38,8 +65,6 @@ pub async fn price(_ctx: Context<'_>) -> Result<(), Error> {
             .json()
             .await?;
     debug!("json response: {:#?}", &resp);
-
-    // if resp.is_null()
 
     let btc_price = get_f64(&resp, "price", "BTC");
     let usd_price = get_f64(&resp, "price", "USD");

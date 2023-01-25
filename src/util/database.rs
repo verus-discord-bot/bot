@@ -82,6 +82,8 @@ pub async fn get_balance_for_user(pool: &PgPool, user_id: &UserId) -> Result<Opt
         if balance < 0 {
             error!("BALANCE IS NEGATIVE, ABORT EVERYTHING, HOOMAN HALP");
             panic!("BALANCE IS NEGATIVE, ABORT EVERYTHING, HOOMAN HALP");
+
+            // return Ok(None);
         }
         Ok(Some(balance as u64))
     } else {

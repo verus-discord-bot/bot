@@ -300,6 +300,8 @@ pub async fn amount(
 
             return Ok(());
         }
+    } else {
+        // Ok(None) was returned
     }
 
     ctx.send(|reply| {
