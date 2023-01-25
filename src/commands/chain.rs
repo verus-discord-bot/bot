@@ -39,6 +39,8 @@ pub async fn price(_ctx: Context<'_>) -> Result<(), Error> {
             .await?;
     debug!("json response: {:#?}", &resp);
 
+    // if resp.is_null()
+
     let btc_price = get_f64(&resp, "price", "BTC");
     let usd_price = get_f64(&resp, "price", "USD");
     let usd_volume = get_f64(&resp, "volume_24h", "USD");
@@ -82,11 +84,10 @@ pub async fn price(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-//k = key, d = denomination
-fn get_f64(obj: &Value, k: &str, d: &str) -> f64 {
+fn get_f64(obj: &Value, key: &str, denom: &str) -> f64 {
     obj.get("quotes")
-        .and_then(|quotes| quotes.get(d))
-        .and_then(|price_obj| price_obj.get(k))
+        .and_then(|quotes| quotes.get(denom))
+        .and_then(|price_obj| price_obj.get(key))
         .and_then(|price| price.as_f64())
         .unwrap()
 }

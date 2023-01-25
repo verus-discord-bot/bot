@@ -378,6 +378,7 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
                     )
                 })
                 .attachment(poise::serenity_prelude::AttachmentType::Path(&out))
+                .ephemeral(true)
         })
         .await?;
     }
