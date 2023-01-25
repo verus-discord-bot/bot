@@ -371,16 +371,13 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
 
             reply
                 .embed(|embed| {
-                    embed
-                        .image(format!(
-                            "attachment://{filename}" // out.as_os_str().to_str().unwrap()
-                        ))
-                        .field("Address", format!("{}", address.to_string()), false)
-                    // .attachment(filename)
+                    embed.image(format!("attachment://{filename}")).field(
+                        "Address",
+                        format!("{}", address.to_string()),
+                        false,
+                    )
                 })
                 .attachment(poise::serenity_prelude::AttachmentType::Path(&out))
-            // reply
-            //     .content(format!("`{address}`"))
         })
         .await?;
     }

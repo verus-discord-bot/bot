@@ -95,6 +95,7 @@ async fn app() -> Result<(), Error> {
             misc::register(),
             misc::notifications(),
             chain::info(),
+            chain::price(),
             wallet::deposit(),
             wallet::balance(),
             wallet::withdraw(),
