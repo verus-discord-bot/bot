@@ -233,7 +233,7 @@ async fn app() -> Result<(), Error> {
                     Arc::new(RwLock::new(config.application.global_withdrawal_fee));
 
                 Ok(Data {
-                    maintenance: Arc::new(RwLock::new(false)),
+                    // maintenance: Arc::new(RwLock::new(false)),
                     verus: client,
                     settings: config,
                     bot_user_id: bot.user.id,
