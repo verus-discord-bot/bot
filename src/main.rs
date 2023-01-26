@@ -27,6 +27,7 @@ type Context<'a> = poise::Context<'a, Data, Error>;
 
 #[derive(Debug)]
 pub struct Data {
+    maintenance: Arc<RwLock<bool>>,
     verus: VerusClient,
     settings: Settings,
     bot_user_id: serenity::UserId,
@@ -90,6 +91,7 @@ async fn app() -> Result<(), Error> {
             admin::withdrawenabled(),
             admin::blacklist(),
             admin::checktxid(),
+            admin::maintenance(),
             misc::help(),
             misc::source(),
             misc::register(),
@@ -103,7 +105,24 @@ async fn app() -> Result<(), Error> {
             tipping::tip(),
             tipping::reactdrop(),
         ],
+        command_check: Some(|ctx| {
+            Box::pin(async move {
+                let maintenance_mode = { *ctx.data().maintenance.read().await };
 
+                if maintenance_mode {
+                    ctx.send(|reply| {
+                        reply.content(
+                            ":tools: The bot is in maintenance mode, we'll be right back :tools:",
+                        )
+                    })
+                    .await?;
+
+                    return Ok(false);
+                }
+
+                Ok(true)
+            })
+        }),
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("?".into()),
             edit_tracker: Some(poise::EditTracker::for_timespan(
@@ -188,13 +207,14 @@ async fn app() -> Result<(), Error> {
             Box::pin(async move {
                 tokio::spawn(async {
                     let mut tx_proc = TransactionProcessor::new();
-                    tx_proc.listen(http, db, config_clone, d_clone).await
+                    tx_proc.listen(http, db, config_clone, d_clone, false).await
                 });
 
                 let withdrawal_fee =
                     Arc::new(RwLock::new(config.application.global_withdrawal_fee));
 
                 Ok(Data {
+                    maintenance: Arc::new(RwLock::new(false)),
                     verus: client,
                     settings: config,
                     bot_user_id: bot.user.id,

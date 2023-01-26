@@ -139,3 +139,24 @@ pub async fn checktxid(ctx: Context<'_>, txid: Txid) -> Result<(), Error> {
 
     Ok(())
 }
+
+/// Set maintenance mode on or off
+#[instrument(skip(ctx))]
+#[poise::command(owners_only, prefix_command, hide_in_help)]
+pub async fn maintenance(ctx: Context<'_>, value: bool) -> Result<(), Error> {
+    trace!("setting maintenance mode to {value}");
+
+    {
+        let mut write = ctx.data().maintenance.write().await;
+        if *write == true && value == false {
+            // the bot will need to process some transactions that were stored.
+            // Need to trigger that somehow
+        }
+        *write = value;
+    }
+
+    ctx.send(|reply| reply.content("Maintenance mode set to {value}"))
+        .await?;
+
+    Ok(())
+}

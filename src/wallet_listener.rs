@@ -19,16 +19,30 @@ use crate::configuration::Settings;
 use crate::util::database::*;
 use crate::Error;
 
+/// Listens for wallet transactions and processes them.
+///
+/// Every interaction with a wallet will trigger a notification, which gets processed here.
+/// Deposits from users are thus processed here.
+///
+/// Works with UNIX sockets: The coin daemon sends a notification that includes the txid to `<project_root>/walletnotify.sh`
+/// which subsequently sends a message over a UNIX socket. This TransactionProcessor listens on that socket for incoming messages
+/// and processes each message.
+///
+/// The bot can be in maintenance mode, in which case processing will be postponed by putting the yet-to-be-processed
+/// txids in a database table. When maintenance mode is disabled, the transactions will be processed.
+///
+///
+
 pub struct TransactionProcessor {
-    queue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
-    queueue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
+    queue_small_txns: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
+    queue_large_txns: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
 }
 
 impl TransactionProcessor {
     pub fn new() -> Self {
         TransactionProcessor {
-            queue: Arc::new(RwLock::new(VecDeque::new())),
-            queueue: Arc::new(RwLock::new(VecDeque::new())),
+            queue_small_txns: Arc::new(RwLock::new(VecDeque::new())),
+            queue_large_txns: Arc::new(RwLock::new(VecDeque::new())),
         }
     }
 
@@ -38,6 +52,7 @@ impl TransactionProcessor {
         pool: PgPool,
         config: Settings,
         deposits_enabled: Arc<RwLock<bool>>,
+        maintenance_mode: bool,
     ) {
         // walletnotify
         let wallet_notify_socket_path = &config.application.vrsc_wallet_notify_socket_path;
@@ -62,10 +77,11 @@ impl TransactionProcessor {
             bind
         });
 
-        let queue_clone = self.queue.clone();
-        let queueue_clone = self.queueue.clone();
+        let queue_clone = self.queue_small_txns.clone();
+        let queueue_clone = self.queue_large_txns.clone();
         let pool_clone = pool.clone();
         let config_clone = config.clone();
+        let maintenance = maintenance_mode.clone();
 
         tokio::spawn(async move {
             loop {
@@ -73,6 +89,13 @@ impl TransactionProcessor {
                     Ok((stream, _address)) => {
                         let parsed_str = parse_bytes(&stream).await.expect("valid string");
                         let txid = Txid::from_str(&parsed_str).expect("valid txid");
+
+                        // at this point, the bot could be in maintenance mode, so we should check for that.
+                        // if it is in maintenance mode, we should store all the transactions in a database for later check
+
+                        // > write to database
+
+                        // then we should stop, so simply return.
 
                         let client = Client::vrsc(
                             config_clone.application.testnet,
@@ -121,8 +144,8 @@ impl TransactionProcessor {
         info!("walletnotify listening");
 
         let config_clone = config.clone();
-        let queue_clone = self.queue.clone();
-        let queueue_clone = self.queueue.clone();
+        let queue_clone = self.queue_small_txns.clone();
+        let queueue_clone = self.queue_large_txns.clone();
 
         tokio::spawn(async move {
             loop {
