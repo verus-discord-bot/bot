@@ -27,7 +27,7 @@ type Context<'a> = poise::Context<'a, Data, Error>;
 
 #[derive(Debug)]
 pub struct Data {
-    maintenance: Arc<RwLock<bool>>,
+    // maintenance: Arc<RwLock<bool>>,
     verus: VerusClient,
     settings: Settings,
     bot_user_id: serenity::UserId,
@@ -113,7 +113,7 @@ async fn app() -> Result<(), Error> {
             let owners = &ctx.data().owners;
             // let owner = owners_clone;
             Box::pin(async move {
-                let maintenance_mode = { *ctx.data().maintenance.read().await };
+                let maintenance_mode = { *ctx.data().tx_processor.maintenance.read().await };
 
                 if maintenance_mode && !owners.contains(&author) {
                     ctx.send(|reply| {
