@@ -121,6 +121,14 @@ pub async fn depositenabled(ctx: Context<'_>, value: bool) -> Result<(), Error> 
     {
         let deposits_enabled = &ctx.data().deposits_enabled;
         let mut write = deposits_enabled.write().await;
+        if *write == true && value == false {
+            trace!("need to process possible unprocessed transactions");
+
+            let pool = &ctx.data().database;
+            let tx_proc = Arc::clone(&ctx.data().tx_processor);
+
+            process_stored_txids(pool, tx_proc).await?
+        }
         *write = value;
     }
 

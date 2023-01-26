@@ -84,7 +84,7 @@ impl TransactionProcessor {
 
                     // at this point, the bot could be in maintenance mode, so we should check for that.
                     // if it is in maintenance mode, we should store all the transactions in a database for later check
-                    if *self.maintenance.read().await {
+                    if *self.maintenance.read().await || *self.deposits_enabled.read().await {
                         trace!("store {txid} in unprocessed_transactions");
                         if let Err(e) =
                             database::store_unprocessed_transaction(&self.pool, &txid).await
