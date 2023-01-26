@@ -466,3 +466,38 @@ pub async fn set_blacklist_status(
 
     Ok(())
 }
+
+pub async fn store_unprocessed_transaction(pool: &PgPool, txid: &Txid) -> Result<(), Error> {
+    sqlx::query!(
+        "INSERT INTO unprocessed_transactions (txid, status) VALUES ($1, $2)",
+        &txid.to_string(),
+        "unprocessed"
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn get_stored_txids(pool: &PgPool) -> Result<Vec<Txid>, Error> {
+    let rows =
+        sqlx::query!("SELECT txid FROM unprocessed_transactions WHERE status = 'unprocessed'")
+            .fetch_all(pool)
+            .await?;
+
+    return Ok(rows
+        .into_iter()
+        .map(|row| Txid::from_str(&row.txid).unwrap())
+        .collect::<Vec<_>>());
+}
+
+pub async fn set_stored_txid_to_processed(pool: &PgPool, txid: &Txid) -> Result<(), Error> {
+    sqlx::query!(
+        "UPDATE unprocessed_transactions SET status = 'processed' WHERE txid = $1",
+        &txid.to_string(),
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}

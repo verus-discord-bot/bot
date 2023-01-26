@@ -37,6 +37,8 @@ pub struct Data {
     withdrawals_enabled: Arc<RwLock<bool>>,
     deposits_enabled: Arc<RwLock<bool>>,
     blacklist: std::sync::Mutex<HashSet<UserId>>,
+    tx_processor: Arc<TransactionProcessor>,
+    owners: HashSet<UserId>,
 }
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
@@ -58,9 +60,9 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
                 warn!("{}", e)
             }
         }
-        poise::FrameworkError::CommandCheckFailed { error: _, ctx } => {
-            ctx.say("You have been blacklisted").await.unwrap();
-        }
+        // poise::FrameworkError::CommandCheckFailed { error: _, ctx } => {
+        //     ctx.say("You have been blacklisted").await.unwrap();
+        // }
         _ => {
             warn!("an unrecoverable error occured")
         }
@@ -81,6 +83,7 @@ async fn app() -> Result<(), Error> {
         .collect::<HashSet<UserId>>()
         .clone();
     debug!("{owners:?}");
+    let owners_clone = owners.clone();
 
     let options = poise::FrameworkOptions {
         commands: vec![
@@ -106,10 +109,13 @@ async fn app() -> Result<(), Error> {
             tipping::reactdrop(),
         ],
         command_check: Some(|ctx| {
+            let author = &ctx.author().id;
+            let owners = &ctx.data().owners;
+            // let owner = owners_clone;
             Box::pin(async move {
                 let maintenance_mode = { *ctx.data().maintenance.read().await };
 
-                if maintenance_mode {
+                if maintenance_mode && !owners.contains(&author) {
                     ctx.send(|reply| {
                         reply.content(
                             ":tools: The bot is in maintenance mode, we'll be right back :tools:",
@@ -199,15 +205,28 @@ async fn app() -> Result<(), Error> {
         .token(config.application.discord.expose_secret())
         .setup(move |ctx, bot, _framework| {
             let http = ctx.http.clone();
-            let db = database.clone();
+            let pool = database.clone();
             let config_clone = config.clone();
             let deposits_enabled = Arc::new(RwLock::new(true));
-            let d_clone = Arc::clone(&deposits_enabled);
+            let deposits_enabled_clone = deposits_enabled.clone();
 
             Box::pin(async move {
-                tokio::spawn(async {
-                    let mut tx_proc = TransactionProcessor::new();
-                    tx_proc.listen(http, db, config_clone, d_clone, false).await
+                let tx_proc = Arc::new(TransactionProcessor::new(
+                    http,
+                    pool,
+                    config_clone,
+                    Arc::new(RwLock::new(false)),
+                    deposits_enabled_clone,
+                ));
+
+                let tx_proc_clone = tx_proc.clone();
+                tokio::spawn(async move {
+                    tx_proc_clone.clone().listen_wallet_notifications().await;
+                });
+
+                let tx_proc_clone = tx_proc.clone();
+                tokio::spawn(async move {
+                    tx_proc_clone.clone().listen_block_notifications().await;
                 });
 
                 let withdrawal_fee =
@@ -224,6 +243,8 @@ async fn app() -> Result<(), Error> {
                     withdrawals_enabled: Arc::new(RwLock::new(true)),
                     deposits_enabled,
                     blacklist: std::sync::Mutex::new(HashSet::new()),
+                    tx_processor: tx_proc,
+                    owners: owners_clone,
                 })
             })
         })

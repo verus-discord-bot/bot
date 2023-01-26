@@ -1,9 +1,16 @@
+use std::sync::Arc;
+
 use poise::serenity_prelude::UserId;
+use sqlx::PgPool;
 use tracing::{debug, error, instrument, trace};
 use vrsc::Amount;
 use vrsc_rpc::{bitcoin::Txid, RpcApi};
 
-use crate::{util::database, wallet_listener::process_txid, Context, Error};
+use crate::{
+    util::database,
+    wallet_listener::{process_txid, TransactionProcessor},
+    Context, Error,
+};
 
 #[instrument(skip(ctx))]
 #[poise::command(owners_only, prefix_command, hide_in_help)]
@@ -147,16 +154,36 @@ pub async fn maintenance(ctx: Context<'_>, value: bool) -> Result<(), Error> {
     trace!("setting maintenance mode to {value}");
 
     {
-        let mut write = ctx.data().maintenance.write().await;
+        let mut write = ctx.data().tx_processor.maintenance.write().await;
         if *write == true && value == false {
-            // the bot will need to process some transactions that were stored.
-            // Need to trigger that somehow
+            trace!("need to process possible unprocessed transactions");
+
+            let pool = &ctx.data().database;
+            let tx_proc = Arc::clone(&ctx.data().tx_processor);
+
+            process_stored_txids(pool, tx_proc).await?
         }
         *write = value;
     }
 
-    ctx.send(|reply| reply.content("Maintenance mode set to {value}"))
+    ctx.send(|reply| reply.content(format!("Maintenance mode set to {value}")))
         .await?;
+
+    Ok(())
+}
+
+async fn process_stored_txids(
+    pool: &PgPool,
+    tx_proc: Arc<TransactionProcessor>,
+) -> Result<(), Error> {
+    let stored_txids = database::get_stored_txids(&pool).await?;
+
+    for txid in stored_txids {
+        trace!("processing {txid}");
+        tx_proc.check_tx(txid).await?;
+
+        database::set_stored_txid_to_processed(&pool, &txid).await?;
+    }
 
     Ok(())
 }

@@ -16,7 +16,7 @@ use vrsc_rpc::json::GetRawTransactionResultVerbose;
 use vrsc_rpc::{Auth, Client, RpcApi};
 
 use crate::configuration::Settings;
-use crate::util::database::*;
+use crate::util::database::{self, *};
 use crate::Error;
 
 /// Listens for wallet transactions and processes them.
@@ -33,29 +33,38 @@ use crate::Error;
 ///
 ///
 
+#[derive(Debug)]
 pub struct TransactionProcessor {
+    http: Arc<Http>,
+    pool: PgPool,
+    config: Settings,
+    pub maintenance: Arc<RwLock<bool>>,
+    deposits_enabled: Arc<RwLock<bool>>,
     queue_small_txns: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
     queue_large_txns: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
 }
 
 impl TransactionProcessor {
-    pub fn new() -> Self {
+    pub fn new(
+        http: Arc<Http>,
+        pool: PgPool,
+        config: Settings,
+        maintenance: Arc<RwLock<bool>>,
+        deposits_enabled: Arc<RwLock<bool>>,
+    ) -> Self {
         TransactionProcessor {
+            http,
+            pool,
+            config,
+            maintenance,
+            deposits_enabled,
             queue_small_txns: Arc::new(RwLock::new(VecDeque::new())),
             queue_large_txns: Arc::new(RwLock::new(VecDeque::new())),
         }
     }
 
-    pub async fn listen(
-        &mut self,
-        http: Arc<Http>,
-        pool: PgPool,
-        config: Settings,
-        deposits_enabled: Arc<RwLock<bool>>,
-        maintenance_mode: bool,
-    ) {
-        // walletnotify
-        let wallet_notify_socket_path = &config.application.vrsc_wallet_notify_socket_path;
+    pub async fn listen_wallet_notifications(&self) {
+        let wallet_notify_socket_path = &self.config.application.vrsc_wallet_notify_socket_path;
         let wallet_listener = UnixListener::bind(&wallet_notify_socket_path).unwrap_or_else(|_| {
             std::fs::remove_file(&wallet_notify_socket_path).unwrap();
             let bind = UnixListener::bind(&wallet_notify_socket_path).unwrap();
@@ -66,7 +75,43 @@ impl TransactionProcessor {
             bind
         });
 
-        let block_notify_socket_path = &config.application.vrsc_block_notify_socket_path;
+        // tokio::spawn(async move {
+        loop {
+            match wallet_listener.accept().await {
+                Ok((stream, _address)) => {
+                    let parsed_str = parse_bytes(&stream).await.expect("valid string");
+                    let txid = Txid::from_str(&parsed_str).expect("valid txid");
+
+                    // at this point, the bot could be in maintenance mode, so we should check for that.
+                    // if it is in maintenance mode, we should store all the transactions in a database for later check
+                    if *self.maintenance.read().await {
+                        trace!("store {txid} in unprocessed_transactions");
+                        if let Err(e) =
+                            database::store_unprocessed_transaction(&self.pool, &txid).await
+                        {
+                            error!("Something went wrong while storing an unprocessed transaction: {:?}", e);
+                        }
+
+                        return;
+                    }
+
+                    if let Err(e) = self.check_tx(txid).await {
+                        error!("something went wrong while checking a transaction: {:?}", e);
+                    }
+                }
+                Err(e) => {
+                    error!("connection to socket listener failed: {}", e);
+
+                    break;
+                }
+            }
+        }
+        // });
+        info!("walletnotify listening");
+    }
+
+    pub async fn listen_block_notifications(&self) {
+        let block_notify_socket_path = &self.config.application.vrsc_block_notify_socket_path;
         let block_listener = UnixListener::bind(&block_notify_socket_path).unwrap_or_else(|_| {
             std::fs::remove_file(&block_notify_socket_path).unwrap();
             let bind = UnixListener::bind(&block_notify_socket_path).unwrap();
@@ -77,110 +122,85 @@ impl TransactionProcessor {
             bind
         });
 
-        let queue_clone = self.queue_small_txns.clone();
-        let queueue_clone = self.queue_large_txns.clone();
-        let pool_clone = pool.clone();
-        let config_clone = config.clone();
-        let maintenance = maintenance_mode.clone();
+        let config = self.config.clone();
+        let pool = self.pool.clone();
+        let http = self.http.clone();
+        let queue = self.queue_small_txns.clone();
+        let queueue = self.queue_large_txns.clone();
+        let deposits_enabled = self.deposits_enabled.read().await.clone();
 
-        tokio::spawn(async move {
-            loop {
-                match wallet_listener.accept().await {
-                    Ok((stream, _address)) => {
-                        let parsed_str = parse_bytes(&stream).await.expect("valid string");
-                        let txid = Txid::from_str(&parsed_str).expect("valid txid");
-
-                        // at this point, the bot could be in maintenance mode, so we should check for that.
-                        // if it is in maintenance mode, we should store all the transactions in a database for later check
-
-                        // > write to database
-
-                        // then we should stop, so simply return.
-
-                        let client = Client::vrsc(
-                            config_clone.application.testnet,
-                            Auth::UserPass(
-                                format!("127.0.0.1:{}", config_clone.application.rpc_port),
-                                config_clone.application.rpc_user.clone(),
-                                config_clone.application.rpc_password.clone(),
-                            ),
-                        )
-                        .unwrap();
-
-                        let raw_tx = client.get_raw_transaction_verbose(&txid).unwrap();
-
-                        for vout in raw_tx.vout.iter() {
-                            if let Some(addresses) = &vout.script_pubkey.addresses {
-                                for address in addresses {
-                                    if let Some(user_id) =
-                                        get_user_from_address(&pool_clone, address).await.unwrap()
-                                    {
-                                        trace!("there is a user for this address: {user_id}",);
-                                        let mut write = queue_clone.write().await;
-                                        let mut long_write = queueue_clone.write().await;
-
-                                        // if the value of the incoming transaction is greater than
-                                        if vout.value.gt(&config.application.min_deposit_threshold)
-                                        {
-                                            trace!("{txid} put in long queue");
-                                            long_write.push_back((txid.clone(), vout.value))
-                                        } else {
-                                            trace!("{txid} put in short queue");
-                                            write.push_back((txid.clone(), vout.value))
-                                        }
-                                    }
-                                }
-                            } else {
-                                debug!("no addresses found in scriptpubkey");
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("connection to socket listener failed: {}", e)
-                    }
-                }
-            }
-        });
-        info!("walletnotify listening");
-
-        let config_clone = config.clone();
-        let queue_clone = self.queue_small_txns.clone();
-        let queueue_clone = self.queue_large_txns.clone();
-
-        tokio::spawn(async move {
-            loop {
-                match block_listener.accept().await {
-                    Ok((_stream, _address)) => loop {
-                        if *deposits_enabled.read().await == false {
-                            // deposits are disabled, let's return
-                            debug!("deposits are disabled, break");
-                            break;
-                        }
-
-                        process_short_queue(
-                            queue_clone.clone(),
-                            &config_clone,
-                            &pool,
-                            http.clone(),
-                        )
-                        .await;
-                        process_long_queue(
-                            queueue_clone.clone(),
-                            &config_clone,
-                            &pool,
-                            http.clone(),
-                        )
-                        .await;
-
+        // tokio::spawn(async move {
+        loop {
+            match block_listener.accept().await {
+                Ok((_stream, _address)) => loop {
+                    if deposits_enabled == false {
+                        // deposits are disabled, let's return
+                        info!("deposits are disabled");
                         break;
-                    },
-                    Err(e) => {
-                        error!("connection to socket listener failed: {}", e)
                     }
+
+                    process_short_queue(queue.clone(), &config, &pool, http.clone()).await;
+                    process_long_queue(queueue.clone(), &config, &pool, http.clone()).await;
+
+                    break;
+                },
+                Err(e) => {
+                    error!("connection to socket listener failed: {}", e);
+
+                    break;
                 }
             }
-        });
+        }
+        // });
         info!("blocknotify listening");
+    }
+
+    pub async fn check_tx(
+        &self,
+        // config: Settings,
+        // queue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
+        // queueue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
+        txid: Txid,
+        // pool: PgPool,
+    ) -> Result<(), Error> {
+        let client = Client::vrsc(
+            self.config.application.testnet,
+            Auth::UserPass(
+                format!("127.0.0.1:{}", self.config.application.rpc_port),
+                self.config.application.rpc_user.clone(),
+                self.config.application.rpc_password.clone(),
+            ),
+        )?;
+
+        let raw_tx = client.get_raw_transaction_verbose(&txid)?;
+
+        for vout in raw_tx.vout.iter() {
+            if let Some(addresses) = &vout.script_pubkey.addresses {
+                for address in addresses {
+                    if let Some(user_id) = get_user_from_address(&self.pool, address).await? {
+                        trace!("there is a user for this address: {user_id}",);
+                        let mut write = self.queue_small_txns.write().await;
+                        let mut long_write = self.queue_large_txns.write().await;
+
+                        // if the value of the incoming transaction is greater than
+                        if vout
+                            .value
+                            .gt(&self.config.application.min_deposit_threshold)
+                        {
+                            trace!("{txid} put in long queue");
+                            long_write.push_back((txid.clone(), vout.value))
+                        } else {
+                            trace!("{txid} put in short queue");
+                            write.push_back((txid.clone(), vout.value))
+                        }
+                    }
+                }
+            } else {
+                trace!("no addresses found in scriptpubkey");
+            }
+        }
+
+        Ok(())
     }
 }
 

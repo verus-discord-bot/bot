@@ -198,6 +198,31 @@
     },
     "query": "UPDATE balance_vrsc SET balance = balance - $1 WHERE discord_id = $2"
   },
+  "afa3e323ff01467f58712026f5b7e817c4d2288f55ad25c24960ae30420bed45": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "INSERT INTO unprocessed_transactions (txid, status) VALUES ($1, $2)"
+  },
+  "b0168be214d8630391c7fb0317ae8cc8a4d30d10f0c4e77ce16148dbd049aa16": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE unprocessed_transactions SET status = 'processed' WHERE txid = $1"
+  },
   "bd058a5a7ce91cf460a4c071e2e7b5e75576feee9a8ee3406395d460215000fe": {
     "describe": {
       "columns": [
@@ -259,6 +284,24 @@
       }
     },
     "query": "SELECT * FROM transactions_vrsc WHERE transaction_id = $1 AND transaction_action = 'deposit'"
+  },
+  "d6ac1264c5461c414910155fb22da28842b3bc610e672c3bba4187ede81d18c0": {
+    "describe": {
+      "columns": [
+        {
+          "name": "txid",
+          "ordinal": 0,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "SELECT txid FROM unprocessed_transactions WHERE status = 'unprocessed'"
   },
   "d95982d569deedf1e85f9f2f15e2d19a54f9eaa1b5e16b63c8e48c7c7677b20f": {
     "describe": {
