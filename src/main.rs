@@ -119,7 +119,7 @@ async fn app() -> Result<(), Error> {
                     ctx.send(|reply| {
                         reply.content(
                             ":tools: The bot is in maintenance mode, we'll be right back :tools:",
-                        )
+                        ).ephemeral(true)
                     })
                     .await?;
 
