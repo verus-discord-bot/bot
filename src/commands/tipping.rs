@@ -353,8 +353,6 @@ pub async fn reactdrop(
                     }
 
                     continue;
-                } else {
-                    break;
                 }
             }
 
