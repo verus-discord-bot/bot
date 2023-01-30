@@ -107,6 +107,7 @@ async fn app() -> Result<(), Error> {
             admin::checktxid(),
             admin::maintenance(),
             admin::status(),
+            admin::total_deposited(),
             misc::help(),
             misc::source(),
             misc::register(),

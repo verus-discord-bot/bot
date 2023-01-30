@@ -81,6 +81,24 @@
     },
     "query": "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, opid, transaction_action, fee) VALUES ($1, $2, $3, $4, $5, $6)"
   },
+  "4d5a3db628e19874da42dc4d227f778b1ad009100d846653f68e24e40c8c1e7a": {
+    "describe": {
+      "columns": [
+        {
+          "name": "transaction_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "SELECT transaction_id FROM transactions_vrsc WHERE transaction_action = 'deposit'"
+  },
   "562a0dc83d7614066b62ccfb8633fbfe7df4c0f026db3e9d39fda9904fbdb392": {
     "describe": {
       "columns": [],

@@ -50,6 +50,49 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
 
 #[instrument(skip(ctx))]
 #[poise::command(owners_only, prefix_command, hide_in_help)]
+pub async fn total_deposited(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.defer().await?;
+
+    let pool = &ctx.data().database;
+    let client = ctx.data().verus()?;
+
+    let deposit_transactions = database::get_all_deposit_txids(&pool).await?;
+
+    let mut sum = Amount::ZERO;
+
+    for txid in deposit_transactions {
+        let raw_tx = client.get_raw_transaction_verbose(&txid)?;
+        // let vout = raw_tx.vout.first().unwrap();
+        for vout in raw_tx.vout.iter() {
+            if let Some(addresses) = &vout.script_pubkey.addresses {
+                for address in addresses {
+                    if let Some(user_id) = database::get_user_from_address(&pool, address).await? {
+                        trace!("there is a user for this address: {user_id}",);
+                        sum = sum.checked_add(vout.value_sat).unwrap();
+                    }
+                }
+            } else {
+                trace!("no addresses found in scriptpubkey");
+            }
+        }
+    }
+
+    ctx.send(|reply| reply.content(format!("Total deposited: {}", sum)))
+        .await?;
+    // total balance held by all users
+    // total amount tipped
+    // total amount deposited
+    // total amount withdrawn
+    // largest tip
+    // deposits: bool
+    // withdrawals: bool
+    // maintenance: bool
+
+    Ok(())
+}
+
+#[instrument(skip(ctx))]
+#[poise::command(owners_only, prefix_command, hide_in_help)]
 pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
     debug!("no more fun for {user_id}");
     let pool = &ctx.data().database;
