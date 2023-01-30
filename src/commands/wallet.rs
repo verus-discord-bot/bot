@@ -68,7 +68,7 @@ pub async fn all(
         ctx.author().id
     );
 
-    let client = &ctx.data().verus;
+    let client = &ctx.data().verus()?;
     if !destination_is_valid(&destination, &client) {
         ctx.send(|reply| {
             reply.ephemeral(true).content(format!(
@@ -207,7 +207,7 @@ pub async fn amount(
 
     let withdrawal_amount = Amount::from_float_in(withdrawal_amount, vrsc::Denomination::Verus)?;
 
-    let client = &ctx.data().verus;
+    let client = &ctx.data().verus()?;
     if !destination_is_valid(&destination, &client) {
         ctx.send(|reply| {
             reply.ephemeral(true).content(format!(

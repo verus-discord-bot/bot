@@ -28,7 +28,7 @@ type Context<'a> = poise::Context<'a, Data, Error>;
 #[derive(Debug)]
 pub struct Data {
     // maintenance: Arc<RwLock<bool>>,
-    verus: VerusClient,
+    // verus: VerusClient,
     settings: Settings,
     bot_user_id: serenity::UserId,
     _bot_start_time: std::time::Instant,
@@ -39,6 +39,20 @@ pub struct Data {
     blacklist: std::sync::Mutex<HashSet<UserId>>,
     tx_processor: Arc<TransactionProcessor>,
     owners: HashSet<UserId>,
+}
+
+impl Data {
+    pub fn verus(&self) -> Result<VerusClient, Error> {
+        vrsc_rpc::Client::vrsc(
+            self.settings.application.testnet,
+            vrsc_rpc::Auth::UserPass(
+                format!("http://127.0.0.1:{}", self.settings.application.rpc_port),
+                self.settings.application.rpc_user.clone(),
+                self.settings.application.rpc_password.clone(),
+            ),
+        )
+        .map_err(|e| e.into())
+    }
 }
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
@@ -151,7 +165,7 @@ async fn app() -> Result<(), Error> {
                         .await
                 {
                     if response.is_none() {
-                        let client = &ctx.data().verus;
+                        let client = &ctx.data().verus().unwrap();
                         let address = client.get_new_address().unwrap();
                         crate::util::database::store_new_address_for_user(
                             &pool,
@@ -181,21 +195,6 @@ async fn app() -> Result<(), Error> {
 
         ..Default::default()
     };
-
-    let client = vrsc_rpc::Client::vrsc(
-        config.application.testnet,
-        vrsc_rpc::Auth::UserPass(
-            format!("http://127.0.0.1:{}", config.application.rpc_port),
-            config.application.rpc_user.clone(),
-            config.application.rpc_password.clone(),
-        ),
-    )?;
-
-    // do not start bot if Verus daemon isn't ready
-    if let Err(e) = client.ping() {
-        error!("Verus daemon not ready: {:?}", e);
-        return Ok(());
-    }
 
     debug!("connection string: {}", config.database.connection_string());
 
@@ -234,7 +233,7 @@ async fn app() -> Result<(), Error> {
 
                 Ok(Data {
                     // maintenance: Arc::new(RwLock::new(false)),
-                    verus: client,
+                    // verus: client,
                     settings: config,
                     bot_user_id: bot.user.id,
                     _bot_start_time: std::time::Instant::now(),

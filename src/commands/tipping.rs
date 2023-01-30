@@ -59,7 +59,7 @@ async fn role(
 
             tip_users(
                 &ctx.http(),
-                &ctx.data().verus,
+                &ctx.data().verus()?,
                 &pool,
                 &role_members,
                 &ctx.author().id,
@@ -119,7 +119,7 @@ async fn user(
         // we need to create a balance for him first. TODO: Maybe we can do that in the command itself.
         if get_balance_for_user(pool, &user.id).await?.is_none() {
             trace!("balance is none, so need to create new balance for user.");
-            let client = &ctx.data().verus;
+            let client = &ctx.data().verus()?;
             let address = client.get_new_address()?;
             store_new_address_for_user(pool, &user.id, &address).await?;
         }
@@ -355,7 +355,7 @@ pub async fn reactdrop(
                         trace!("tipping {} users in reactdrop", users.len());
                         tip_users(
                             &http,
-                            &ctx.data().verus,
+                            &ctx.data().verus()?,
                             pool,
                             &users,
                             &ctx.author().id,

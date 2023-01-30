@@ -9,7 +9,7 @@ use crate::{Context, Error};
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(track_edits, slash_command, category = "Miscellaneous")]
 pub async fn info(ctx: Context<'_>) -> Result<(), Error> {
-    let blockchain_info = &ctx.data().verus.get_blockchain_info()?;
+    let blockchain_info = &ctx.data().verus()?.get_blockchain_info()?;
     let testnet_name = match ctx.data().settings.application.testnet {
         true => "Verus (testnet)",
         false => "Verus",
@@ -32,7 +32,7 @@ pub async fn info(ctx: Context<'_>) -> Result<(), Error> {
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Miscellaneous")]
 pub async fn peerinfo(ctx: Context<'_>) -> Result<(), Error> {
-    let client = &ctx.data().verus;
+    let client = &ctx.data().verus()?;
 
     let peer_info = client
         .get_peer_info()?

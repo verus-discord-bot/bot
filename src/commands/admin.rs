@@ -66,7 +66,7 @@ pub async fn setwithdrawfee(ctx: Context<'_>, amount: u64) -> Result<(), Error> 
 pub async fn rescanfromheight(ctx: Context<'_>, height: u64) -> Result<(), Error> {
     trace!("Initiating a rescan from height {height}");
 
-    let client = &ctx.data().verus;
+    let client = &ctx.data().verus()?;
     if let Ok(()) = client.rescan_from_height(height) {
         trace!("rescan done");
         ctx.send(|reply| reply.content("Rescan done")).await?;
@@ -146,7 +146,7 @@ pub async fn checktxid(ctx: Context<'_>, txid: Txid) -> Result<(), Error> {
     let http = ctx.serenity_context().http.clone();
     let pool = ctx.data().database.clone();
 
-    let client = &ctx.data().verus;
+    let client = &ctx.data().verus()?;
 
     if let Ok(raw_tx) = client.get_raw_transaction_verbose(&txid) {
         process_txid(http, &pool, &raw_tx).await?;
