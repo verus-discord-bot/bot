@@ -196,6 +196,21 @@ async fn app() -> Result<(), Error> {
         ..Default::default()
     };
 
+    let client = vrsc_rpc::Client::vrsc(
+        config.application.testnet,
+        vrsc_rpc::Auth::UserPass(
+            format!("http://127.0.0.1:{}", config.application.rpc_port),
+            config.application.rpc_user.clone(),
+            config.application.rpc_password.clone(),
+        ),
+    );
+
+    if client.is_err() || client.unwrap().ping().is_err() {
+        error!("Verus daemon not ready, abort");
+
+        return Ok(());
+    }
+
     debug!("connection string: {}", config.database.connection_string());
 
     debug!("starting client");
