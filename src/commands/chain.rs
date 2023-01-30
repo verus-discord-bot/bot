@@ -56,9 +56,11 @@ pub async fn peerinfo(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Show VRSC price information
-#[instrument(skip(_ctx), fields(request_id = %Uuid::new_v4() ))]
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Miscellaneous")]
-pub async fn price(_ctx: Context<'_>) -> Result<(), Error> {
+pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.defer().await?;
+
     let resp: Value =
         reqwest::get("https://api.coinpaprika.com/v1/tickers/vrsc-verus-coin?quotes=USD,BTC")
             .await?
@@ -75,7 +77,7 @@ pub async fn price(_ctx: Context<'_>) -> Result<(), Error> {
 
     let price_up = get_f64(&resp, "percent_change_24h", "USD").is_sign_positive();
 
-    _ctx.send(|reply| {
+    ctx.send(|reply| {
         reply.embed(|embed| {
             embed
                 .title("VRSC price information")

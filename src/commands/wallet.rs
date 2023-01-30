@@ -13,6 +13,21 @@ use crate::commands::user_blacklisted;
 use crate::{util::database, Context, Error};
 
 /// Withdraw funds from the tipbot wallet.
+///
+/// -------- :robot: **Withdraw an amount** --------
+/// Withdraws the amount you enter to an address or VerusID that you specify. Valid withdrawal addresses are:
+/// - an address that starts with R* or i*
+/// - an existing VerusID (ends with an `@`)
+///
+/// A withdrawal fee will be subtracted from your remaining balance.
+/// You will encounter an error when the amount you want to withdraw is more than (your balance - withdrawal fee).
+///
+/// -------- :robot: **Withdraw all** --------
+/// Zero out your balance by withdrawing everything to an address or VerusID that you specify. Valid withdrawal addresses are:
+/// - an address that starts with R* or i*
+/// - an existing VerusID (ends with an `@`)
+///
+/// A withdrawal fee will be subtracted from the total balance before withdrawal.
 #[instrument(skip(_ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Wallet", subcommands("amount", "all"))]
 pub async fn withdraw(
@@ -29,7 +44,7 @@ pub async fn withdraw(
 #[poise::command(slash_command, category = "Wallet")]
 pub async fn all(
     ctx: Context<'_>,
-    #[description = "You can use any address starting with R* or i*, or use an existing identity (ends with @)."]
+    #[description = "You can use any address starting with R* or i*, or use an existing VerusID (ends with @)."]
     destination: String,
 ) -> Result<(), Error> {
     if *ctx.data().withdrawals_enabled.read().await == false {
@@ -160,7 +175,7 @@ pub async fn all(
     Ok(())
 }
 
-/// Withdraw a given amount from the tipbot wallet.
+/// Withdraw an amount from the tipbot wallet.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Wallet")]
 pub async fn amount(

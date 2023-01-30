@@ -15,18 +15,25 @@ use crate::{
 };
 
 /// Tip a user or a role
+///
+/// -------- :robot: **Tipping a user** --------
+/// Tip a role by entering and selecting the user name. The selection menu will update as you type.
+///
+/// -------- :robot: **Tipping a role** --------
+/// Tip a role by entering and selecting the role name. The role name can be any role, even the @everyone role. \
+/// The amount entered in the second parameter will be split evenly among the members of the role.
 #[instrument(skip(_ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Tipping", subcommands("role", "user"))]
 pub async fn tip(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Tip a role
+/// Tip a role by entering and selecting the role name.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Tipping")]
 async fn role(
     ctx: Context<'_>,
-    role: serenity_prelude::Role,
+    #[description = "Enter and select the role you want to tip"] role: serenity_prelude::Role,
     #[description = "The amount you want to tip"] tip_amount: f64,
 ) -> Result<(), Error> {
     if user_blacklisted(ctx, ctx.author().id).await? {
@@ -80,11 +87,12 @@ async fn role(
     Ok(())
 }
 
+/// Tip a user by entering and selecting the user's name.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Tipping")]
 async fn user(
     ctx: Context<'_>,
-    user: serenity_prelude::User,
+    #[description = "Enter and select the user you want to tip"] user: serenity_prelude::User,
     #[description = "The amount you want to tip"] tip_amount: f64,
 ) -> Result<(), Error> {
     if user_blacklisted(ctx, ctx.author().id).await? {
@@ -192,7 +200,13 @@ pub enum Hms {
     Seconds,
 }
 
-/// Start a giveaway where users need to react to participate
+/// Start a giveaway where users need to react to a message to participate
+///
+/// -------- :robot: **Reactdrop** --------
+/// When initiating a reactdrop, find a suitable emoji in the first parameter. \
+/// It can be any Emoji, as long as the emoji is in the current server.
+///
+/// The amount is entered in the second parameter. This amount will be split among the participants of the reactdrop when it ends.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Tipping")]
 pub async fn reactdrop(

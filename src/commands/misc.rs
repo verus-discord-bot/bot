@@ -48,9 +48,19 @@ pub async fn register(ctx: Context<'_>, #[flag] global: bool) -> Result<(), Erro
 }
 
 /// Change notification settings
+///
+/// -------- :robot: **Notification settings** --------
+///
+/// - **All**: Get both notifications in DM when you get tipped as a role, and get tagged in channels where you get tipped directly.
+/// - **DM Only**: Get a DM of every tip, even direct tips.
+/// - **Channel only**: Do not get DM's about tips, only get notifications of direct tips in channels where you get tipped directly.
+/// - **Off**: Do not get notifications of any kind.
 #[instrument(skip(ctx, notifications), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(track_edits, slash_command, category = "Miscellaneous")]
-pub async fn notifications(ctx: Context<'_>, notifications: Notification) -> Result<(), Error> {
+pub async fn notifications(
+    ctx: Context<'_>,
+    #[description = ""] notifications: Notification,
+) -> Result<(), Error> {
     let pool = &ctx.data().database;
     database::update_notifications(&pool, &ctx.author().id, &notifications.to_string()).await?;
 
