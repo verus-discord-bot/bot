@@ -34,7 +34,9 @@ pub async fn tip(_ctx: Context<'_>) -> Result<(), Error> {
 async fn role(
     ctx: Context<'_>,
     #[description = "Enter and select the role you want to tip"] role: serenity_prelude::Role,
-    #[description = "The amount you want to tip"] tip_amount: f64,
+    #[description = "The amount you want to tip"]
+    #[min = 0.5]
+    tip_amount: f64,
 ) -> Result<(), Error> {
     if user_blacklisted(ctx, ctx.author().id).await? {
         return Ok(());
