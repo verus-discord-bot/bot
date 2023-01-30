@@ -56,7 +56,7 @@ pub async fn total_deposited(ctx: Context<'_>) -> Result<(), Error> {
     let pool = &ctx.data().database;
     let client = ctx.data().verus()?;
 
-    let deposit_transactions = database::get_all_deposit_txids(&pool).await?;
+    let deposit_transactions = database::get_all_txids(&pool, "deposit").await?;
 
     let mut sum = Amount::ZERO;
 
@@ -78,6 +78,41 @@ pub async fn total_deposited(ctx: Context<'_>) -> Result<(), Error> {
     }
 
     ctx.send(|reply| reply.content(format!("Total deposited: {}", sum)))
+        .await?;
+    // total balance held by all users
+    // total amount tipped
+    // total amount deposited
+    // total amount withdrawn
+    // largest tip
+    // deposits: bool
+    // withdrawals: bool
+    // maintenance: bool
+
+    Ok(())
+}
+
+#[instrument(skip(ctx))]
+#[poise::command(owners_only, prefix_command, hide_in_help)]
+pub async fn total_withdrawn(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.defer().await?;
+
+    let pool = &ctx.data().database;
+    let client = ctx.data().verus()?;
+
+    let withdraw_transactions = database::get_all_txids(&pool, "withdraw").await?;
+
+    let mut sum = Amount::ZERO;
+
+    for txid in withdraw_transactions {
+        let raw_tx = client.get_raw_transaction_verbose(&txid)?;
+        let vout = raw_tx.vout.first().unwrap();
+        // for vout in raw_tx.vout.iter() {
+        sum = sum.checked_add(vout.value_sat).unwrap();
+
+        // }
+    }
+
+    ctx.send(|reply| reply.content(format!("Total withdrawn: {}", sum)))
         .await?;
     // total balance held by all users
     // total amount tipped

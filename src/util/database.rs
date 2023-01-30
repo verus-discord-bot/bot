@@ -537,9 +537,27 @@ pub async fn get_largest_tip(pool: &PgPool) -> Result<u64, Error> {
     Ok(0)
 }
 
-pub async fn get_all_deposit_txids(pool: &PgPool) -> Result<Vec<Txid>, Error> {
+pub async fn get_all_txids(pool: &PgPool, transaction_action: &str) -> Result<Vec<Txid>, Error> {
     let rows = sqlx::query!(
-        "SELECT transaction_id FROM transactions_vrsc WHERE transaction_action = 'deposit'"
+        "SELECT transaction_id FROM transactions_vrsc WHERE transaction_action = $1",
+        transaction_action
+    )
+    .fetch_all(pool)
+    .await?;
+
+    return Ok(rows
+        .into_iter()
+        .map(|row| Txid::from_str(&row.transaction_id).unwrap())
+        .collect::<Vec<_>>());
+}
+
+pub async fn get_all_withdraw_txids(
+    pool: &PgPool,
+    transaction_action: &str,
+) -> Result<Vec<Txid>, Error> {
+    let rows = sqlx::query!(
+        "SELECT transaction_id FROM transactions_vrsc WHERE transaction_action = $1",
+        transaction_action
     )
     .fetch_all(pool)
     .await?;

@@ -108,6 +108,7 @@ async fn app() -> Result<(), Error> {
             admin::maintenance(),
             admin::status(),
             admin::total_deposited(),
+            admin::total_withdrawn(),
             misc::help(),
             misc::source(),
             misc::register(),
