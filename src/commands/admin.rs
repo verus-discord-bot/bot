@@ -28,7 +28,7 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
     ctx.send(|reply| {
         reply.embed(|embed| {
             embed
-                .title(":verus: Status report :verus:")
+                .title("Status report")
                 .field("VRSC daemon balance", daemon_balance, false)
                 .field("Tipbot balance", total_balance, false)
                 .field("Total tipped", total_tipped, false)
