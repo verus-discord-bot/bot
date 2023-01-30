@@ -550,20 +550,3 @@ pub async fn get_all_txids(pool: &PgPool, transaction_action: &str) -> Result<Ve
         .map(|row| Txid::from_str(&row.transaction_id).unwrap())
         .collect::<Vec<_>>());
 }
-
-pub async fn get_all_withdraw_txids(
-    pool: &PgPool,
-    transaction_action: &str,
-) -> Result<Vec<Txid>, Error> {
-    let rows = sqlx::query!(
-        "SELECT transaction_id FROM transactions_vrsc WHERE transaction_action = $1",
-        transaction_action
-    )
-    .fetch_all(pool)
-    .await?;
-
-    return Ok(rows
-        .into_iter()
-        .map(|row| Txid::from_str(&row.transaction_id).unwrap())
-        .collect::<Vec<_>>());
-}

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Sub, sync::Arc};
 
 use poise::serenity_prelude::UserId;
 use sqlx::PgPool;
@@ -20,6 +20,8 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
     let total_balance = Amount::from_sat(database::get_total_balance(pool).await?);
     let total_tipped = Amount::from_sat(database::get_total_tipped(pool).await?);
     let largest_tip = Amount::from_sat(database::get_largest_tip(pool).await?);
+    let total_deposited = total_deposited(ctx).await?;
+    let total_withdrawn = total_withdrawn(ctx).await?;
 
     let client = ctx.data().verus()?;
 
@@ -31,26 +33,23 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
                 .title("Status report")
                 .field("VRSC daemon balance", daemon_balance, false)
                 .field("Tipbot balance", total_balance, false)
+                .field("Total deposited", total_deposited, false)
+                .field("Total withdrawn", total_withdrawn, false)
                 .field("Total tipped", total_tipped, false)
                 .field("Largest tip", largest_tip, false)
+                .field(
+                    "Bot fees _(minus network fees)_",
+                    daemon_balance.sub(total_balance),
+                    false,
+                )
         })
     })
     .await?;
-    // total balance held by all users
-    // total amount tipped
-    // total amount deposited
-    // total amount withdrawn
-    // largest tip
-    // deposits: bool
-    // withdrawals: bool
-    // maintenance: bool
 
     Ok(())
 }
 
-#[instrument(skip(ctx))]
-#[poise::command(owners_only, prefix_command, hide_in_help)]
-pub async fn total_deposited(ctx: Context<'_>) -> Result<(), Error> {
+async fn total_deposited(ctx: Context<'_>) -> Result<Amount, Error> {
     ctx.defer().await?;
 
     let pool = &ctx.data().database;
@@ -77,23 +76,10 @@ pub async fn total_deposited(ctx: Context<'_>) -> Result<(), Error> {
         }
     }
 
-    ctx.send(|reply| reply.content(format!("Total deposited: {}", sum)))
-        .await?;
-    // total balance held by all users
-    // total amount tipped
-    // total amount deposited
-    // total amount withdrawn
-    // largest tip
-    // deposits: bool
-    // withdrawals: bool
-    // maintenance: bool
-
-    Ok(())
+    Ok(sum)
 }
 
-#[instrument(skip(ctx))]
-#[poise::command(owners_only, prefix_command, hide_in_help)]
-pub async fn total_withdrawn(ctx: Context<'_>) -> Result<(), Error> {
+pub async fn total_withdrawn(ctx: Context<'_>) -> Result<Amount, Error> {
     ctx.defer().await?;
 
     let pool = &ctx.data().database;
@@ -106,24 +92,11 @@ pub async fn total_withdrawn(ctx: Context<'_>) -> Result<(), Error> {
     for txid in withdraw_transactions {
         let raw_tx = client.get_raw_transaction_verbose(&txid)?;
         let vout = raw_tx.vout.first().unwrap();
-        // for vout in raw_tx.vout.iter() {
-        sum = sum.checked_add(vout.value_sat).unwrap();
 
-        // }
+        sum = sum.checked_add(vout.value_sat).unwrap();
     }
 
-    ctx.send(|reply| reply.content(format!("Total withdrawn: {}", sum)))
-        .await?;
-    // total balance held by all users
-    // total amount tipped
-    // total amount deposited
-    // total amount withdrawn
-    // largest tip
-    // deposits: bool
-    // withdrawals: bool
-    // maintenance: bool
-
-    Ok(())
+    Ok(sum)
 }
 
 #[instrument(skip(ctx))]
