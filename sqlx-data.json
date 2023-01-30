@@ -1,5 +1,23 @@
 {
   "db": "PostgreSQL",
+  "099b67ad64803ef2f48120818fe3e228ce6d58e484b766267f0970ec60e34263": {
+    "describe": {
+      "columns": [
+        {
+          "name": "sum",
+          "ordinal": 0,
+          "type_info": "Numeric"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "SELECT SUM(CAST(amount AS BIGINT)) FROM tips_vrsc"
+  },
   "0bec66f803d8cf724b269e0a9700a2249d847b5cfd13315e741a60d3d9950cf4": {
     "describe": {
       "columns": [],
@@ -223,6 +241,24 @@
     },
     "query": "UPDATE unprocessed_transactions SET status = 'processed' WHERE txid = $1"
   },
+  "b05496172b04199090ebebe1c53acc75ab6bcbd39c0fc462286729ad0a30b2f2": {
+    "describe": {
+      "columns": [
+        {
+          "name": "max",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "SELECT MAX(amount) FROM tips_vrsc"
+  },
   "bd058a5a7ce91cf460a4c071e2e7b5e75576feee9a8ee3406395d460215000fe": {
     "describe": {
       "columns": [
@@ -335,6 +371,24 @@
       }
     },
     "query": "WITH inserted_row AS (\n            INSERT INTO discord_users (discord_id, vrsc_address) \n            VALUES ($1, $2)\n        )\n        INSERT INTO balance_vrsc (discord_id)\n        VALUES ($1)\n        "
+  },
+  "e6bc0bd60f2d450ce38e2e5baeef7ee4a586353acc9789986a26f1ce71c0408e": {
+    "describe": {
+      "columns": [
+        {
+          "name": "sum",
+          "ordinal": 0,
+          "type_info": "Numeric"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "SELECT SUM(CAST(balance AS BIGINT)) FROM balance_vrsc"
   },
   "f0690926b8dc25fe6aea81af8d01d0561c7970da4306d3f2ec440cec0e884a5b": {
     "describe": {

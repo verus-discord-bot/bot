@@ -28,10 +28,10 @@ type Context<'a> = poise::Context<'a, Data, Error>;
 #[derive(Debug)]
 pub struct Data {
     // maintenance: Arc<RwLock<bool>>,
-    // verus: VerusClient,
+    _verus: VerusClient,
+    _bot_start_time: std::time::Instant,
     settings: Settings,
     bot_user_id: serenity::UserId,
-    _bot_start_time: std::time::Instant,
     database: sqlx::PgPool,
     withdrawal_fee: Arc<RwLock<Amount>>,
     withdrawals_enabled: Arc<RwLock<bool>>,
@@ -74,9 +74,6 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
                 warn!("{}", e)
             }
         }
-        // poise::FrameworkError::CommandCheckFailed { error: _, ctx } => {
-        //     ctx.say("You have been blacklisted").await.unwrap();
-        // }
         _ => {
             warn!("an unrecoverable error occured")
         }
@@ -109,6 +106,7 @@ async fn app() -> Result<(), Error> {
             admin::blacklist(),
             admin::checktxid(),
             admin::maintenance(),
+            admin::status(),
             misc::help(),
             misc::source(),
             misc::register(),
@@ -205,12 +203,13 @@ async fn app() -> Result<(), Error> {
         ),
     );
 
-    if client.is_err() || client.unwrap().ping().is_err() {
+    if client.as_ref().is_err() || client.as_ref().unwrap().ping().is_err() {
         error!("Verus daemon not ready, abort");
 
         return Ok(());
     }
 
+    // let client = client.unwrap();
     debug!("connection string: {}", config.database.connection_string());
 
     debug!("starting client");
@@ -248,10 +247,10 @@ async fn app() -> Result<(), Error> {
 
                 Ok(Data {
                     // maintenance: Arc::new(RwLock::new(false)),
-                    // verus: client,
+                    _verus: client.unwrap(),
+                    _bot_start_time: std::time::Instant::now(),
                     settings: config,
                     bot_user_id: bot.user.id,
-                    _bot_start_time: std::time::Instant::now(),
                     database,
                     withdrawal_fee,
                     withdrawals_enabled: Arc::new(RwLock::new(true)),

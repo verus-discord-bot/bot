@@ -14,6 +14,42 @@ use crate::{
 
 #[instrument(skip(ctx))]
 #[poise::command(owners_only, prefix_command, hide_in_help)]
+pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
+    let pool = &ctx.data().database;
+
+    let total_balance = Amount::from_sat(database::get_total_balance(pool).await?);
+    let total_tipped = Amount::from_sat(database::get_total_tipped(pool).await?);
+    let largest_tip = Amount::from_sat(database::get_largest_tip(pool).await?);
+
+    let client = ctx.data().verus()?;
+
+    let daemon_balance = client.get_balance(None, None)?;
+
+    ctx.send(|reply| {
+        reply.embed(|embed| {
+            embed
+                .title(":verus: Status report :verus:")
+                .field("VRSC daemon balance", daemon_balance, false)
+                .field("Tipbot balance", total_balance, false)
+                .field("Total tipped", total_tipped, false)
+                .field("Largest tip", largest_tip, false)
+        })
+    })
+    .await?;
+    // total balance held by all users
+    // total amount tipped
+    // total amount deposited
+    // total amount withdrawn
+    // largest tip
+    // deposits: bool
+    // withdrawals: bool
+    // maintenance: bool
+
+    Ok(())
+}
+
+#[instrument(skip(ctx))]
+#[poise::command(owners_only, prefix_command, hide_in_help)]
 pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
     debug!("no more fun for {user_id}");
     let pool = &ctx.data().database;

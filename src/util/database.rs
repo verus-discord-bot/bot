@@ -429,7 +429,6 @@ pub async fn get_bot_fees(pool: &PgPool) -> Result<u64, Error> {
             .fetch_one(pool)
             .await?;
 
-    dbg!(&record);
     if let Some(balance) = record.sum {
         return Ok(balance.to_u64().unwrap());
     }
@@ -500,4 +499,40 @@ pub async fn set_stored_txid_to_processed(pool: &PgPool, txid: &Txid) -> Result<
     .await?;
 
     Ok(())
+}
+
+pub async fn get_total_balance(pool: &PgPool) -> Result<u64, Error> {
+    let record = sqlx::query!("SELECT SUM(CAST(balance AS BIGINT)) FROM balance_vrsc")
+        .fetch_one(pool)
+        .await?;
+
+    if let Some(balance) = record.sum {
+        return Ok(balance.to_u64().unwrap());
+    }
+
+    Ok(0)
+}
+
+pub async fn get_total_tipped(pool: &PgPool) -> Result<u64, Error> {
+    let record = sqlx::query!("SELECT SUM(CAST(amount AS BIGINT)) FROM tips_vrsc")
+        .fetch_one(pool)
+        .await?;
+
+    if let Some(total) = record.sum {
+        return Ok(total.to_u64().unwrap());
+    }
+
+    Ok(0)
+}
+
+pub async fn get_largest_tip(pool: &PgPool) -> Result<u64, Error> {
+    let record = sqlx::query!("SELECT MAX(amount) FROM tips_vrsc")
+        .fetch_one(pool)
+        .await?;
+
+    if let Some(max) = record.max {
+        return Ok(max.to_u64().unwrap());
+    }
+
+    Ok(0)
 }
