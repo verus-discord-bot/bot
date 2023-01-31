@@ -12,23 +12,24 @@ use crate::{util::database, Context, Error};
 pub async fn info(ctx: Context<'_>) -> Result<(), Error> {
     let elapsed = Instant::now().duration_since(ctx.data()._bot_start_time);
     ctx.send(|reply| {
-        reply.embed(|embed| {
-            embed
-                .title("Verus bot info")
-                .field("Version", "1.0", false)
-                .field(
-                    "Time since last start (h\\:m\\:s)",
-                    format!(
-                        "{h:0>2}:{m:0>2}:{s:0>2}",
-                        h = (elapsed.as_secs() / 60) / 60,
-                        m = (elapsed.as_secs() / 60) % 60,
-                        s = elapsed.as_secs() % 60
-                    ),
-                    false,
-                )
-                .footer(|footer| footer.text("Made for Verus by jorian@"))
-            // .field("difficulty", blockchain_info.difficulty, false)
-        })
+        reply
+            .embed(|embed| {
+                embed
+                    .title("Verus bot info")
+                    .field("Version", "1.0", false)
+                    .field(
+                        "Time since last start (h\\:m\\:s)",
+                        format!(
+                            "{h:0>2}:{m:0>2}:{s:0>2}",
+                            h = (elapsed.as_secs() / 60) / 60,
+                            m = (elapsed.as_secs() / 60) % 60,
+                            s = elapsed.as_secs() % 60
+                        ),
+                        false,
+                    )
+                    .footer(|footer| footer.text("Made for Verus by jorian@"))
+            })
+            .ephemeral(true)
     })
     .await?;
 
