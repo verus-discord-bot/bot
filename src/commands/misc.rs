@@ -17,7 +17,7 @@ pub async fn info(ctx: Context<'_>) -> Result<(), Error> {
                 .title("Verus bot info")
                 .field("Version", "1.0", false)
                 .field(
-                    "Time since last start (h:m:s)",
+                    "Time since last start (h\\:m\\:s)",
                     format!(
                         "{h:0>2}:{m:0>2}:{s:0>2}",
                         h = (elapsed.as_secs() / 60) / 60,
