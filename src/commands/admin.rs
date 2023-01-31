@@ -250,7 +250,7 @@ pub async fn manuallyaddwithdraw(
     ctx: Context<'_>,
     user_id: UserId,
     txid: Txid,
-    tx_fee: Amount,
+    tx_fee: u64,
 ) -> Result<(), Error> {
     trace!("manually add withdraw: {txid}");
     let pool = &ctx.data().database;
@@ -264,7 +264,7 @@ pub async fn manuallyaddwithdraw(
         &user_id,
         Some(&txid),
         &format!("opid-{uuid}"),
-        &tx_fee,
+        &Amount::from_sat(tx_fee),
     )
     .await?;
 
