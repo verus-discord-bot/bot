@@ -13,6 +13,7 @@ use crate::{
     wallet_listener::TransactionProcessor,
 };
 
+// use std::collections::hash_set::Iter<'_, UserId>
 use opentelemetry::global;
 use poise::serenity_prelude::{self as serenity, UserId};
 use secrecy::ExposeSecret;
@@ -57,9 +58,14 @@ impl Data {
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
     warn!("Encountered error: {:?}", error);
+
     match error {
         poise::FrameworkError::Command { ctx, error } => {
-            if let Err(e) = ctx.say(error.to_string()).await {
+            let owners = &ctx.data().owners;
+
+            let s = owners.into_iter().map(|id| format!("<@{}>", id.0.to_string())).collect::<Vec<_>>().join(", ");
+
+            if let Err(e) = ctx.send(|reply| reply.content(format!("{s}, {error}"))).await {
                 warn!("{}", e)
             }
         }

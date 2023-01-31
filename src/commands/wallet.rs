@@ -112,7 +112,7 @@ pub async fn all(
                 )
                 .await?;
 
-                trace!("transaction stored, now decrease balance");
+                trace!("transaction {txid} stored in db, now decrease balance with ({withdrawal_amount} + {tx_fee})");
                 database::decrease_balance(&pool, &ctx.author().id, &withdrawal_amount, &tx_fee)
                     .await?;
 
