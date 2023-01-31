@@ -69,6 +69,8 @@ pub async fn store_multiple_tip_transactions(
 
 /// Queries the database and retrieves the balance for the user, if it exists.
 /// If there is no row for this user, None will be returned.
+///
+/// The database has a constraint that balances can not go below 0.
 pub async fn get_balance_for_user(pool: &PgPool, user_id: &UserId) -> Result<Option<u64>, Error> {
     if let Some(row) = sqlx::query!(
         "SELECT balance FROM balance_vrsc WHERE discord_id = $1",
@@ -79,12 +81,7 @@ pub async fn get_balance_for_user(pool: &PgPool, user_id: &UserId) -> Result<Opt
     {
         let balance = row.balance;
         debug!("i64 balance: {balance}");
-        if balance < 0 {
-            error!("BALANCE IS NEGATIVE, ABORT EVERYTHING, HOOMAN HALP");
-            panic!("BALANCE IS NEGATIVE, ABORT EVERYTHING, HOOMAN HALP");
 
-            // return Ok(None);
-        }
         Ok(Some(balance as u64))
     } else {
         Ok(None)
@@ -279,7 +276,10 @@ pub async fn decrease_balance(
 
         match result {
             Ok(result) => info!("decreasing the balance went ok! {:?}", result),
-            Err(e) => return Err(e.into()),
+            Err(e) => {
+                error!("something went wrong while decreasing the balance: {:?}", e);
+                return Err(e.into());
+            }
         }
     } else {
         // summing the 2 balances went wrong. This is an edge case that only happens when someone is withdrawing more than 184,467,440,737.09551615 VRSC,
