@@ -115,6 +115,7 @@ async fn app() -> Result<(), Error> {
             admin::blacklist(),
             admin::checktxid(),
             admin::maintenance(),
+            admin::manuallyaddwithdraw(),
             admin::status(),
             misc::help(),
             misc::info(),
