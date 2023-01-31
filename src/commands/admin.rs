@@ -1,7 +1,6 @@
-use std::{ops::Sub, sync::Arc};
-
 use poise::serenity_prelude::UserId;
 use sqlx::PgPool;
+use std::sync::Arc;
 use tracing::{debug, error, instrument, trace};
 use uuid::Uuid;
 use vrsc::Amount;
@@ -28,6 +27,13 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
 
     let daemon_balance = client.get_balance(None, None)?;
 
+    debug!("total balance: {total_balance}");
+    debug!("total_tipped: {total_tipped}");
+    debug!("largest_tip: {largest_tip}");
+    debug!("total_deposited: {total_deposited}");
+    debug!("total_withdrawn: {total_withdrawn}");
+    debug!("daemon_balance: {daemon_balance}");
+
     ctx.send(|reply| {
         reply.embed(|embed| {
             embed
@@ -40,7 +46,13 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
                 .field("Largest tip", largest_tip, false)
                 .field(
                     "Bot fees _(minus network fees)_",
-                    daemon_balance.sub(total_balance),
+                    {
+                        if let Some(pos_amount) = daemon_balance.checked_sub(total_balance) {
+                            pos_amount
+                        } else {
+                            Amount::ZERO
+                        }
+                    },
                     false,
                 )
         })
