@@ -256,8 +256,10 @@ pub async fn checktxid(ctx: Context<'_>, txid: Txid) -> Result<(), Error> {
 }
 
 /// Manually add withdraw tx when one didn't register
+///
+/// Needs discord_user_id, txid, tx_fee (in sats)
 #[instrument(skip(ctx))]
-#[poise::command(owners_only, slash_command, hide_in_help)]
+#[poise::command(owners_only, prefix_command, hide_in_help)]
 pub async fn manuallyaddwithdraw(
     ctx: Context<'_>,
     user_id: UserId,
