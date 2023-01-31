@@ -3,24 +3,20 @@ pub mod configuration;
 pub mod util;
 pub mod wallet_listener;
 
-use std::{borrow::Borrow, collections::HashSet, sync::Arc};
-
-use commands::*;
-use vrsc::Amount;
-
 use crate::{
     configuration::{get_configuration, Settings},
     wallet_listener::TransactionProcessor,
 };
-
-// use std::collections::hash_set::Iter<'_, UserId>
+use commands::*;
 use opentelemetry::global;
 use poise::serenity_prelude::{self as serenity, UserId};
 use secrecy::ExposeSecret;
 use sqlx::PgPool;
+use std::{borrow::Borrow, collections::HashSet, sync::Arc};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use vrsc::Amount;
 use vrsc_rpc::{Client as VerusClient, RpcApi};
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -28,7 +24,6 @@ type Context<'a> = poise::Context<'a, Data, Error>;
 
 #[derive(Debug)]
 pub struct Data {
-    // maintenance: Arc<RwLock<bool>>,
     _verus: VerusClient,
     _bot_start_time: std::time::Instant,
     settings: Settings,
@@ -62,21 +57,29 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
     match error {
         poise::FrameworkError::Command { ctx, error } => {
             let owners = &ctx.data().owners;
+            let s = owners
+                .into_iter()
+                .map(|id| format!("<@{}>", id.0.to_string()))
+                .collect::<Vec<_>>()
+                .join(", ");
 
-            let s = owners.into_iter().map(|id| format!("<@{}>", id.0.to_string())).collect::<Vec<_>>().join(", ");
-
-            if let Err(e) = ctx.send(|reply| reply.content(format!("{s}, {error}"))).await {
+            if let Err(e) = ctx
+                .send(|reply| reply.content(format!("{s}, {error}")))
+                .await
+            {
                 warn!("{}", e)
             }
         }
-        poise::FrameworkError::ArgumentParse { error: _, input, ctx } => {
-            if let Err(e) = ctx
-                .say(format!(
+        poise::FrameworkError::ArgumentParse {
+            error: _,
+            input,
+            ctx,
+        } => {
+            let s = format!(
                     "The argument you provided ({}) was incorrect. Press arrow up \u{2191} to change the arguments and press Enter when you're done.",
-                    input.unwrap()
-                ))
-                .await
-            {
+                     input.unwrap()
+                );
+            if let Err(e) = ctx.say(s).await {
                 warn!("{}", e)
             }
         }
@@ -129,7 +132,7 @@ async fn app() -> Result<(), Error> {
         command_check: Some(|ctx| {
             let author = &ctx.author().id;
             let owners = &ctx.data().owners;
-            // let owner = owners_clone;
+
             Box::pin(async move {
                 let maintenance_mode = { *ctx.data().tx_processor.maintenance.read().await };
 
@@ -290,7 +293,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         )
     }
 
-    global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
+    // global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
 
     // let tracer = opentelemetry_jaeger::new_agent_pipeline()
     //     .with_service_name("verusbot")
@@ -319,37 +322,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     Ok(())
 }
-
-// async fn setup_logging() -> Result<(), Report> {
-//     if std::env::var("RUST_LIB_BACKTRACE").is_err() {
-//         std::env::set_var("RUST_LIB_BACKTRACE", "1")
-//     }
-//     color_eyre::install()?;
-
-// if std::env::var("RUST_LOG").is_err() {
-//     std::env::set_var("RUST_LOG", "bot=trace")
-// }
-
-//     // let tracer = stdout::new_pipeline().install_simple();
-//     // let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
-//     // let subscriber = Registry::default().with(telemetry);
-//     // let home_dir = std::env::var("HOME").unwrap();
-
-//     // let file_appender =
-//     //     tracing_appender::rolling::hourly(format!("{home_dir}/log/bot"), "tracing.log");
-//     // tracing::subscriber::with_default(subscriber, || {
-//     //     // Spans will be sent to the configured OpenTelemetry exporter
-//     //     let root = span!(tracing::Level::TRACE, "app_start", work_units = 2);
-//     //     let _enter = root.enter();
-
-//     //     error!("This event will be logged in the root span.");
-//     // });
-
-//     tracing_subscriber::fmt()
-//         .with_env_filter(EnvFilter::from_default_env())
-//         //     // .with_writer(file_appender)
-//         //     // .with_ansi(false) // uncomment to disable color
-//         .init();
-
-//     Ok(())
-// }
