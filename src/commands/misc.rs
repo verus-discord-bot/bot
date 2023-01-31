@@ -1,8 +1,39 @@
+use std::time::Instant;
+
 use poise::ChoiceParameter;
 use tracing::{instrument, trace};
 use uuid::Uuid;
 
 use crate::{util::database, Context, Error};
+
+/// Show information about this bot.
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(track_edits, slash_command, category = "Miscellaneous")]
+pub async fn info(ctx: Context<'_>) -> Result<(), Error> {
+    let elapsed = Instant::now().duration_since(ctx.data()._bot_start_time);
+    ctx.send(|reply| {
+        reply.embed(|embed| {
+            embed
+                .title("Verus bot info")
+                .field("Version", "1.0", false)
+                .field(
+                    "Time since last start (h:m:s)",
+                    format!(
+                        "{h:0>2}:{m:0>2}:{s:0>2}",
+                        h = (elapsed.as_secs() / 60) / 60,
+                        m = (elapsed.as_secs() / 60) % 60,
+                        s = elapsed.as_secs() % 60
+                    ),
+                    false,
+                )
+                .footer(|footer| footer.text("Made for Verus by jorian@"))
+            // .field("difficulty", blockchain_info.difficulty, false)
+        })
+    })
+    .await?;
+
+    Ok(())
+}
 
 /// Show this menu
 #[poise::command(track_edits, slash_command, category = "Miscellaneous")]
@@ -57,10 +88,7 @@ pub async fn register(ctx: Context<'_>, #[flag] global: bool) -> Result<(), Erro
 /// - **Off**: Do not get notifications of any kind.
 #[instrument(skip(ctx, notifications), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(track_edits, slash_command, category = "Miscellaneous")]
-pub async fn notifications(
-    ctx: Context<'_>,
-    #[description = ""] notifications: Notification,
-) -> Result<(), Error> {
+pub async fn notifications(ctx: Context<'_>, notifications: Notification) -> Result<(), Error> {
     let pool = &ctx.data().database;
     database::update_notifications(&pool, &ctx.author().id, &notifications.to_string()).await?;
 

@@ -8,7 +8,7 @@ use crate::{Context, Error};
 /// Show information about Verus blockchain.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(track_edits, slash_command, category = "Miscellaneous")]
-pub async fn info(ctx: Context<'_>) -> Result<(), Error> {
+pub async fn chaininfo(ctx: Context<'_>) -> Result<(), Error> {
     let blockchain_info = &ctx.data().verus()?.get_blockchain_info()?;
     let testnet_name = match ctx.data().settings.application.testnet {
         true => "Verus (testnet)",
