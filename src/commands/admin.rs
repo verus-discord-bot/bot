@@ -3,6 +3,7 @@ use std::{ops::Sub, sync::Arc};
 use poise::serenity_prelude::UserId;
 use sqlx::PgPool;
 use tracing::{debug, error, instrument, trace};
+use uuid::Uuid;
 use vrsc::Amount;
 use vrsc_rpc::{bitcoin::Txid, RpcApi};
 
@@ -238,6 +239,37 @@ pub async fn checktxid(ctx: Context<'_>, txid: Txid) -> Result<(), Error> {
     if let Ok(raw_tx) = client.get_raw_transaction_verbose(&txid) {
         process_txid(http, &pool, &raw_tx).await?;
     }
+
+    Ok(())
+}
+
+/// Manually add withdraw tx when one didn't register
+#[instrument(skip(ctx))]
+#[poise::command(owners_only, slash_command, hide_in_help)]
+pub async fn manuallyaddwithdraw(
+    ctx: Context<'_>,
+    user_id: UserId,
+    txid: Txid,
+    tx_fee: Amount,
+) -> Result<(), Error> {
+    trace!("manually add withdraw: {txid}");
+    let pool = &ctx.data().database;
+    let uuid = Uuid::new_v4();
+
+    debug!("manually storing withdraw transaction: {uuid}: {user_id} - {txid} ({tx_fee})");
+
+    database::store_withdraw_transaction(
+        pool,
+        &uuid,
+        &user_id,
+        Some(&txid),
+        &format!("opid-{uuid}"),
+        &tx_fee,
+    )
+    .await?;
+
+    ctx.send(|reply| reply.ephemeral(true).content(format!("{txid} stored.")))
+        .await?;
 
     Ok(())
 }
