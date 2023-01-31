@@ -4,9 +4,7 @@ use tracing::trace;
 use crate::{Context, Error};
 
 pub mod admin;
-pub(crate) mod autocomplete;
 pub mod chain;
-pub mod id;
 pub mod misc;
 pub mod tipping;
 pub mod wallet;
