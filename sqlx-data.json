@@ -95,32 +95,6 @@
     },
     "query": "UPDATE balance_vrsc SET balance = CASE\n            WHEN discord_id = $1 THEN balance - $3\n            WHEN discord_id = $2 THEN balance + $3\n        END\n        WHERE discord_id IN ($1, $2)"
   },
-  "5ab48ee91c6e88927e5447a516dfa143d42dc6dba5c47af6d297d2aaab84b7d9": {
-    "describe": {
-      "columns": [
-        {
-          "name": "discord_id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        },
-        {
-          "name": "vrsc_address",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        }
-      ],
-      "nullable": [
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Int8"
-        ]
-      }
-    },
-    "query": "SELECT discord_id, vrsc_address FROM discord_users WHERE discord_id = $1"
-  },
   "63def600bdcf738d595bd767cb7d38fb5d7a0f3cd6e8cbba21f06a92fbb2a8dc": {
     "describe": {
       "columns": [],
@@ -133,6 +107,19 @@
       }
     },
     "query": "UPDATE discord_users SET notifications = ($1) WHERE discord_id = ($2)"
+  },
+  "65da783b5378ec44e1c322129bb2709d779a2bb813d50b39722e505a3e26cbfa": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "WITH inserted_row AS (\n            INSERT INTO addresses (discord_id, address) \n            VALUES ($1, $2)\n        )\n        INSERT INTO balance_vrsc (discord_id)\n        VALUES ($1)\n        "
   },
   "689a2f1bc744d2992b9920527455b4ff5aae8e5f03ca8321222789030ddb3b6a": {
     "describe": {
@@ -222,6 +209,32 @@
       }
     },
     "query": "INSERT INTO opids (opid, status, creation_time, result, address, amount, currency) VALUES ($1, $2, $3, $4, $5, $6, $7)"
+  },
+  "ab9f765f331a76860e7d2db12f59bfabce156598a80de1ea3396cc0b3a12931b": {
+    "describe": {
+      "columns": [
+        {
+          "name": "discord_id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "address",
+          "ordinal": 1,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      }
+    },
+    "query": "SELECT discord_id, address FROM addresses WHERE discord_id = $1"
   },
   "ae24fd00f574049a81c6fd500d8d0c4f9b8840737797aecdafa60269d769d204": {
     "describe": {
@@ -379,19 +392,6 @@
     },
     "query": "SELECT notifications FROM discord_users WHERE discord_id = $1"
   },
-  "d9ac2fc4a79595f26c1c3795fd0672a66ae49f6503cd6499ab8305a4dc7b43de": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "WITH inserted_row AS (\n            INSERT INTO discord_users (discord_id, vrsc_address) \n            VALUES ($1, $2)\n        )\n        INSERT INTO balance_vrsc (discord_id)\n        VALUES ($1)\n        "
-  },
   "e6bc0bd60f2d450ce38e2e5baeef7ee4a586353acc9789986a26f1ce71c0408e": {
     "describe": {
       "columns": [
@@ -426,22 +426,7 @@
     },
     "query": "INSERT INTO tips_vrsc(uuid, discord_id, kind, amount, counterparty) VALUES ($1, $2, $3, $4, $5)"
   },
-  "f51ca941dfe1423121100c346c1f7437171635e328c40e5ab0bbe75a0f4f92b7": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Int8",
-          "Varchar",
-          "Text"
-        ]
-      }
-    },
-    "query": "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, transaction_action) VALUES ($1, $2, $3, $4)"
-  },
-  "f6dd740d5e10551558ff29b292c25b1a753d27e7d0c9c33cc2492af054126e5b": {
+  "f17075bd36c71d17a6f6dc4daea80f0405557af6e9f90ca4b77799d9464a7061": {
     "describe": {
       "columns": [
         {
@@ -459,7 +444,22 @@
         ]
       }
     },
-    "query": "SELECT discord_id FROM discord_users WHERE vrsc_address = $1"
+    "query": "SELECT discord_id FROM addresses WHERE address = $1"
+  },
+  "f51ca941dfe1423121100c346c1f7437171635e328c40e5ab0bbe75a0f4f92b7": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Int8",
+          "Varchar",
+          "Text"
+        ]
+      }
+    },
+    "query": "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, transaction_action) VALUES ($1, $2, $3, $4)"
   },
   "f9a1194cceed94a81c1551b46cfe2688c7e59ebb5eae56d1533cd34b0d347314": {
     "describe": {

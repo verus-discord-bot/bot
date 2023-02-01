@@ -56,7 +56,7 @@ async fn role(
                 .filter(
                     |m| m.roles.contains(&role.id) || &role.id == &RoleId(guild.id.0), // @everyone role_id (same as guild_id) does never get tips
                 )
-                .map(|m| m.user.id.as_ref())
+                .map(|m| m.user.id)
                 .collect::<Vec<_>>();
 
             tip_users(
@@ -348,7 +348,7 @@ pub async fn reactdrop(
                     let users = users
                         .iter()
                         .filter(|user| !user.bot)
-                        .map(|u| u.id.as_ref())
+                        .map(|u| u.id)
                         .collect::<Vec<_>>();
 
                     if users.len() == 0 {
@@ -385,7 +385,7 @@ async fn tip_users(
     http: &Http,
     client: &Client,
     pool: &PgPool,
-    users: &Vec<&UserId>,
+    users: &Vec<UserId>,
     author: &UserId,
     channel_id: &ChannelId,
     amount: &Amount,
@@ -421,7 +421,7 @@ async fn tip_users(
         database::store_multiple_tip_transactions(
             pool,
             &tip_event_id,
-            &users,
+            users,
             kind,
             &div_tip_amount,
             &author,

@@ -36,7 +36,7 @@ pub async fn store_tip_transaction(
 pub async fn store_multiple_tip_transactions(
     pool: &PgPool,
     uuid: &Uuid,
-    user_ids: &Vec<&UserId>,
+    user_ids: &Vec<UserId>,
     kind: &str,
     amount: &Amount,
     counterparty: &UserId, // this is always a user
@@ -92,7 +92,7 @@ pub async fn get_balance_for_user(pool: &PgPool, user_id: &UserId) -> Result<Opt
 pub async fn tip_multiple_users(
     pool: &PgPool,
     from_user: &UserId,
-    to_users: &Vec<&UserId>,
+    to_users: &Vec<UserId>,
     tip_amount: &Amount,
 ) -> Result<(), Error> {
     let users = to_users
@@ -167,7 +167,7 @@ pub async fn store_new_address_for_user(
 ) -> Result<(), Error> {
     sqlx::query!(
         "WITH inserted_row AS (
-            INSERT INTO discord_users (discord_id, vrsc_address) 
+            INSERT INTO addresses (discord_id, address) 
             VALUES ($1, $2)
         )
         INSERT INTO balance_vrsc (discord_id)
@@ -187,13 +187,13 @@ pub async fn get_address_from_user(
     user_id: &UserId,
 ) -> Result<Option<Address>, Error> {
     if let Some(row) = sqlx::query!(
-        "SELECT discord_id, vrsc_address FROM discord_users WHERE discord_id = $1",
+        "SELECT discord_id, address FROM addresses WHERE discord_id = $1",
         user_id.0 as i64
     )
     .fetch_optional(pool)
     .await?
     {
-        Ok(Some(Address::from_str(&row.vrsc_address)?))
+        Ok(Some(Address::from_str(&row.address)?))
     } else {
         Ok(None)
     }
@@ -204,7 +204,7 @@ pub async fn get_user_from_address(
     address: &Address,
 ) -> Result<Option<UserId>, Error> {
     if let Some(row) = sqlx::query!(
-        "SELECT discord_id FROM discord_users WHERE vrsc_address = $1",
+        "SELECT discord_id FROM addresses WHERE address = $1",
         &address.to_string()
     )
     .fetch_optional(pool)
@@ -403,7 +403,7 @@ pub async fn get_notification_setting(
 
 pub async fn get_notification_setting_batch(
     pool: &PgPool,
-    user_ids: &Vec<&UserId>,
+    user_ids: &Vec<UserId>,
 ) -> Result<Vec<(i64, Notification)>, Error> {
     let users = user_ids
         .iter()

@@ -328,3 +328,28 @@ async fn process_stored_txids(
 
     Ok(())
 }
+
+/// Set maintenance mode on or off
+#[instrument(skip(ctx))]
+#[poise::command(owners_only, prefix_command, hide_in_help)]
+pub async fn test_17000(ctx: Context<'_>, value: bool) -> Result<(), Error> {
+    trace!("setting maintenance mode to {value}");
+
+    {
+        let mut write = ctx.data().tx_processor.maintenance.write().await;
+        if *write == true && value == false {
+            trace!("need to process possible unprocessed transactions");
+
+            let pool = &ctx.data().database;
+            let tx_proc = Arc::clone(&ctx.data().tx_processor);
+
+            process_stored_txids(pool, tx_proc).await?
+        }
+        *write = value;
+    }
+
+    ctx.send(|reply| reply.content(format!("Maintenance mode set to {value}")))
+        .await?;
+
+    Ok(())
+}

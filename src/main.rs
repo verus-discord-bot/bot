@@ -107,6 +107,7 @@ async fn app() -> Result<(), Error> {
 
     let options = poise::FrameworkOptions {
         commands: vec![
+            test::test_17000(),
             admin::setwithdrawfee(),
             admin::rescanfromheight(),
             admin::feescollected(),

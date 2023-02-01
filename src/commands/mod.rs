@@ -6,6 +6,7 @@ use crate::{Context, Error};
 pub mod admin;
 pub mod chain;
 pub mod misc;
+pub mod test;
 pub mod tipping;
 pub mod wallet;
 
