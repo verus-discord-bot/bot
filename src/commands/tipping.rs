@@ -9,7 +9,7 @@ use vrsc_rpc::{Client, RpcApi};
 
 use crate::{
     commands::{misc::Notification, user_blacklisted},
-    util::database::{self, get_balance_for_user, store_new_address_for_user},
+    util::database::{self, store_new_address_for_user},
     wallet::check_and_get_balance,
     Context, Error,
 };
@@ -46,7 +46,7 @@ async fn role(
     let tip_amount = Amount::from_vrsc(tip_amount)?;
 
     if check_and_get_balance(&ctx, tip_amount).await?.is_some() {
-        trace!("there is enough balance");
+        trace!("tipper has enough balance");
         let pool = &ctx.data().database;
 
         if let Some(guild) = ctx.guild() {
@@ -60,12 +60,13 @@ async fn role(
                 .collect::<Vec<_>>();
 
             tip_users(
-                &ctx.http(),
-                &ctx.data().verus()?,
-                &pool,
+                ctx,
+                // &ctx.http(),
+                // &ctx.data().verus()?,
+                // &pool,
                 &role_members,
-                &ctx.author().id,
-                &ctx.channel_id(),
+                // &ctx.author().id,
+                // &ctx.channel_id(),
                 &tip_amount,
                 "role",
             )
@@ -114,19 +115,20 @@ async fn user(
     // update both balances in 1 go
 
     let pool = &ctx.data().database;
+
     if check_and_get_balance(&ctx, tip_amount).await?.is_some() {
         trace!("tipper has enough balance");
         // we can tip!
         // what if the user we are about to tip has no balance?
         // we need to create a balance for him first. TODO: Maybe we can do that in the command itself.
-        if get_balance_for_user(pool, &user.id).await?.is_none() {
-            trace!("balance is none, so need to create new balance for user.");
-            let client = &ctx.data().verus()?;
-            let address = client.get_new_address()?;
-            store_new_address_for_user(pool, &user.id, &address).await?;
-        }
+        // if get_balance_for_user(pool, &user.id).await?.is_none() {
+        //     trace!("balance is none, so need to create new balance for user.");
+        //     let client = &ctx.data().verus()?;
+        //     let address = client.get_new_address()?;
+        //     store_new_address_for_user(pool, &user.id, &address).await?;
+        // }
 
-        trace!("the tippee has a balance, we can tip now.");
+        // trace!("the tippee has a balance, we can tip now.");
 
         database::tip_user(pool, &ctx.author().id, &user.id, &tip_amount).await?;
 
@@ -356,12 +358,13 @@ pub async fn reactdrop(
                     } else {
                         trace!("tipping {} users in reactdrop", users.len());
                         tip_users(
-                            &http,
-                            &ctx.data().verus()?,
-                            pool,
+                            ctx,
+                            // &http,
+                            // &ctx.data().verus()?,
+                            // pool,
                             &users,
-                            &ctx.author().id,
-                            &ctx.channel_id(),
+                            // &ctx.author().id,
+                            // &ctx.channel_id(),
                             &tip_amount,
                             "reactdrop",
                         )
@@ -382,27 +385,28 @@ pub async fn reactdrop(
 }
 
 async fn tip_users(
-    http: &Http,
-    client: &Client,
-    pool: &PgPool,
+    ctx: Context<'_>,
     users: &Vec<UserId>,
-    author: &UserId,
-    channel_id: &ChannelId,
     amount: &Amount,
     kind: &str,
 ) -> Result<(), Error> {
     // TODO optimize this query (select all that don't exist, insert them in 1 go)
     // check if all the tippees have an entry in the db
-    for user_id in users.iter() {
-        if database::get_address_from_user(pool, user_id)
-            .await?
-            .is_none()
-        {
-            trace!("need to get new address");
-            let address = client.get_new_address()?;
-            store_new_address_for_user(pool, user_id, &address).await?;
-        }
-    }
+    let pool = &ctx.data().database;
+    let client = ctx.data().verus()?;
+    let author = &ctx.author().id;
+    let http = ctx.http();
+
+    // for user_id in users.iter() {
+    //     if database::get_address_from_user(pool, user_id)
+    //         .await?
+    //         .is_none()
+    //     {
+    //         trace!("need to get new address");
+    //         let address = client.get_new_address()?;
+    //         store_new_address_for_user(pool, user_id, &address).await?;
+    //     }
+    // }
 
     debug!("users in tip_users: {:?}", users);
 
@@ -416,7 +420,7 @@ async fn tip_users(
 
         let tip_event_id = Uuid::new_v4();
 
-        database::tip_multiple_users(pool, &author, &users, &div_tip_amount).await?;
+        // database::tip_multiple_users(pool, &author, &users, &div_tip_amount).await?;
 
         database::store_multiple_tip_transactions(
             pool,
@@ -448,22 +452,18 @@ async fn tip_users(
             }
         }
 
-        channel_id
-            .send_message(http, |message| {
-                message.content(format!(
-                    "<@{}> just tipped {} to {} users! ({} each)",
-                    &author,
-                    amount,
-                    &users.len(),
-                    div_tip_amount
-                ))
-            })
-            .await?;
+        ctx.send(|message| {
+            message.content(format!(
+                "<@{}> just tipped {} to {} users! ({} each)",
+                &author,
+                amount,
+                &users.len(),
+                div_tip_amount
+            ))
+        })
+        .await?;
     } else {
-        channel_id
-            .send_message(http, |message| {
-                message.content("Could not send tip to role")
-            })
+        ctx.send(|message| message.content("Could not send tip to role"))
             .await?;
     }
 

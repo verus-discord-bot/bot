@@ -10,6 +10,20 @@ use uuid::Uuid;
 use vrsc::{Address, Amount};
 use vrsc_rpc::bitcoin::Txid;
 
+pub async fn insert_discord_user(pool: &PgPool, user_id: &UserId) -> Result<(), Error> {
+    sqlx::query!(
+        "INSERT INTO discord_users(discord_id) 
+        VALUES ($1) 
+        ON CONFLICT (discord_id) 
+        DO NOTHING",
+        user_id.0 as i64
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 // to store a single tip transaction. Usually when a direct tip takes place or when a user sends a group tip.
 pub async fn store_tip_transaction(
     pool: &PgPool,
@@ -89,48 +103,53 @@ pub async fn get_balance_for_user(pool: &PgPool, user_id: &UserId) -> Result<Opt
 }
 
 /// Used when tipping a role. Every member of the tipped role gets the same amount of coins.
-pub async fn tip_multiple_users(
-    pool: &PgPool,
-    from_user: &UserId,
-    to_users: &Vec<UserId>,
-    tip_amount: &Amount,
-) -> Result<(), Error> {
-    let users = to_users
-        .iter()
-        .map(|user| user.0 as i64)
-        .collect::<Vec<_>>();
+// pub async fn tip_multiple_users(
+//     pool: &PgPool,
+//     from_user: &UserId,
+//     to_users: &Vec<UserId>,
+//     tip_amount: &Amount,
+// ) -> Result<(), Error> {
+//     let users = to_users
+//         .iter()
+//         .map(|user| user.0 as i64)
+//         .collect::<Vec<_>>();
 
-    let mut tx = pool.begin().await?;
-    sqlx::query!(
-        r#"
-        UPDATE balance_vrsc 
-        SET balance = balance + $1
-        WHERE discord_id IN (SELECT * FROM UNNEST($2::bigint[]))
-        "#,
-        tip_amount.as_sat() as i64,
-        &users
-    )
-    .execute(&mut tx)
-    .await?;
+//     let mut tx = pool.begin().await?;
+//     sqlx::query!(
+//         r#"
+//         FOREACH user_id IN ARRAY unnest($1::bigint[]) LOOP
+//             INSERT INTO balance_vrsc (discord_id, balance)
+//             VALUES id, $2
+//             ON CONFLICT (discord_id)
+//             DO
+//             UPDATE SET balance = excluded.balance + $2
+//             WHERE balance_vrsc.discord_id = excluded.discord_id
+//         END LOOP
+//         "#,
+//         &users,
+//         tip_amount.as_sat() as i64
+//     )
+//     .execute(&mut tx)
+//     .await?;
 
-    if let Some(mul) = tip_amount.checked_mul(to_users.len() as u64) {
-        sqlx::query!(
-            "UPDATE balance_vrsc SET balance = balance - $1 WHERE discord_id = $2",
-            mul.as_sat() as i64,
-            from_user.0 as i64
-        )
-        .execute(&mut tx)
-        .await?;
+//     if let Some(mul) = tip_amount.checked_mul(to_users.len() as u64) {
+//         sqlx::query!(
+//             "UPDATE balance_vrsc SET balance = balance - $1 WHERE discord_id = $2",
+//             mul.as_sat() as i64,
+//             from_user.0 as i64
+//         )
+//         .execute(&mut tx)
+//         .await?;
 
-        tx.commit().await?;
-        return Ok(());
-    }
+//         tx.commit().await?;
+//         return Ok(());
+//     }
 
-    error!("something went wrong while processing a tip to multiple users");
-    tx.rollback().await?;
+//     error!("something went wrong while processing a tip to multiple users");
+//     tx.rollback().await?;
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 /// Decreases the balance from one user and adds to the balance of another user in one transaction.
 /// If it fails, no balances are updated for both parties.
@@ -144,12 +163,21 @@ pub async fn tip_user(
 ) -> Result<(), Error> {
     debug!("tip from {from_user}, to {to_user}, amount {tip_amount}");
 
+    // $1 is the tipper, $2 is the receiver, $3 is the amount
+    // at this point we know for sure that the tipper exists, as we have already checked their balance.
     sqlx::query!(
-        "UPDATE balance_vrsc SET balance = CASE
-            WHEN discord_id = $1 THEN balance - $3
-            WHEN discord_id = $2 THEN balance + $3
+        "WITH inserted_row AS (
+            INSERT INTO discord_users (discord_id)
+            VALUES ($2)
+        )
+        INSERT INTO balance_vrsc (discord_id, balance)
+        VALUES ($2, $3)
+        ON CONFLICT (discord_id)
+        DO UPDATE SET balance = CASE
+            WHEN balance_vrsc.discord_id = $1 THEN balance_vrsc.balance - $3
+            WHEN balance_vrsc.discord_id = $2 THEN balance_vrsc.balance + $3
         END
-        WHERE discord_id IN ($1, $2)",
+        WHERE balance_vrsc.discord_id IN ($1, $2)",
         from_user.0 as i64,
         to_user.0 as i64,
         tip_amount.as_sat() as i64,
@@ -167,11 +195,12 @@ pub async fn store_new_address_for_user(
 ) -> Result<(), Error> {
     sqlx::query!(
         "WITH inserted_row AS (
-            INSERT INTO addresses (discord_id, address) 
-            VALUES ($1, $2)
+            INSERT INTO discord_users (discord_id) 
+            VALUES ($1)
+            ON CONFLICT (discord_id) DO NOTHING
         )
-        INSERT INTO balance_vrsc (discord_id)
-        VALUES ($1)
+        INSERT INTO addresses (discord_id, address)
+        VALUES ($1, $2)
         ",
         user_id.0 as i64,
         &address.to_string()
@@ -240,9 +269,12 @@ pub async fn increase_balance(
         amount.as_vrsc()
     );
     let result = sqlx::query!(
-        "UPDATE balance_vrsc SET balance = balance + $1 WHERE discord_id = $2",
-        amount.as_sat() as i64,
-        user_id.0 as i64
+        "INSERT INTO balance_vrsc (discord_id, balance)
+        VALUES ($1, $2)
+        ON CONFLICT (discord_id)
+        DO UPDATE SET balance = balance_vrsc.balance + $2",
+        user_id.0 as i64,
+        amount.as_sat() as i64
     )
     .execute(pool)
     .await;

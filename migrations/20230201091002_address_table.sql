@@ -10,8 +10,3 @@ CREATE TABLE public.addresses
         ON DELETE NO ACTION
 );
 
-INSERT INTO addresses 
-SELECT discord_id, vrsc_address
-FROM discord_users;
-
-ALTER TABLE discord_users DROP COLUMN vrsc_address;

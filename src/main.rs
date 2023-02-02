@@ -5,6 +5,7 @@ pub mod wallet_listener;
 
 use crate::{
     configuration::{get_configuration, Settings},
+    util::database,
     wallet_listener::TransactionProcessor,
 };
 use commands::*;
@@ -12,7 +13,7 @@ use opentelemetry::global;
 use poise::serenity_prelude::{self as serenity, UserId};
 use secrecy::ExposeSecret;
 use sqlx::PgPool;
-use std::{borrow::Borrow, collections::HashSet, sync::Arc};
+use std::{collections::HashSet, sync::Arc};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -162,31 +163,17 @@ async fn app() -> Result<(), Error> {
         },
         pre_command: |ctx| {
             Box::pin(async move {
+                let pool = &ctx.data().database;
+                database::insert_discord_user(pool, &ctx.author().id)
+                    .await
+                    .expect("a discord_user to be added to the database");
+
+                let author = ctx.author().tag();
                 let channel_name = ctx
                     .channel_id()
                     .name(&ctx.serenity_context())
                     .await
                     .unwrap_or_else(|| "<unknown>".to_owned());
-                let author = ctx.author().tag();
-
-                let pool = &ctx.data().database;
-                if let Ok(response) =
-                    crate::util::database::get_balance_for_user(pool.borrow(), &ctx.author().id)
-                        .await
-                {
-                    if response.is_none() {
-                        let client = &ctx.data().verus().unwrap();
-                        let address = client.get_new_address().unwrap();
-                        crate::util::database::store_new_address_for_user(
-                            &pool,
-                            &ctx.author().id,
-                            &address,
-                        )
-                        .await
-                        .expect("an address from the verus daemon");
-                    }
-                }
-
                 match ctx {
                     poise::Context::Prefix(ctx) => {
                         info!("{} in {}: `{}`", author, channel_name, &ctx.msg.content);

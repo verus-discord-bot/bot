@@ -1,5 +1,18 @@
 {
   "db": "PostgreSQL",
+  "06f77bef128012f3106d4b9eb3b27a1266d5066ee9365d97e7d6ef74f78ecb42": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "WITH inserted_row AS (\n            INSERT INTO discord_users (discord_id) \n            VALUES ($1)\n            ON CONFLICT (discord_id) DO NOTHING\n        )\n        INSERT INTO addresses (discord_id, address)\n        VALUES ($1, $2)\n        "
+  },
   "099b67ad64803ef2f48120818fe3e228ce6d58e484b766267f0970ec60e34263": {
     "describe": {
       "columns": [
@@ -18,31 +31,19 @@
     },
     "query": "SELECT SUM(CAST(amount AS BIGINT)) FROM tips_vrsc"
   },
-  "0bec66f803d8cf724b269e0a9700a2249d847b5cfd13315e741a60d3d9950cf4": {
+  "0a393f4b25cc4077fae804e50559a598235bfdf4b9092ea3e57ea3dfe22499e7": {
     "describe": {
       "columns": [],
       "nullable": [],
       "parameters": {
         "Left": [
           "Int8",
-          "Int8Array"
-        ]
-      }
-    },
-    "query": "\n        UPDATE balance_vrsc \n        SET balance = balance + $1\n        WHERE discord_id IN (SELECT * FROM UNNEST($2::bigint[]))\n        "
-  },
-  "1a056ef24063992c56c220516e3f34b5c6220990f1e3de0b1df7e880695cbfd7": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
           "Int8",
           "Int8"
         ]
       }
     },
-    "query": "UPDATE balance_vrsc SET balance = balance + $1 WHERE discord_id = $2"
+    "query": "WITH inserted_row AS (\n            INSERT INTO discord_users (discord_id)\n            VALUES ($2)\n        )\n        INSERT INTO balance_vrsc (discord_id, balance)\n        VALUES ($2, $3)\n        ON CONFLICT (discord_id)\n        DO UPDATE SET balance = CASE\n            WHEN balance_vrsc.discord_id = $1 THEN balance_vrsc.balance - $3\n            WHEN balance_vrsc.discord_id = $2 THEN balance_vrsc.balance + $3\n        END\n        WHERE balance_vrsc.discord_id IN ($1, $2)"
   },
   "247d765e9acb9efc4fc77b53c13d397decd8256c345488c96dbf890de9f2f28e": {
     "describe": {
@@ -81,19 +82,17 @@
     },
     "query": "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, opid, transaction_action, fee) VALUES ($1, $2, $3, $4, $5, $6)"
   },
-  "562a0dc83d7614066b62ccfb8633fbfe7df4c0f026db3e9d39fda9904fbdb392": {
+  "5ebf45d92b3a7f5cf2e2ea7ae8d6fc5e2918f090cbce2eb4b49dc2691be8f40c": {
     "describe": {
       "columns": [],
       "nullable": [],
       "parameters": {
         "Left": [
-          "Int8",
-          "Int8",
           "Int8"
         ]
       }
     },
-    "query": "UPDATE balance_vrsc SET balance = CASE\n            WHEN discord_id = $1 THEN balance - $3\n            WHEN discord_id = $2 THEN balance + $3\n        END\n        WHERE discord_id IN ($1, $2)"
+    "query": "INSERT INTO discord_users(discord_id) \n        VALUES ($1) \n        ON CONFLICT (discord_id) \n        DO NOTHING"
   },
   "63def600bdcf738d595bd767cb7d38fb5d7a0f3cd6e8cbba21f06a92fbb2a8dc": {
     "describe": {
@@ -107,19 +106,6 @@
       }
     },
     "query": "UPDATE discord_users SET notifications = ($1) WHERE discord_id = ($2)"
-  },
-  "65da783b5378ec44e1c322129bb2709d779a2bb813d50b39722e505a3e26cbfa": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Text"
-        ]
-      }
-    },
-    "query": "WITH inserted_row AS (\n            INSERT INTO addresses (discord_id, address) \n            VALUES ($1, $2)\n        )\n        INSERT INTO balance_vrsc (discord_id)\n        VALUES ($1)\n        "
   },
   "689a2f1bc744d2992b9920527455b4ff5aae8e5f03ca8321222789030ddb3b6a": {
     "describe": {
@@ -353,6 +339,19 @@
       }
     },
     "query": "SELECT * FROM transactions_vrsc WHERE transaction_id = $1 AND transaction_action = 'deposit'"
+  },
+  "cff0030da7dc7f1b3eb301b303adb25fb68f3512d110f62fc2da6f28bca7c2fe": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "INSERT INTO balance_vrsc (discord_id, balance)\n        VALUES ($1, $2)\n        ON CONFLICT (discord_id)\n        DO UPDATE SET balance = balance_vrsc.balance + $2"
   },
   "d6ac1264c5461c414910155fb22da28842b3bc610e672c3bba4187ede81d18c0": {
     "describe": {

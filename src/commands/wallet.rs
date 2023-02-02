@@ -351,17 +351,6 @@ pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-#[derive(Debug)]
-struct MyError(String);
-
-impl fmt::Display for MyError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "There is an error: {}", self.0)
-    }
-}
-
-impl std::error::Error for MyError {}
-
 /// Get an address to deposit funds to the tipbot wallet
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Wallet")]
@@ -374,35 +363,50 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
     let pool = &ctx.data().database;
 
     if let Some(address) = database::get_address_from_user(&pool, &ctx.author().id).await? {
-        let filename = format!("{address}.png");
-        let out = PathBuf::from_str(&format!("qr_address/{}", &filename)).unwrap();
-        ctx.send(|reply| {
-            let qr = QRBuilder::new(address.to_string()).build().unwrap();
+        send_deposit_address_msg(ctx, &address).await?;
+    } else {
+        // the database doesn't have an address, let's create one:
+        let client = &ctx.data().verus().unwrap();
+        let address = client.get_new_address().unwrap();
+        crate::util::database::store_new_address_for_user(&pool, &ctx.author().id, &address)
+            .await
+            .expect("an address from the verus daemon");
 
-            let _img = ImageBuilder::default()
-                .shape(Shape::Circle)
-                .fit_width(400)
-                .module_color([49, 101, 212, 255])
-                .background_color([255, 255, 255, 0])
-                .to_file(&qr, out.as_os_str().to_str().unwrap());
-
-            reply
-                .embed(|embed| {
-                    embed.image(format!("attachment://{filename}")).field(
-                        "Address",
-                        format!("{}", address.to_string()),
-                        false,
-                    )
-                })
-                .attachment(poise::serenity_prelude::AttachmentType::Path(&out))
-                .ephemeral(true)
-        })
-        .await?;
+        send_deposit_address_msg(ctx, &address).await?;
     }
 
     Ok(())
 }
 
+async fn send_deposit_address_msg(ctx: Context<'_>, address: &Address) -> Result<(), Error> {
+    let filename = format!("{address}.png");
+    let out = PathBuf::from_str(&format!("qr_address/{}", &filename)).unwrap();
+
+    ctx.send(|reply| {
+        let qr = QRBuilder::new(address.to_string()).build().unwrap();
+
+        let _img = ImageBuilder::default()
+            .shape(Shape::Circle)
+            .fit_width(400)
+            .module_color([49, 101, 212, 255])
+            .background_color([255, 255, 255, 0])
+            .to_file(&qr, out.as_os_str().to_str().unwrap());
+
+        reply
+            .embed(|embed| {
+                embed.image(format!("attachment://{filename}")).field(
+                    "Address",
+                    format!("{}", address.to_string()),
+                    false,
+                )
+            })
+            .attachment(poise::serenity_prelude::AttachmentType::Path(&out))
+            .ephemeral(true)
+    })
+    .await?;
+
+    Ok(())
+}
 // Sendcurrency works with op-ids because it can work with zk-transactions. Therefore the txid of a transactions is not always known directly after sending.
 // This function waits a bit and gets the txid once the operation_status RPC gives one.
 // if it doesn't give one, the user is notified and the op-id is stored in the database.
@@ -593,3 +597,14 @@ mod tests {
         assert!(balance_is_enough(&balance, &to_withdraw, &tx_fee));
     }
 }
+
+#[derive(Debug)]
+struct MyError(String);
+
+impl fmt::Display for MyError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "There is an error: {}", self.0)
+    }
+}
+
+impl std::error::Error for MyError {}
