@@ -373,18 +373,6 @@ pub async fn get_notification_settings(
         .collect())
 }
 
-pub async fn get_bot_fees(pool: &PgPool) -> Result<u64, Error> {
-    let record =
-        sqlx::query!("SELECT SUM(CAST(fee AS BIGINT)) FROM transactions_vrsc WHERE fee > 0")
-            .fetch_one(pool)
-            .await?;
-
-    if let Some(balance) = record.sum {
-        return Ok(balance.to_u64().unwrap());
-    }
-    Ok(0)
-}
-
 pub async fn get_blacklist_status(pool: &PgPool, user_id: UserId) -> Result<Option<bool>, Error> {
     if let Some(row) = sqlx::query!(
         "SELECT blacklisted FROM discord_users WHERE discord_id = $1",
@@ -451,6 +439,7 @@ pub async fn set_stored_txid_to_processed(pool: &PgPool, txid: &Txid) -> Result<
     Ok(())
 }
 
+// sums all the balances currently in the database and returns them
 pub async fn get_total_balance(pool: &PgPool) -> Result<u64, Error> {
     let record = sqlx::query!("SELECT SUM(CAST(balance AS BIGINT)) FROM balance_vrsc")
         .fetch_one(pool)

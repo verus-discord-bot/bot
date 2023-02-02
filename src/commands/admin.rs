@@ -179,25 +179,6 @@ pub async fn rescanfromheight(ctx: Context<'_>, height: u64) -> Result<(), Error
 
 #[instrument(skip(ctx))]
 #[poise::command(owners_only, prefix_command, hide_in_help)]
-pub async fn feescollected(ctx: Context<'_>) -> Result<(), Error> {
-    trace!("fetching bot fees for {}", &ctx.data().bot_user_id);
-
-    let pool = &ctx.data().database;
-    let balance = database::get_bot_fees(pool).await?;
-
-    ctx.send(|reply| {
-        reply.content(format!(
-            "Fees collected by bot: {}",
-            Amount::from_sat(balance)
-        ))
-    })
-    .await?;
-
-    Ok(())
-}
-
-#[instrument(skip(ctx))]
-#[poise::command(owners_only, prefix_command, hide_in_help)]
 pub async fn withdrawenabled(ctx: Context<'_>, value: bool) -> Result<(), Error> {
     trace!("set withdraws enabled to {value}");
 
