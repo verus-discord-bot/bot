@@ -112,7 +112,7 @@ async fn user(
     {
         trace!("tipper has enough balance");
 
-        database::tip_users(pool, &ctx.author().id, &vec![user.id], &tip_amount).await?;
+        database::process_a_tip(pool, &ctx.author().id, &vec![user.id], &tip_amount).await?;
 
         // tips are only stored one way: counterparty is the sender of the tip.
         let tip_event_id = Uuid::new_v4();
@@ -382,7 +382,7 @@ async fn tip_multiple_users(
 
         let tip_event_id = Uuid::new_v4();
 
-        database::tip_users(pool, &author, &users, &div_tip_amount).await?;
+        database::process_a_tip(pool, &author, &users, &div_tip_amount).await?;
 
         database::store_tip_transactions(pool, &tip_event_id, users, kind, &div_tip_amount, author)
             .await?;

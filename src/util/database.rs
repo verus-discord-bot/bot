@@ -80,8 +80,11 @@ pub async fn get_balance_for_user(pool: &PgPool, user_id: &UserId) -> Result<Opt
     }
 }
 
-/// Used when tipping a role. Every member of the tipped role gets the same amount of coins.
-pub async fn tip_users(
+// process a tip from 1 user to 1 or more users.
+// The tipper can tip himself.
+// This function both increases the balances for the tip receivers and decreases the balance of the tipper.
+// If one of these 2 actions fail, the database is not updated.
+pub async fn process_a_tip(
     pool: &PgPool,
     from_user: &UserId,
     to_users: &Vec<UserId>,
