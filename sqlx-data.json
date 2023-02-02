@@ -371,6 +371,20 @@
     },
     "query": "SELECT txid FROM unprocessed_transactions WHERE status = 'unprocessed'"
   },
+  "d8df391a08a24a6202dd04ab6f9b07cb2676067a0280feac433919b5c7615a7c": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8Array",
+          "Int8Array",
+          "Int8"
+        ]
+      }
+    },
+    "query": "INSERT INTO balance_vrsc (discord_id, balance)\n        SELECT * FROM UNNEST($1::bigint[], $2::bigint[])\n        ON CONFLICT (discord_id)\n        DO\n        UPDATE SET balance = excluded.balance + $3\n        WHERE balance_vrsc.discord_id = excluded.discord_id\n        "
+  },
   "d95982d569deedf1e85f9f2f15e2d19a54f9eaa1b5e16b63c8e48c7c7677b20f": {
     "describe": {
       "columns": [

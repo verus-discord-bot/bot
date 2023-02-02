@@ -420,7 +420,7 @@ async fn tip_users(
 
         let tip_event_id = Uuid::new_v4();
 
-        // database::tip_multiple_users(pool, &author, &users, &div_tip_amount).await?;
+        database::tip_users(pool, &author, &users, &div_tip_amount).await?;
 
         database::store_multiple_tip_transactions(
             pool,

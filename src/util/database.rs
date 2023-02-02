@@ -103,53 +103,61 @@ pub async fn get_balance_for_user(pool: &PgPool, user_id: &UserId) -> Result<Opt
 }
 
 /// Used when tipping a role. Every member of the tipped role gets the same amount of coins.
-// pub async fn tip_multiple_users(
-//     pool: &PgPool,
-//     from_user: &UserId,
-//     to_users: &Vec<UserId>,
-//     tip_amount: &Amount,
-// ) -> Result<(), Error> {
-//     let users = to_users
-//         .iter()
-//         .map(|user| user.0 as i64)
-//         .collect::<Vec<_>>();
+pub async fn tip_users(
+    pool: &PgPool,
+    from_user: &UserId,
+    to_users: &Vec<UserId>,
+    tip_amount: &Amount,
+) -> Result<(), Error> {
+    let users = to_users
+        .iter()
+        .map(|user| user.0 as i64)
+        .collect::<Vec<_>>();
 
-//     let mut tx = pool.begin().await?;
-//     sqlx::query!(
-//         r#"
-//         FOREACH user_id IN ARRAY unnest($1::bigint[]) LOOP
-//             INSERT INTO balance_vrsc (discord_id, balance)
-//             VALUES id, $2
-//             ON CONFLICT (discord_id)
-//             DO
-//             UPDATE SET balance = excluded.balance + $2
-//             WHERE balance_vrsc.discord_id = excluded.discord_id
-//         END LOOP
-//         "#,
-//         &users,
-//         tip_amount.as_sat() as i64
-//     )
-//     .execute(&mut tx)
-//     .await?;
+    let len = users.len();
+    let amount_vec = vec![tip_amount.as_sat() as i64; len];
 
-//     if let Some(mul) = tip_amount.checked_mul(to_users.len() as u64) {
-//         sqlx::query!(
-//             "UPDATE balance_vrsc SET balance = balance - $1 WHERE discord_id = $2",
-//             mul.as_sat() as i64,
-//             from_user.0 as i64
-//         )
-//         .execute(&mut tx)
-//         .await?;
+    debug!("amount vec {amount_vec:?}");
 
-//         tx.commit().await?;
-//         return Ok(());
-//     }
+    // let (users, amounts) = users
+    //     .iter()
+    //     .map(|user| (user, tip_amount))
+    //     .collect::<Vec<(_,)>>();
 
-//     error!("something went wrong while processing a tip to multiple users");
-//     tx.rollback().await?;
+    let mut tx = pool.begin().await?;
+    sqlx::query!(
+        "INSERT INTO balance_vrsc (discord_id, balance)
+        SELECT * FROM UNNEST($1::bigint[], $2::bigint[])
+        ON CONFLICT (discord_id)
+        DO
+        UPDATE SET balance = excluded.balance + $3
+        WHERE balance_vrsc.discord_id = excluded.discord_id
+        ",
+        &users,
+        &amount_vec,
+        tip_amount.as_sat() as i64
+    )
+    .execute(&mut tx)
+    .await?;
 
-//     Ok(())
-// }
+    if let Some(mul) = tip_amount.checked_mul(to_users.len() as u64) {
+        sqlx::query!(
+            "UPDATE balance_vrsc SET balance = balance - $1 WHERE discord_id = $2",
+            mul.as_sat() as i64,
+            from_user.0 as i64
+        )
+        .execute(&mut tx)
+        .await?;
+
+        tx.commit().await?;
+        return Ok(());
+    }
+
+    error!("something went wrong while processing a tip to multiple users");
+    tx.rollback().await?;
+
+    Ok(())
+}
 
 /// Decreases the balance from one user and adds to the balance of another user in one transaction.
 /// If it fails, no balances are updated for both parties.
