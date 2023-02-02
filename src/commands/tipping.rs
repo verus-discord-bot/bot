@@ -126,47 +126,63 @@ async fn user(
         )
         .await?;
 
-        let notification: Notification =
-            database::get_notification_setting(&pool, &user.id).await?;
+        match database::get_notification_settings(&pool, &vec![user.id])
+            .await?
+            .first()
+        {
+            Some((_, notification)) => {
+                match notification {
+                    Notification::All | Notification::ChannelOnly => {
+                        // send a message in the same channel:
+                        ctx.send(|reply| {
+                            reply.ephemeral(false).content(format!(
+                                "<@{}> just tipped <@{}> {tip_amount}!",
+                                &ctx.author().id,
+                                user.id
+                            ))
+                        })
+                        .await?;
+                    }
+                    Notification::DMOnly => {
+                        // send a non-pinging message in the channel:
+                        ctx.send(|reply| {
+                            reply.ephemeral(false).content(format!(
+                                "<@{}> just tipped `{}` {tip_amount}!",
+                                &ctx.author().id,
+                                user.tag()
+                            ))
+                        })
+                        .await?;
+                        // send a notification in dm:
+                        user.dm(&ctx.http(), |message| {
+                            message.content(format!(
+                                "You just got tipped {tip_amount} from <@{}>!",
+                                &ctx.author().id,
+                            ))
+                        })
+                        .await?;
+                    }
+                    Notification::Off => {
+                        // send a non-pinging message in the channel:
+                        ctx.send(|reply| {
+                            reply.ephemeral(false).content(format!(
+                                "<@{}> just tipped `{}` {tip_amount}!",
+                                &ctx.author().id,
+                                user.tag()
+                            ))
+                        })
+                        .await?;
+                    }
+                }
+            }
+            None => {
+                trace!("User has not set notification settings, defaulting to Channel");
 
-        match notification {
-            Notification::All | Notification::ChannelOnly => {
-                // send a message in the same channel:
                 ctx.send(|reply| {
                     reply.ephemeral(false).content(format!(
                         "<@{}> just tipped <@{}> {tip_amount}!",
                         &ctx.author().id,
                         user.id
-                    ))
-                })
-                .await?;
-            }
-            Notification::DMOnly => {
-                // send a non-pinging message in the channel:
-                ctx.send(|reply| {
-                    reply.ephemeral(false).content(format!(
-                        "<@{}> just tipped `{}` {tip_amount}!",
-                        &ctx.author().id,
-                        user.tag()
-                    ))
-                })
-                .await?;
-                // send a notification in dm:
-                user.dm(&ctx.http(), |message| {
-                    message.content(format!(
-                        "You just got tipped {tip_amount} from <@{}>!",
-                        &ctx.author().id,
-                    ))
-                })
-                .await?;
-            }
-            Notification::Off => {
-                // send a non-pinging message in the channel:
-                ctx.send(|reply| {
-                    reply.ephemeral(false).content(format!(
-                        "<@{}> just tipped `{}` {tip_amount}!",
-                        &ctx.author().id,
-                        user.tag()
                     ))
                 })
                 .await?;
@@ -387,7 +403,7 @@ async fn tip_multiple_users(
         database::store_tip_transactions(pool, &tip_event_id, users, kind, &div_tip_amount, author)
             .await?;
 
-        let notification_settings = database::get_notification_setting_batch(pool, &users).await?;
+        let notification_settings = database::get_notification_settings(pool, &users).await?;
 
         for (user_id, notification) in notification_settings {
             match (user_id, notification) {

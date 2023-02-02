@@ -351,28 +351,7 @@ pub async fn update_notifications(
     Ok(())
 }
 
-pub async fn get_notification_setting(
-    pool: &PgPool,
-    user_id: &UserId,
-) -> Result<Notification, Error> {
-    if let Some(row) = sqlx::query!(
-        "SELECT notifications FROM discord_users WHERE discord_id = $1",
-        user_id.0 as i64
-    )
-    .fetch_optional(pool)
-    .await?
-    {
-        return match row.notifications {
-            Some(notification) => Ok(notification.into()),
-            None => Ok(Notification::ChannelOnly),
-        };
-    }
-
-    // if there is no row for the user to mention, use the default
-    Ok(Notification::ChannelOnly)
-}
-
-pub async fn get_notification_setting_batch(
+pub async fn get_notification_settings(
     pool: &PgPool,
     user_ids: &Vec<UserId>,
 ) -> Result<Vec<(i64, Notification)>, Error> {
