@@ -150,35 +150,35 @@ pub async fn tip_users(
 /// If it fails, no balances are updated for both parties.
 ///
 /// At this point, we know that from_user has enough balance. We don't know however if to_user has any balance to begin with.
-pub async fn tip_user(
-    pool: &PgPool,
-    from_user: &UserId,
-    to_user: &UserId,
-    tip_amount: &Amount,
-) -> Result<(), Error> {
-    debug!("tip from {from_user}, to {to_user}, amount {tip_amount}");
+// pub async fn tip_user(
+//     pool: &PgPool,
+//     from_user: &UserId,
+//     to_user: &UserId,
+//     tip_amount: &Amount,
+// ) -> Result<(), Error> {
+//     debug!("tip from {from_user}, to {to_user}, amount {tip_amount}");
 
-    // $1 is the tipper, $2 is the receiver, $3 is the amount
-    // at this point we know for sure that the tipper exists, as we have already checked their balance.
-    sqlx::query!(
-        "
-        INSERT INTO balance_vrsc (discord_id, balance)
-        VALUES ($2, $3)
-        ON CONFLICT (discord_id)
-        DO UPDATE SET balance = CASE
-            WHEN balance_vrsc.discord_id = $1 THEN balance_vrsc.balance - $3
-            WHEN balance_vrsc.discord_id = $2 THEN balance_vrsc.balance + $3
-        END
-        WHERE balance_vrsc.discord_id IN ($1, $2)",
-        from_user.0 as i64,
-        to_user.0 as i64,
-        tip_amount.as_sat() as i64,
-    )
-    .execute(pool)
-    .await?;
+//     // $1 is the tipper, $2 is the receiver, $3 is the amount
+//     // at this point we know for sure that the tipper exists, as we have already checked their balance.
+//     sqlx::query!(
+//         "
+//         INSERT INTO balance_vrsc (discord_id, balance)
+//         VALUES ($2, $3)
+//         ON CONFLICT (discord_id)
+//         DO UPDATE SET balance = CASE
+//             WHEN balance_vrsc.discord_id = $1 THEN balance_vrsc.balance - $3
+//             WHEN balance_vrsc.discord_id = $2 THEN balance_vrsc.balance + $3
+//         END
+//         WHERE balance_vrsc.discord_id IN ($1, $2)",
+//         from_user.0 as i64,
+//         to_user.0 as i64,
+//         tip_amount.as_sat() as i64,
+//     )
+//     .execute(pool)
+//     .await?;
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 pub async fn store_new_address_for_user(
     pool: &PgPool,
