@@ -60,7 +60,7 @@ async fn role(
                 .map(|m| m.user.id)
                 .collect::<Vec<_>>();
 
-            tip_users(ctx, &role_members, &tip_amount, "role").await?;
+            tip_multiple_users(ctx, &role_members, &tip_amount, "role").await?;
 
             return Ok(());
         } else {
@@ -116,13 +116,13 @@ async fn user(
 
         // tips are only stored one way: counterparty is the sender of the tip.
         let tip_event_id = Uuid::new_v4();
-        database::store_tip_transaction(
+        database::store_tip_transactions(
             pool,
             &tip_event_id,
-            &user.id,
+            &vec![user.id],
             "direct",
             &tip_amount,
-            ctx.author().id.0,
+            ctx.author().id,
         )
         .await?;
 
@@ -340,7 +340,7 @@ pub async fn reactdrop(
                         trace!("no users to tip, abort");
                     } else {
                         trace!("tipping {} users in reactdrop", users.len());
-                        tip_users(ctx, &users, &tip_amount, "reactdrop").await?;
+                        tip_multiple_users(ctx, &users, &tip_amount, "reactdrop").await?;
                     }
 
                     continue;
@@ -356,7 +356,9 @@ pub async fn reactdrop(
     Ok(())
 }
 
-async fn tip_users(
+// Divides the amount over the `users` vec, increases the balance for all `users` and stores the tip transaction
+// This function gets called in `tip role` and `reactdrop`
+async fn tip_multiple_users(
     ctx: Context<'_>,
     users: &Vec<UserId>,
     amount: &Amount,
@@ -365,7 +367,7 @@ async fn tip_users(
     // TODO optimize this query (select all that don't exist, insert them in 1 go)
     // check if all the tippees have an entry in the db
     let pool = &ctx.data().database;
-    let author = &ctx.author().id;
+    let author = ctx.author().id;
     let http = ctx.http();
 
     debug!("users in tip_users: {:?}", users);
@@ -382,15 +384,8 @@ async fn tip_users(
 
         database::tip_users(pool, &author, &users, &div_tip_amount).await?;
 
-        database::store_multiple_tip_transactions(
-            pool,
-            &tip_event_id,
-            users,
-            kind,
-            &div_tip_amount,
-            &author,
-        )
-        .await?;
+        database::store_tip_transactions(pool, &tip_event_id, users, kind, &div_tip_amount, author)
+            .await?;
 
         let notification_settings = database::get_notification_setting_batch(pool, &users).await?;
 

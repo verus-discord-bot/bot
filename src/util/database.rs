@@ -24,36 +24,14 @@ pub async fn insert_discord_user(pool: &PgPool, user_id: &UserId) -> Result<(), 
     Ok(())
 }
 
-// to store a single tip transaction. Usually when a direct tip takes place or when a user sends a group tip.
-pub async fn store_tip_transaction(
-    pool: &PgPool,
-    uuid: &Uuid,
-    user_id: &UserId,
-    kind: &str, // is usually always "direct"
-    amount: &Amount,
-    counterparty: u64, // this can be a role_id or user_id but there is no abstraction over these 2 so we accept the plain uint64 id.
-) -> Result<(), Error> {
-    sqlx::query!("INSERT INTO tips_vrsc(uuid, discord_id, kind, amount, counterparty) VALUES ($1, $2, $3, $4, $5)",
-        uuid.to_string(),
-        user_id.0 as i64,
-        kind,
-        amount.as_sat() as i64,
-        counterparty as i64
-    )
-    .execute(pool)
-        .await?;
-
-    Ok(())
-}
-
 // to store multiple tip transactions at once. Usually when a group tip needs to be processed.
-pub async fn store_multiple_tip_transactions(
+pub async fn store_tip_transactions(
     pool: &PgPool,
     uuid: &Uuid,
     user_ids: &Vec<UserId>,
     kind: &str,
     amount: &Amount,
-    counterparty: &UserId, // this is always a user
+    counterparty: UserId, // this is always a user
 ) -> Result<(), Error> {
     let mut query_builder: QueryBuilder<Postgres> =
         QueryBuilder::new("INSERT INTO tips_vrsc(uuid, discord_id, kind, amount, counterparty) ");
@@ -145,40 +123,6 @@ pub async fn tip_users(
 
     Ok(())
 }
-
-/// Decreases the balance from one user and adds to the balance of another user in one transaction.
-/// If it fails, no balances are updated for both parties.
-///
-/// At this point, we know that from_user has enough balance. We don't know however if to_user has any balance to begin with.
-// pub async fn tip_user(
-//     pool: &PgPool,
-//     from_user: &UserId,
-//     to_user: &UserId,
-//     tip_amount: &Amount,
-// ) -> Result<(), Error> {
-//     debug!("tip from {from_user}, to {to_user}, amount {tip_amount}");
-
-//     // $1 is the tipper, $2 is the receiver, $3 is the amount
-//     // at this point we know for sure that the tipper exists, as we have already checked their balance.
-//     sqlx::query!(
-//         "
-//         INSERT INTO balance_vrsc (discord_id, balance)
-//         VALUES ($2, $3)
-//         ON CONFLICT (discord_id)
-//         DO UPDATE SET balance = CASE
-//             WHEN balance_vrsc.discord_id = $1 THEN balance_vrsc.balance - $3
-//             WHEN balance_vrsc.discord_id = $2 THEN balance_vrsc.balance + $3
-//         END
-//         WHERE balance_vrsc.discord_id IN ($1, $2)",
-//         from_user.0 as i64,
-//         to_user.0 as i64,
-//         tip_amount.as_sat() as i64,
-//     )
-//     .execute(pool)
-//     .await?;
-
-//     Ok(())
-// }
 
 pub async fn store_new_address_for_user(
     pool: &PgPool,
