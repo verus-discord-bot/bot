@@ -84,7 +84,6 @@ pub async fn all(
     let uuid = Uuid::new_v4();
     let tx_fee = &ctx.data().withdrawal_fee.read().await.clone();
 
-    // the user ALWAYS has balance because of the pre_command function.
     if let Some(balance) = database::get_balance_for_user(&pool, &ctx.author().id).await? {
         let balance_amount = Amount::from_sat(balance);
         let withdrawal_amount = balance_amount.sub(*tx_fee); // no need to check for underflow, tx_fee is always low.
@@ -167,10 +166,15 @@ pub async fn all(
             ))
         })
         .await?;
+    } else {
+        trace!("The user has no balance, abort");
+        ctx.send(|reply| {
+            reply
+                .ephemeral(true)
+                .content(format!("Your balance is insufficient to withdraw"))
+        })
+        .await?;
     }
-    // the user ALWAYS has balance because of the pre_command function.
-    // So this is an unreachable place, theoretically.
-    error!("User should have had balance at this point, something is wrong");
 
     Ok(())
 }
@@ -315,8 +319,6 @@ pub async fn amount(
 
             return Ok(());
         }
-    } else {
-        // Ok(None) was returned
     }
 
     ctx.send(|reply| {
