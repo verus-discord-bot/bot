@@ -31,20 +31,6 @@
     },
     "query": "SELECT SUM(CAST(amount AS BIGINT)) FROM tips_vrsc"
   },
-  "0a393f4b25cc4077fae804e50559a598235bfdf4b9092ea3e57ea3dfe22499e7": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Int8",
-          "Int8"
-        ]
-      }
-    },
-    "query": "WITH inserted_row AS (\n            INSERT INTO discord_users (discord_id)\n            VALUES ($2)\n        )\n        INSERT INTO balance_vrsc (discord_id, balance)\n        VALUES ($2, $3)\n        ON CONFLICT (discord_id)\n        DO UPDATE SET balance = CASE\n            WHEN balance_vrsc.discord_id = $1 THEN balance_vrsc.balance - $3\n            WHEN balance_vrsc.discord_id = $2 THEN balance_vrsc.balance + $3\n        END\n        WHERE balance_vrsc.discord_id IN ($1, $2)"
-  },
   "247d765e9acb9efc4fc77b53c13d397decd8256c345488c96dbf890de9f2f28e": {
     "describe": {
       "columns": [
@@ -137,6 +123,20 @@
       }
     },
     "query": "UPDATE discord_users SET blacklisted = $1 WHERE discord_id = $2"
+  },
+  "83f2166648621c96a1ddc594392850d49e942610d0b518c3236f9c27cd40dae6": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "\n        INSERT INTO balance_vrsc (discord_id, balance)\n        VALUES ($2, $3)\n        ON CONFLICT (discord_id)\n        DO UPDATE SET balance = CASE\n            WHEN balance_vrsc.discord_id = $1 THEN balance_vrsc.balance - $3\n            WHEN balance_vrsc.discord_id = $2 THEN balance_vrsc.balance + $3\n        END\n        WHERE balance_vrsc.discord_id IN ($1, $2)"
   },
   "88c6f0c4581862cd0fe0432be0441b131f23493ebd0b5ce62cda5f34e2503c90": {
     "describe": {
@@ -370,20 +370,6 @@
       }
     },
     "query": "SELECT txid FROM unprocessed_transactions WHERE status = 'unprocessed'"
-  },
-  "d8df391a08a24a6202dd04ab6f9b07cb2676067a0280feac433919b5c7615a7c": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Int8Array",
-          "Int8Array",
-          "Int8"
-        ]
-      }
-    },
-    "query": "INSERT INTO balance_vrsc (discord_id, balance)\n        SELECT * FROM UNNEST($1::bigint[], $2::bigint[])\n        ON CONFLICT (discord_id)\n        DO\n        UPDATE SET balance = excluded.balance + $3\n        WHERE balance_vrsc.discord_id = excluded.discord_id\n        "
   },
   "d95982d569deedf1e85f9f2f15e2d19a54f9eaa1b5e16b63c8e48c7c7677b20f": {
     "describe": {

@@ -1,15 +1,14 @@
 use std::time::Duration;
 
-use poise::serenity_prelude::{self, CacheHttp, ChannelId, Http, ReactionType, RoleId, UserId};
-use sqlx::PgPool;
+use poise::serenity_prelude::{self, CacheHttp, ReactionType, RoleId, UserId};
+
 use tracing::*;
 use uuid::Uuid;
 use vrsc::Amount;
-use vrsc_rpc::{Client, RpcApi};
 
 use crate::{
     commands::{misc::Notification, user_blacklisted},
-    util::database::{self, store_new_address_for_user},
+    util::database::{self},
     wallet::check_and_get_balance,
     Context, Error,
 };
@@ -47,7 +46,6 @@ async fn role(
 
     if check_and_get_balance(&ctx, tip_amount).await?.is_some() {
         trace!("tipper has enough balance");
-        let pool = &ctx.data().database;
 
         if let Some(guild) = ctx.guild() {
             debug!("guildid: {:?}", guild.id);
@@ -59,18 +57,7 @@ async fn role(
                 .map(|m| m.user.id)
                 .collect::<Vec<_>>();
 
-            tip_users(
-                ctx,
-                // &ctx.http(),
-                // &ctx.data().verus()?,
-                // &pool,
-                &role_members,
-                // &ctx.author().id,
-                // &ctx.channel_id(),
-                &tip_amount,
-                "role",
-            )
-            .await?;
+            tip_users(ctx, &role_members, &tip_amount, "role").await?;
 
             return Ok(());
         } else {
@@ -118,17 +105,6 @@ async fn user(
 
     if check_and_get_balance(&ctx, tip_amount).await?.is_some() {
         trace!("tipper has enough balance");
-        // we can tip!
-        // what if the user we are about to tip has no balance?
-        // we need to create a balance for him first. TODO: Maybe we can do that in the command itself.
-        // if get_balance_for_user(pool, &user.id).await?.is_none() {
-        //     trace!("balance is none, so need to create new balance for user.");
-        //     let client = &ctx.data().verus()?;
-        //     let address = client.get_new_address()?;
-        //     store_new_address_for_user(pool, &user.id, &address).await?;
-        // }
-
-        // trace!("the tippee has a balance, we can tip now.");
 
         database::tip_user(pool, &ctx.author().id, &user.id, &tip_amount).await?;
 
@@ -231,8 +207,6 @@ pub async fn reactdrop(
     let tip_amount = Amount::from_vrsc(amount)?;
 
     if check_and_get_balance(&ctx, tip_amount).await?.is_some() {
-        let pool = &ctx.data().database;
-
         debug!("emoji picked for reactdrop: {}", emoji);
 
         if let Ok(reaction_type) = ReactionType::try_from(emoji) {
@@ -357,18 +331,7 @@ pub async fn reactdrop(
                         trace!("no users to tip, abort");
                     } else {
                         trace!("tipping {} users in reactdrop", users.len());
-                        tip_users(
-                            ctx,
-                            // &http,
-                            // &ctx.data().verus()?,
-                            // pool,
-                            &users,
-                            // &ctx.author().id,
-                            // &ctx.channel_id(),
-                            &tip_amount,
-                            "reactdrop",
-                        )
-                        .await?;
+                        tip_users(ctx, &users, &tip_amount, "reactdrop").await?;
                     }
 
                     continue;
@@ -393,24 +356,12 @@ async fn tip_users(
     // TODO optimize this query (select all that don't exist, insert them in 1 go)
     // check if all the tippees have an entry in the db
     let pool = &ctx.data().database;
-    let client = ctx.data().verus()?;
     let author = &ctx.author().id;
     let http = ctx.http();
 
-    // for user_id in users.iter() {
-    //     if database::get_address_from_user(pool, user_id)
-    //         .await?
-    //         .is_none()
-    //     {
-    //         trace!("need to get new address");
-    //         let address = client.get_new_address()?;
-    //         store_new_address_for_user(pool, user_id, &address).await?;
-    //     }
-    // }
-
     debug!("users in tip_users: {:?}", users);
 
-    // need to divide tipping amount over number of people in a role
+    // need to divide tipping amount over number of users
     if let Some(div_tip_amount) = amount.checked_div(users.len() as u64) {
         let amount = div_tip_amount
             .checked_mul(users.len() as u64)

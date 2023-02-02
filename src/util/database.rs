@@ -109,36 +109,23 @@ pub async fn tip_users(
     to_users: &Vec<UserId>,
     tip_amount: &Amount,
 ) -> Result<(), Error> {
-    let users = to_users
-        .iter()
-        .map(|user| user.0 as i64)
-        .collect::<Vec<_>>();
-
-    let len = users.len();
-    let amount_vec = vec![tip_amount.as_sat() as i64; len];
-
-    debug!("amount vec {amount_vec:?}");
-
-    // let (users, amounts) = users
-    //     .iter()
-    //     .map(|user| (user, tip_amount))
-    //     .collect::<Vec<(_,)>>();
-
     let mut tx = pool.begin().await?;
-    sqlx::query!(
-        "INSERT INTO balance_vrsc (discord_id, balance)
-        SELECT * FROM UNNEST($1::bigint[], $2::bigint[])
-        ON CONFLICT (discord_id)
-        DO
-        UPDATE SET balance = excluded.balance + $3
-        WHERE balance_vrsc.discord_id = excluded.discord_id
-        ",
-        &users,
-        &amount_vec,
-        tip_amount.as_sat() as i64
-    )
-    .execute(&mut tx)
-    .await?;
+
+    let mut query_builder: QueryBuilder<Postgres> =
+        QueryBuilder::new("INSERT INTO balance_vrsc (discord_id, balance) ");
+
+    let tuples = to_users
+        .iter()
+        .map(|user| (user.0 as i64, tip_amount.as_sat() as i64));
+
+    query_builder.push_values(tuples, |mut b, tuple| {
+        b.push_bind(tuple.0).push_bind(tuple.1);
+    });
+
+    query_builder
+        .push(" ON CONFLICT (discord_id) DO UPDATE SET balance = balance_vrsc.balance + $2");
+
+    query_builder.build().execute(&mut tx).await?;
 
     if let Some(mul) = tip_amount.checked_mul(to_users.len() as u64) {
         sqlx::query!(
@@ -174,10 +161,7 @@ pub async fn tip_user(
     // $1 is the tipper, $2 is the receiver, $3 is the amount
     // at this point we know for sure that the tipper exists, as we have already checked their balance.
     sqlx::query!(
-        "WITH inserted_row AS (
-            INSERT INTO discord_users (discord_id)
-            VALUES ($2)
-        )
+        "
         INSERT INTO balance_vrsc (discord_id, balance)
         VALUES ($2, $3)
         ON CONFLICT (discord_id)
