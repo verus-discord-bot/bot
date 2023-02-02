@@ -209,8 +209,6 @@ pub async fn amount(
         ctx.author().id
     );
 
-    let withdrawal_amount = Amount::from_float_in(withdrawal_amount, vrsc::Denomination::Verus)?;
-
     let client = &ctx.data().verus()?;
     if !destination_is_valid(&destination, &client) {
         ctx.send(|reply| {
@@ -226,6 +224,7 @@ pub async fn amount(
     // if amount to withdraw <= 0.0
     // the reason this has to be done this way is because Amount is an abstraction over floats (f64) and 2 floats with the same value are not equal
     // according to some IEEE standard.
+    let withdrawal_amount = Amount::from_vrsc(withdrawal_amount)?;
     if [Ordering::Less, Ordering::Equal].contains(&withdrawal_amount.cmp(&Amount::ZERO)) {
         ctx.send(|reply| {
             reply
@@ -239,91 +238,87 @@ pub async fn amount(
 
     let pool = &ctx.data().database;
     let uuid = Uuid::new_v4();
+    let tx_fee = ctx.data().withdrawal_fee.read().await.clone();
 
-    let tx_fee = &ctx.data().withdrawal_fee.read().await.clone();
-    if let Some(balance) = database::get_balance_for_user(&pool, &ctx.author().id).await? {
-        let balance_amount = Amount::from_sat(balance);
+    if get_and_check_balance(&ctx, withdrawal_amount, tx_fee)
+        .await?
+        .is_some()
+    {
+        trace!("balance is sufficient, withdrawal address is valid; starting sendcurrency");
 
-        // gets the withdrawal fee and clones it to prevent deadlock
-        debug!("tx_fee: {tx_fee}");
+        // until PBaaS releases on mainnet, we should not use a value for currency for "VRSC" withdrawals as there will be a daemon error
+        let currency = match ctx.data().settings.application.testnet {
+            true => Some("vrsctest"),
+            false => None,
+        };
+        let sco = SendCurrencyOutput::new(currency, &withdrawal_amount, &destination);
+        let opid = client.send_currency("*", vec![sco], None, None)?;
+        debug!("sendcurrency opid: {:?}", &opid);
 
-        if balance_is_enough(&balance_amount, &withdrawal_amount, &tx_fee) {
-            trace!("balance is sufficient, withdrawal address is valid; starting sendcurrency");
+        if let Some(txid) = wait_for_sendcurrency_finish(&pool, &client, &opid).await? {
+            // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
+            database::store_withdraw_transaction(
+                &pool,
+                &uuid,
+                &ctx.author().id,
+                Some(&txid),
+                &opid,
+                &tx_fee,
+            )
+            .await?;
 
-            // until PBaaS releases on mainnet, we should not use a value for currency for "VRSC" withdrawals as there will be a daemon error
-            let currency = match ctx.data().settings.application.testnet {
-                true => Some("vrsctest"),
-                false => None,
-            };
-            let sco = SendCurrencyOutput::new(currency, &withdrawal_amount, &destination);
-            let opid = client.send_currency("*", vec![sco], None, None)?;
-            debug!("sendcurrency opid: {:?}", &opid);
-
-            if let Some(txid) = wait_for_sendcurrency_finish(&pool, &client, &opid).await? {
-                // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
-                database::store_withdraw_transaction(
-                    &pool,
-                    &uuid,
-                    &ctx.author().id,
-                    Some(&txid),
-                    &opid,
-                    &tx_fee,
-                )
+            trace!("transaction stored, now decrease balance");
+            database::decrease_balance(&pool, &ctx.author().id, &withdrawal_amount, &tx_fee)
                 .await?;
 
-                trace!("transaction stored, now decrease balance");
-                database::decrease_balance(&pool, &ctx.author().id, &withdrawal_amount, &tx_fee)
-                    .await?;
+            let new_balance = database::get_balance_for_user(&pool, &ctx.author().id).await?;
 
-                let new_balance = database::get_balance_for_user(&pool, &ctx.author().id).await?;
+            ctx.send(|reply| {
+                reply.ephemeral(true).embed(|embed| {
+                    let embed = embed
+                        .title("Withdraw")
+                        .field("Amount", withdrawal_amount, false)
+                        .field("Fees", tx_fee, false)
+                        .field(
+                            "Explorer",
+                            format!("[link](https://insight.verus.io/tx/{})", txid.to_string()),
+                            false,
+                        );
 
-                ctx.send(|reply| {
-                    reply.ephemeral(true).embed(|embed| {
-                        let embed = embed
-                            .title("Withdraw")
-                            .field("Amount", withdrawal_amount, false)
-                            .field("Fees", tx_fee, false)
-                            .field(
-                                "Explorer",
-                                format!("[link](https://insight.verus.io/tx/{})", txid.to_string()),
-                                false,
-                            );
+                    if let Some(new_balance) = new_balance {
+                        embed.field("New balance", Amount::from_sat(new_balance), false);
+                    }
 
-                        if let Some(new_balance) = new_balance {
-                            embed.field("New balance", Amount::from_sat(new_balance), false);
-                        }
-
-                        embed
-                    })
+                    embed
                 })
-                .await?;
-            } else {
-                // at this point, the sendcurrency didn't finish. Maybe it went through, but we don't know.
-                // We should check this manually, so we'll let the user know to contact support and we'll store the op-id in the database.
-                let response = format!("Something went wrong trying to process your withdrawal. Please contact support with withdrawal ID: {}",
+            })
+            .await?;
+        } else {
+            // at this point, the sendcurrency didn't finish. Maybe it went through, but we don't know.
+            // We should check this manually, so we'll let the user know to contact support and we'll store the op-id in the database.
+            let response = format!("Something went wrong trying to process your withdrawal. Please contact support with withdrawal ID: {}",
                 uuid.to_string());
 
-                database::store_withdraw_transaction(
-                    &pool,
-                    &uuid,
-                    &ctx.author().id,
-                    None,
-                    &opid,
-                    &tx_fee,
-                )
+            database::store_withdraw_transaction(
+                &pool,
+                &uuid,
+                &ctx.author().id,
+                None,
+                &opid,
+                &tx_fee,
+            )
+            .await?;
+
+            ctx.send(|reply| reply.ephemeral(true).content(&response))
                 .await?;
-
-                ctx.send(|reply| reply.ephemeral(true).content(&response))
-                    .await?;
-            }
-
-            return Ok(());
         }
+
+        return Ok(());
     }
 
     ctx.send(|reply| {
         reply.ephemeral(true).content(format!(
-            "Your balance is insufficient to withdraw {withdrawal_amount}.\nMax available balance for withdraw: {}", withdrawal_amount.checked_sub(*tx_fee).unwrap_or(Amount::ZERO)
+            "Your balance is insufficient to withdraw {withdrawal_amount}.\nMax available balance for withdraw: {}", withdrawal_amount.checked_sub(tx_fee).unwrap_or(Amount::ZERO)
         ))
     })
     .await?;
@@ -510,10 +505,11 @@ pub fn balance_is_enough(balance: &Amount, amount_to_withdraw: &Amount, tx_fee: 
     false
 }
 
-// In this context, get the balance of the sending user and return it.
-pub async fn check_and_get_balance(
+// In this context, get the balance of the sending user, check if it is sufficient, and return it.
+pub async fn get_and_check_balance(
     ctx: &Context<'_>,
     amount_to_check: Amount,
+    tx_fee: Amount,
 ) -> Result<Option<Amount>, Error> {
     let pool = &ctx.data().database;
 
@@ -523,7 +519,7 @@ pub async fn check_and_get_balance(
         if balance_is_enough(
             &Amount::from_sat(balance),
             &amount_to_check,
-            &Amount::ZERO, // no fees for tipping
+            &tx_fee, // no fees for tipping
         ) {
             trace!("tipper has sufficient balance");
             return Ok(Some(Amount::from_sat(balance)));

@@ -9,7 +9,7 @@ use vrsc::Amount;
 use crate::{
     commands::{misc::Notification, user_blacklisted},
     util::database::{self},
-    wallet::check_and_get_balance,
+    wallet::get_and_check_balance,
     Context, Error,
 };
 
@@ -44,7 +44,10 @@ async fn role(
     debug!("role: {:?}", role.id);
     let tip_amount = Amount::from_vrsc(tip_amount)?;
 
-    if check_and_get_balance(&ctx, tip_amount).await?.is_some() {
+    if get_and_check_balance(&ctx, tip_amount, Amount::ZERO)
+        .await?
+        .is_some()
+    {
         trace!("tipper has enough balance");
 
         if let Some(guild) = ctx.guild() {
@@ -103,7 +106,10 @@ async fn user(
 
     let pool = &ctx.data().database;
 
-    if check_and_get_balance(&ctx, tip_amount).await?.is_some() {
+    if get_and_check_balance(&ctx, tip_amount, Amount::ZERO)
+        .await?
+        .is_some()
+    {
         trace!("tipper has enough balance");
 
         database::tip_users(pool, &ctx.author().id, &vec![user.id], &tip_amount).await?;
@@ -206,7 +212,10 @@ pub async fn reactdrop(
     // We must account for this by extracting the necessary data from `Context` and store it for later use.
     let tip_amount = Amount::from_vrsc(amount)?;
 
-    if check_and_get_balance(&ctx, tip_amount).await?.is_some() {
+    if get_and_check_balance(&ctx, tip_amount, Amount::ZERO)
+        .await?
+        .is_some()
+    {
         debug!("emoji picked for reactdrop: {}", emoji);
 
         if let Ok(reaction_type) = ReactionType::try_from(emoji) {
