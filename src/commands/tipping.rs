@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use poise::serenity_prelude::{self, CacheHttp, ReactionType, RoleId, UserId};
+use poise::serenity_prelude::{self, CacheHttp, ChannelId, ReactionType, RoleId, UserId};
 
 use tracing::*;
 use uuid::Uuid;
@@ -60,7 +60,7 @@ async fn role(
                 .map(|m| m.user.id)
                 .collect::<Vec<_>>();
 
-            tip_multiple_users(ctx, &role_members, &tip_amount, "role").await?;
+            tip_multiple_users(ctx, &ctx.channel_id(), &role_members, &tip_amount, "role").await?;
 
             return Ok(());
         } else {
@@ -356,7 +356,14 @@ pub async fn reactdrop(
                         trace!("no users to tip, abort");
                     } else {
                         trace!("tipping {} users in reactdrop", users.len());
-                        tip_multiple_users(ctx, &users, &tip_amount, "reactdrop").await?;
+                        tip_multiple_users(
+                            ctx,
+                            &ctx.channel_id(),
+                            &users,
+                            &tip_amount,
+                            "reactdrop",
+                        )
+                        .await?;
                     }
 
                     continue;
@@ -374,8 +381,11 @@ pub async fn reactdrop(
 
 // Divides the amount over the `users` vec, increases the balance for all `users` and stores the tip transaction
 // This function gets called in `tip role` and `reactdrop`
+// We need the ChannelId here because ReactDrops tend to last longer than 15 minutes, which is the time Discord drops the context, giving
+// us an invalid webhook token when trying to send a message using that context.
 async fn tip_multiple_users(
     ctx: Context<'_>,
+    channel_id: &ChannelId,
     users: &Vec<UserId>,
     amount: &Amount,
     kind: &str,
@@ -423,19 +433,18 @@ async fn tip_multiple_users(
             }
         }
 
-        ctx.send(|message| {
-            message.content(format!(
-                "<@{}> just tipped {} to {} users! ({} each)",
-                &author,
-                amount,
-                &users.len(),
-                div_tip_amount
-            ))
-        })
-        .await?;
-    } else {
-        ctx.send(|message| message.content("Could not send tip to role"))
+        channel_id
+            .send_message(http, |message| {
+                message.content(format!(
+                    "<@{}> just tipped {} to {} users!",
+                    &author,
+                    amount,
+                    &users.len()
+                ))
+            })
             .await?;
+    } else {
+        error!("could not send tip to role");
     }
 
     Ok(())

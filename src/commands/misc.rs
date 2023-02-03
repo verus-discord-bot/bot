@@ -16,7 +16,7 @@ pub async fn info(ctx: Context<'_>) -> Result<(), Error> {
             .embed(|embed| {
                 embed
                     .title("Verus bot info")
-                    .field("Version", "1.0", false)
+                    .field("Version", "1.0a", false)
                     .field(
                         "Time since last start (h\\:m\\:s)",
                         format!(
