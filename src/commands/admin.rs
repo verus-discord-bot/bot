@@ -14,14 +14,39 @@ use crate::{
 
 #[instrument(skip(ctx))]
 #[poise::command(owners_only, prefix_command, hide_in_help)]
+pub async fn adminhelp(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.send(|builder| {
+        builder.ephemeral(true).content(
+            r#"
+```
+!status                         - (financial) status of the bot
+!blacklist <user_id>            - blacklists a user (no more deposits + withdraws)
+!rescanfromheight <blockheight> - rescan blockchain from given height
+!checktxid <txid>               - manually check txid (in case user balance was not updated)
+!withdrawenabled <true/false>   - enable / disable withdraws
+!depositenabled <true/false>    - enable / disable deposits
+!setwithdrawfee <sats>          - sets the fee a user is charged when withdrawing funds
+!maintenance <true/false>       - set maintenance mode (commands are not executed) 
+
+```
+    "#,
+        )
+    })
+    .await?;
+
+    Ok(())
+}
+
+#[instrument(skip(ctx))]
+#[poise::command(owners_only, prefix_command, hide_in_help)]
 pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
     let pool = &ctx.data().database;
 
     let total_balance = Amount::from_sat(database::get_total_balance(pool).await?);
     let total_tipped = Amount::from_sat(database::get_total_tipped(pool).await?);
     let largest_tip = Amount::from_sat(database::get_largest_tip(pool).await?);
-    let total_deposited = total_deposited(ctx).await?;
-    let total_withdrawn = total_withdrawn(ctx).await?;
+    let total_deposited = totaldeposited(ctx).await?;
+    let total_withdrawn = totalwithdrawn(ctx).await?;
 
     let client = ctx.data().verus()?;
 
@@ -42,6 +67,13 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
                 .field("Tipbot balance", total_balance, false)
                 .field("Total deposited", total_deposited, false)
                 .field("Total withdrawn", total_withdrawn, false)
+                .field(
+                    "Database deposits - withdraws",
+                    total_deposited
+                        .checked_sub(total_withdrawn)
+                        .unwrap_or(Amount::ZERO),
+                    false,
+                )
                 .field("Total tipped", total_tipped, false)
                 .field("Largest tip", largest_tip, false)
                 .field(
@@ -62,7 +94,7 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-async fn total_deposited(ctx: Context<'_>) -> Result<Amount, Error> {
+async fn totaldeposited(ctx: Context<'_>) -> Result<Amount, Error> {
     ctx.defer().await?;
 
     let pool = &ctx.data().database;
@@ -92,7 +124,7 @@ async fn total_deposited(ctx: Context<'_>) -> Result<Amount, Error> {
     Ok(sum)
 }
 
-pub async fn total_withdrawn(ctx: Context<'_>) -> Result<Amount, Error> {
+pub async fn totalwithdrawn(ctx: Context<'_>) -> Result<Amount, Error> {
     ctx.defer().await?;
 
     let pool = &ctx.data().database;
