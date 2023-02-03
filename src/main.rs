@@ -74,12 +74,12 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
             )
             .send_message(ctx.http(), |m| {
                 m.content(format!(
-                    r#"
-                {s}, the following error occured:
-                - error message: {error}
-                - user that encounted error: {}
-                - command used: {}
-                - possible arguments used: {}"#,
+                    "
+                {s}, the following error occured:\n
+                - error message: {error}\n
+                - user that encounted error: {}\n
+                - command used: {}\n
+                - possible arguments used: {}",
                     ctx.author(),
                     ctx.invoked_command_name(),
                     ctx.invocation_string()
