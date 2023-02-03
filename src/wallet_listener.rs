@@ -122,14 +122,8 @@ impl TransactionProcessor {
             bind
         });
 
-        let config = self.config.clone();
-        let pool = self.pool.clone();
-        let http = self.http.clone();
-        let queue = self.queue_small_txns.clone();
-        let queueue = self.queue_large_txns.clone();
         let deposits_enabled = self.deposits_enabled.read().await.clone();
 
-        // tokio::spawn(async move {
         loop {
             match block_listener.accept().await {
                 Ok((_stream, _address)) => loop {
@@ -139,8 +133,8 @@ impl TransactionProcessor {
                         break;
                     }
 
-                    process_short_queue(queue.clone(), &config, &pool, http.clone()).await;
-                    process_long_queue(queueue.clone(), &config, &pool, http.clone()).await;
+                    self.process_short_queue().await.unwrap();
+                    self.process_long_queue().await.unwrap();
 
                     break;
                 },
@@ -151,18 +145,11 @@ impl TransactionProcessor {
                 }
             }
         }
-        // });
+
         info!("blocknotify listening");
     }
 
-    pub async fn check_tx(
-        &self,
-        // config: Settings,
-        // queue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
-        // queueue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
-        txid: Txid,
-        // pool: PgPool,
-    ) -> Result<(), Error> {
+    pub async fn check_tx(&self, txid: Txid) -> Result<(), Error> {
         let client = Client::vrsc(
             self.config.application.testnet,
             Auth::UserPass(
@@ -203,119 +190,128 @@ impl TransactionProcessor {
 
         Ok(())
     }
-}
 
-#[instrument(skip(queue, config, pool, http))]
-async fn process_short_queue(
-    queue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
-    config: &Settings,
-    pool: &PgPool,
-    http: Arc<Http>,
-) {
-    let mut write = queue.write().await;
-    let queue_size = write.len();
-    debug!("{queue_size} transactions in short queue");
+    #[instrument(skip(self))]
+    pub async fn process_short_queue(
+        // queue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
+        // config: &Settings,
+        // pool: &PgPool,
+        // http: Arc<Http>,
+        &self,
+    ) -> Result<(), Error> {
+        let mut write = self.queue_small_txns.write().await;
+        let http = Arc::clone(&self.http);
+        let pool = self.pool.clone();
+        let queue_size = write.len();
+        debug!("{queue_size} transactions in short queue");
 
-    loop {
-        if let Some(front) = write.front() {
-            trace!("read {front:?} from front");
+        loop {
+            if let Some(front) = write.front() {
+                trace!("read {front:?} from front");
 
-            let client = Client::vrsc(
-                config.application.testnet,
-                Auth::UserPass(
-                    format!("127.0.0.1:{}", config.application.rpc_port),
-                    config.application.rpc_user.clone(),
-                    config.application.rpc_password.clone(),
-                ),
-            )
-            .unwrap();
+                let client = Client::vrsc(
+                    self.config.application.testnet,
+                    Auth::UserPass(
+                        format!("127.0.0.1:{}", self.config.application.rpc_port),
+                        self.config.application.rpc_user.clone(),
+                        self.config.application.rpc_password.clone(),
+                    ),
+                )
+                .unwrap();
 
-            let raw_tx = client.get_raw_transaction_verbose(&front.0).unwrap();
+                let raw_tx = client.get_raw_transaction_verbose(&front.0)?;
 
-            if let Some(confs) = raw_tx.confirmations {
-                let min_confs = config.application.min_deposit_confirmations_small;
+                if let Some(confs) = raw_tx.confirmations {
+                    let min_confs = self.config.application.min_deposit_confirmations_small;
 
-                if confs < min_confs {
-                    trace!("tx needs {}, has {confs}: {}", min_confs, front.0);
-                    break;
-                } else {
-                    trace!("tx has at least {} confs: {}", min_confs, front.0);
-                    if let Err(e) = process_txid(Arc::clone(&http), &pool.clone(), &raw_tx).await {
-                        error!(
-                            "something went wrong while handling a new wallet tx: {:?}\n{:?}",
-                            e, &front
-                        )
+                    if confs < min_confs {
+                        trace!("tx needs {}, has {confs}: {}", min_confs, front.0);
+                        break;
+                    } else {
+                        trace!("tx has at least {} confs: {}", min_confs, front.0);
+                        if let Err(e) = process_txid(Arc::clone(&http), &pool, &raw_tx).await {
+                            error!(
+                                "something went wrong while handling a new wallet tx: {:?}\n{:?}",
+                                e, &front
+                            )
+                        }
+
+                        let _ = write.pop_front();
+                        continue;
                     }
-
-                    let _ = write.pop_front();
-                    continue;
+                } else {
+                    trace!("{} has no confirmations yet", front.0);
+                    break;
                 }
             } else {
-                trace!("{} has no confirmations yet", front.0);
+                trace!("new block but no transactions in queue");
                 break;
             }
-        } else {
-            trace!("new block but no transactions in queue");
-            break;
         }
+
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    pub async fn process_long_queue(&self) -> Result<(), Error> {
+        let mut write = self.queue_large_txns.write().await;
+        let http = Arc::clone(&self.http);
+        let pool = self.pool.clone();
+        let queue_size = write.len();
+        debug!("{queue_size} transactions in long queue");
+
+        loop {
+            if let Some(front) = write.front() {
+                trace!("read {front:?} from front");
+
+                let client = Client::vrsc(
+                    self.config.application.testnet,
+                    Auth::UserPass(
+                        format!("127.0.0.1:{}", self.config.application.rpc_port),
+                        self.config.application.rpc_user.clone(),
+                        self.config.application.rpc_password.clone(),
+                    ),
+                )
+                .unwrap();
+
+                let raw_tx = client.get_raw_transaction_verbose(&front.0)?;
+
+                if let Some(confs) = raw_tx.confirmations {
+                    let min_confs = self.config.application.min_deposit_confirmations_large;
+
+                    if confs < min_confs {
+                        trace!("tx needs {}, has {confs}: {}", min_confs, front.0);
+                        break;
+                    } else {
+                        trace!("tx has at least {} confs: {}", min_confs, front.0);
+                        if let Err(e) = process_txid(Arc::clone(&http), &pool, &raw_tx).await {
+                            error!(
+                                "something went wrong while handling a new wallet tx: {:?}\n{:?}",
+                                e, &front
+                            )
+                        }
+
+                        let _ = write.pop_front();
+                        continue;
+                    }
+                } else {
+                    trace!("{} has no confirmations yet", front.0);
+                    break;
+                }
+            } else {
+                trace!("new block but no transactions in queue");
+                break;
+            }
+        }
+
+        Ok(())
     }
 }
 
-#[instrument(skip(queue, config, pool, http))]
-async fn process_long_queue(
-    queue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
-    config: &Settings,
-    pool: &PgPool,
-    http: Arc<Http>,
-) {
-    let mut write = queue.write().await;
-    let queue_size = write.len();
-    debug!("{queue_size} transactions in long queue");
-
-    loop {
-        if let Some(front) = write.front() {
-            trace!("read {front:?} from front");
-
-            let client = Client::vrsc(
-                config.application.testnet,
-                Auth::UserPass(
-                    format!("127.0.0.1:{}", config.application.rpc_port),
-                    config.application.rpc_user.clone(),
-                    config.application.rpc_password.clone(),
-                ),
-            )
-            .unwrap();
-
-            let raw_tx = client.get_raw_transaction_verbose(&front.0).unwrap();
-
-            if let Some(confs) = raw_tx.confirmations {
-                let min_confs = config.application.min_deposit_confirmations_large;
-
-                if confs < min_confs {
-                    trace!("tx needs {}, has {confs}: {}", min_confs, front.0);
-                    break;
-                } else {
-                    trace!("tx has at least {} confs: {}", min_confs, front.0);
-                    if let Err(e) = process_txid(Arc::clone(&http), &pool.clone(), &raw_tx).await {
-                        error!(
-                            "something went wrong while handling a new wallet tx: {:?}\n{:?}",
-                            e, &front
-                        )
-                    }
-
-                    let _ = write.pop_front();
-                    continue;
-                }
-            } else {
-                trace!("{} has no confirmations yet", front.0);
-                break;
-            }
-        } else {
-            trace!("new block but no transactions in queue");
-            break;
-        }
-    }
-}
+// checks if a transaction id contains an output address that belongs to a discord user
+// if it exists, the balance of that user is increased
+// the transactions is stored in the database such that it doesn't get processed again
+// a dm is sent to the user afterwards
 
 pub async fn process_txid(
     http: Arc<Http>,

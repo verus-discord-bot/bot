@@ -1,6 +1,6 @@
 use poise::serenity_prelude::UserId;
 use sqlx::PgPool;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tracing::{debug, error, instrument, trace};
 use uuid::Uuid;
 use vrsc::Amount;
@@ -13,7 +13,7 @@ use crate::{
 };
 
 #[instrument(skip(ctx))]
-#[poise::command(owners_only, prefix_command, hide_in_help)]
+#[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn adminhelp(ctx: Context<'_>) -> Result<(), Error> {
     ctx.send(|builder| {
         builder.ephemeral(true).content(
@@ -38,7 +38,7 @@ pub async fn adminhelp(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 #[instrument(skip(ctx))]
-#[poise::command(owners_only, prefix_command, hide_in_help)]
+#[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
     let pool = &ctx.data().database;
 
@@ -145,7 +145,7 @@ pub async fn totalwithdrawn(ctx: Context<'_>) -> Result<Amount, Error> {
 }
 
 #[instrument(skip(ctx))]
-#[poise::command(owners_only, prefix_command, hide_in_help)]
+#[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
     debug!("no more fun for {user_id}");
     let pool = &ctx.data().database;
@@ -177,7 +177,7 @@ pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
 }
 
 #[instrument(skip(ctx))]
-#[poise::command(owners_only, prefix_command, hide_in_help)]
+#[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn setwithdrawfee(ctx: Context<'_>, amount: u64) -> Result<(), Error> {
     let withdrawal_fee = &ctx.data().withdrawal_fee;
 
@@ -194,13 +194,17 @@ pub async fn setwithdrawfee(ctx: Context<'_>, amount: u64) -> Result<(), Error> 
 }
 
 #[instrument(skip(ctx))]
-#[poise::command(owners_only, prefix_command, hide_in_help)]
+#[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn rescanfromheight(ctx: Context<'_>, height: u64) -> Result<(), Error> {
     trace!("Initiating a rescan from height {height}");
 
     let client = &ctx.data().verus()?;
     if let Ok(()) = client.rescan_from_height(height) {
         trace!("rescan done");
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        ctx.data().tx_processor.process_long_queue().await?;
+        ctx.data().tx_processor.process_short_queue().await?;
         ctx.send(|reply| reply.content("Rescan done")).await?;
     } else {
         trace!("rescan did not succeed")
@@ -210,7 +214,7 @@ pub async fn rescanfromheight(ctx: Context<'_>, height: u64) -> Result<(), Error
 }
 
 #[instrument(skip(ctx))]
-#[poise::command(owners_only, prefix_command, hide_in_help)]
+#[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn withdrawenabled(ctx: Context<'_>, value: bool) -> Result<(), Error> {
     trace!("set withdraws enabled to {value}");
 
@@ -227,7 +231,7 @@ pub async fn withdrawenabled(ctx: Context<'_>, value: bool) -> Result<(), Error>
 }
 
 #[instrument(skip(ctx))]
-#[poise::command(owners_only, prefix_command, hide_in_help)]
+#[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn depositenabled(ctx: Context<'_>, value: bool) -> Result<(), Error> {
     trace!("set deposits enabled to {value}");
 
@@ -253,7 +257,7 @@ pub async fn depositenabled(ctx: Context<'_>, value: bool) -> Result<(), Error> 
 
 /// Manually checks a tx if it was not caught with rescan
 #[instrument(skip(ctx))]
-#[poise::command(owners_only, prefix_command, hide_in_help)]
+#[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn checktxid(ctx: Context<'_>, txid: Txid) -> Result<(), Error> {
     trace!("manually check {txid}");
     let http = ctx.serenity_context().http.clone();
@@ -272,7 +276,7 @@ pub async fn checktxid(ctx: Context<'_>, txid: Txid) -> Result<(), Error> {
 ///
 /// Needs discord_user_id, txid, tx_fee (in sats)
 #[instrument(skip(ctx))]
-#[poise::command(owners_only, prefix_command, hide_in_help)]
+#[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn manuallyaddwithdraw(
     ctx: Context<'_>,
     user_id: UserId,
@@ -303,7 +307,7 @@ pub async fn manuallyaddwithdraw(
 
 /// Set maintenance mode on or off
 #[instrument(skip(ctx))]
-#[poise::command(owners_only, prefix_command, hide_in_help)]
+#[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn maintenance(ctx: Context<'_>, value: bool) -> Result<(), Error> {
     trace!("setting maintenance mode to {value}");
 
@@ -334,7 +338,12 @@ async fn process_stored_txids(
 
     for txid in stored_txids {
         trace!("processing {txid}");
+        // checks tx and puts them in a queue
         tx_proc.check_tx(txid).await?;
+
+        // process the queue immediately
+        tx_proc.process_long_queue().await?;
+        tx_proc.process_short_queue().await?;
 
         database::set_stored_txid_to_processed(&pool, &txid).await?;
     }
@@ -344,7 +353,7 @@ async fn process_stored_txids(
 
 /// Set maintenance mode on or off
 #[instrument(skip(ctx))]
-#[poise::command(owners_only, prefix_command, hide_in_help)]
+#[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn test_17000(ctx: Context<'_>, value: bool) -> Result<(), Error> {
     trace!("setting maintenance mode to {value}");
 
