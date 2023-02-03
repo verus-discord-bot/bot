@@ -20,7 +20,7 @@ pub async fn adminhelp(ctx: Context<'_>) -> Result<(), Error> {
             r#"
 ```
 !status                         - (financial) status of the bot
-!blacklist <user_id>            - blacklists a user (no more deposits + withdraws)
+!blacklist <user_id>            - blacklists a user (no more tipping, deposits & withdraws)
 !rescanfromheight <blockheight> - rescan blockchain from given height
 !checktxid <txid>               - manually check txid (in case user balance was not updated)
 !withdrawenabled <true/false>   - enable / disable withdraws
