@@ -54,6 +54,7 @@ pub struct ApplicationSettings {
     pub enable_tracing: bool,
     pub discord: Secret<String>,
     pub discord_guild_id: String,
+    pub discord_admin_thread_id: String,
     #[serde(with = "vrsc::util::amount::serde::as_sat")]
     pub global_withdrawal_fee: Amount,
     #[serde(with = "vrsc::util::amount::serde::as_sat")]

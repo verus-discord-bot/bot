@@ -10,7 +10,7 @@ use crate::{
 };
 use commands::*;
 use opentelemetry::global;
-use poise::serenity_prelude::{self as serenity, UserId};
+use poise::serenity_prelude::{self as serenity, CacheHttp, ChannelId, UserId};
 use secrecy::ExposeSecret;
 use sqlx::PgPool;
 use std::{collections::HashSet, sync::Arc};
@@ -64,11 +64,30 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            if let Err(e) = ctx
-                .send(|reply| reply.content(format!("{s}, {error}")))
-                .await
+            if let Err(e) = ChannelId(
+                ctx.data()
+                    .settings
+                    .application
+                    .discord_admin_thread_id
+                    .parse::<u64>()
+                    .unwrap(),
+            )
+            .send_message(ctx.http(), |m| {
+                m.content(format!(
+                    r#"
+                {s}, the following error occured:
+                - error message: {error}
+                - user that encounted error: {}
+                - command used: {}
+                - possible arguments used: {}"#,
+                    ctx.author(),
+                    ctx.invoked_command_name(),
+                    ctx.invocation_string()
+                ))
+            })
+            .await
             {
-                warn!("{}", e)
+                error!("{}", e)
             }
         }
         poise::FrameworkError::ArgumentParse {
