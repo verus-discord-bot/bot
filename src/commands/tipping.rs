@@ -244,8 +244,9 @@ pub async fn reactdrop(
                     let emojis = ctx.guild().unwrap().emojis(ctx.http()).await?;
                     if !emojis.iter().any(|e| e.id == id.0) {
                         trace!("emoji not in guild");
-                        ctx.say("This emoji is not found in this Discord server, so it can't be used. Please pick another one").await?;
-
+                        ctx.send(|reply| {
+                            reply.ephemeral(true).content("This emoji is not found in this Discord server, so it can't be used. Please pick another one")
+                        }).await?;
                         return Ok(());
                     } else {
                         debug!("emoji in guild");
@@ -258,8 +259,12 @@ pub async fn reactdrop(
                     )?;
 
                     if regex.find(&unicode)?.is_none() {
-                        ctx.say("This is not an emoji. Please pick an emoji to start a Reactdrop")
-                            .await?;
+                        ctx.send(|reply| {
+                            reply.ephemeral(true).content(
+                                "This is not an emoji. Please pick an emoji to start a Reactdrop",
+                            )
+                        })
+                        .await?;
 
                         return Ok(());
                     } else {

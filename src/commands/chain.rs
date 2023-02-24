@@ -57,7 +57,7 @@ pub async fn peerinfo(ctx: Context<'_>) -> Result<(), Error> {
         .collect::<Vec<_>>();
 
     ctx.send(|reply| {
-        reply.content(format!(
+        reply.ephemeral(true).content(format!(
             "Publicly available peers:```{}```",
             peer_info
                 .into_iter()
