@@ -302,13 +302,15 @@ pub async fn reactdrop(
                         while j > 120 {
                             interval.tick().await;
 
-                            msg.edit(http.clone(), |f| {
+                            if let Err(e) = msg.edit(http.clone(), |f| {
                                 f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} hour(s), {} minute(s)",
                                 &reaction_type,
                                 j / 60 / 60,
                                 (j / 60) % 60))
                             })
-                            .await?;
+                            .await {
+                                warn!("updating the reactdrop didn't go well: {e:?}");
+                            }
 
                             i -= 60;
                             j -= 60;
@@ -320,19 +322,23 @@ pub async fn reactdrop(
 
                         while j > 0 {
                             interval.tick().await;
-                            msg.edit(http.clone(), |f| {
+                            if let Err(e) = msg.edit(http.clone(), |f| {
                                 f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, j))
                             })
-                            .await?;
+                            .await {
+                                warn!("updating the reactdrop didn't go well: {e:?}");
+                            }
                             trace!("time remaining: {} seconds", j);
                             i -= 1;
                             j -= 1;
                         }
                         interval.tick().await;
-                        msg.edit(http.clone(), |f| {
+                        if let Err(e) = msg.edit(http.clone(), |f| {
                             f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, j))
                         })
-                        .await?;
+                        .await {
+                            warn!("updating the reactdrop didn't go well: {e:?}");
+                        }
 
                         break;
                     }
