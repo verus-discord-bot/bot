@@ -39,7 +39,7 @@ pub struct TransactionProcessor {
     pool: PgPool,
     config: Settings,
     pub maintenance: Arc<RwLock<bool>>,
-    deposits_enabled: Arc<RwLock<bool>>,
+    pub deposits_enabled: Arc<RwLock<bool>>,
     queue_small_txns: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
     queue_large_txns: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
 }

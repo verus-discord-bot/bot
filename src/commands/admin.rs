@@ -42,6 +42,9 @@ pub async fn adminhelp(ctx: Context<'_>) -> Result<(), Error> {
 pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
     let pool = &ctx.data().database;
 
+    let maintenance = *ctx.data().tx_processor.maintenance.read().await;
+    let deposits_enabled = *ctx.data().tx_processor.deposits_enabled.read().await;
+    let withdrawals_enabled = *ctx.data().withdrawals_enabled.read().await;
     let total_balance = Amount::from_sat(database::get_total_balance(pool).await?);
     let total_tipped = Amount::from_sat(database::get_total_tipped(pool).await?);
     let largest_tip = Amount::from_sat(database::get_largest_tip(pool).await?);
@@ -63,6 +66,9 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
         reply.embed(|embed| {
             embed
                 .title("Status report")
+                .field("bot in maintenance", maintenance, false)
+                .field("deposits enabled", deposits_enabled, false)
+                .field("withdrawals enabled", withdrawals_enabled, false)
                 .field("VRSC daemon balance", daemon_balance, false)
                 .field("Tipbot balance", total_balance, false)
                 .field("Total deposited", total_deposited, false)
