@@ -300,20 +300,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         )
     }
 
-    global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
+    // global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
 
-    let tracer = opentelemetry_jaeger::new_agent_pipeline()
-        .with_service_name("verusbot")
-        .install_simple()?;
+    // let tracer = opentelemetry_jaeger::new_agent_pipeline()
+    //     .with_service_name("verusbot")
+    //     .install_simple()?;
 
-    let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+    // let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
     let filter_layer = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new("info"))
         .unwrap();
 
     tracing_subscriber::registry()
-        .with(opentelemetry)
+        // .with(opentelemetry)
         // Continue logging to stdout
         .with(fmt::Layer::default())
         .with(filter_layer)
