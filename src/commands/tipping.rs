@@ -254,9 +254,23 @@ pub async fn reactdrop(
                 }
                 ReactionType::Unicode(unicode) => {
                     trace!("a unicode emoji was given. Check if it is really emoji.");
+                    debug!("unicode len: {:?}", unicode.len());
                     let regex = fancy_regex::Regex::new(
                         r"/((?<!\\)<:[^:]+:(\d+)>)|\p{Emoji}|\p{Extended_Pictographic}/gmu",
                     )?;
+
+                    let captures_len = regex.captures_len();
+
+                    if captures_len > 1 {
+                        ctx.send(|reply| {
+                            reply
+                                .ephemeral(true)
+                                .content("Please pick only 1 emoji to start a Reactdrop")
+                        })
+                        .await?;
+
+                        return Ok(());
+                    };
 
                     if regex.find(&unicode)?.is_none() {
                         ctx.send(|reply| {
