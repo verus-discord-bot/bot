@@ -108,6 +108,8 @@ pub async fn process_a_tip(
 
     query_builder.build().execute(&mut tx).await?;
 
+    debug!("updated balances");
+
     if let Some(mul) = tip_amount.checked_mul(to_users.len() as u64) {
         sqlx::query!(
             "UPDATE balance_vrsc SET balance = balance - $1 WHERE discord_id = $2",
@@ -118,6 +120,8 @@ pub async fn process_a_tip(
         .await?;
 
         tx.commit().await?;
+
+        debug!("decreased balances");
         return Ok(());
     }
 

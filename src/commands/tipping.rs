@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use poise::serenity_prelude::{self, CacheHttp, ChannelId, ReactionType, RoleId, UserId};
 
+use sqlx::{error::DatabaseError, postgres::PgDatabaseError, Database};
 use tracing::*;
 use uuid::Uuid;
 use vrsc::Amount;
@@ -364,14 +365,39 @@ pub async fn reactdrop(
                         trace!("no users to tip, abort");
                     } else {
                         trace!("tipping {} users in reactdrop", users.len());
-                        tip_multiple_users(
+
+                        if let Err(e) = tip_multiple_users(
                             ctx,
                             &ctx.channel_id(),
                             &users,
                             &tip_amount,
                             "reactdrop",
                         )
-                        .await?;
+                        .await
+                        {
+                            //
+                            // dbg!(e);
+
+                            // if pe.message().contains("non_negative") {
+                            channel_id
+                                .send_message(&http, |message| {
+                                    message.content(format!(
+                                        "<@{}> didn't have enough funds, reactdrop failed",
+                                        &ctx.author().id,
+                                    ))
+                                })
+                                .await?;
+                            // } else {
+                            //     channel_id
+                            //         .send_message(&http, |message| {
+                            //             message.content(format!(
+                            //                 "Something went wrong...",
+                            //                 // &ctx.author().id,
+                            //             ))
+                            //         })
+                            //         .await?;
+                            // }
+                        }
                     }
 
                     continue;
@@ -379,7 +405,7 @@ pub async fn reactdrop(
             }
 
             channel_id
-                .delete_reaction_emoji(http, msg, reaction_type)
+                .delete_reaction_emoji(&http, msg, reaction_type)
                 .await?;
         }
     }
