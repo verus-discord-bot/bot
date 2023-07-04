@@ -1,8 +1,10 @@
-use std::time::Duration;
+use ::chrono::Duration;
+use poise::{
+    serenity_prelude::{self, CacheHttp, ChannelId, ReactionType, RoleId, UserId},
+    ReplyHandle,
+};
 
-use poise::serenity_prelude::{self, CacheHttp, ChannelId, ReactionType, RoleId, UserId};
-
-use sqlx::{error::DatabaseError, postgres::PgDatabaseError, Database};
+use sqlx::{error::DatabaseError, postgres::PgDatabaseError, types::chrono, Database};
 use tracing::*;
 use uuid::Uuid;
 use vrsc::Amount;
@@ -218,7 +220,7 @@ pub async fn reactdrop(
     #[min = 0.1]
     #[description = "The amount you want to give away"]
     amount: f64,
-    #[min = 1] time: u32,
+    #[min = 1] time: i64,
     #[description = "The time in hours, minutes or seconds"] hms: Hms,
 ) -> Result<(), Error> {
     if user_blacklisted(ctx, ctx.author().id).await? {
@@ -280,129 +282,142 @@ pub async fn reactdrop(
 
             let http = context.http.clone();
 
-            let mut i: u32 = match hms {
-                Hms::Hours => time * 60 * 60,
-                Hms::Minutes => time * 60,
-                Hms::Seconds => time,
+            let mut time_in_seconds: Duration = match hms {
+                Hms::Hours => Duration::seconds(time * 60 * 60),
+                Hms::Minutes => Duration::seconds(time * 60),
+                Hms::Seconds => Duration::seconds(time),
             };
+
+            let now = chrono::Utc::now();
+            let finish_time = now.checked_add_signed(time_in_seconds).unwrap(); // sane values are guaranteed by command argument limits
+            debug!("finish_time: {finish_time:?}");
+
             let reply_handle = ctx.say(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} {}", reaction_type.clone(), time, hms)).await?;
-            let mut msg = reply_handle.into_message().await?;
+            let msg = reply_handle.into_message().await?;
             msg.react(ctx.http(), reaction_type.clone()).await?;
 
             let channel_id = ctx.channel_id();
+            let message_id = msg.id;
 
-            loop {
-                match i {
-                    mut j if i > 120 => {
-                        let mut interval = tokio::time::interval(Duration::from_secs(60));
+            database::insert_reactdrop(
+                &ctx.data().database,
+                channel_id.try_into()?,
+                message_id.try_into()?,
+                finish_time,
+            )
+            .await?;
 
-                        while j > 120 {
-                            interval.tick().await;
+            // loop {
+            //     match i {
+            //         mut j if i > 120 => {
+            //             let mut interval = tokio::time::interval(Duration::from_secs(60));
 
-                            if let Err(e) = msg.edit(http.clone(), |f| {
-                                f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} hour(s), {} minute(s)",
-                                &reaction_type,
-                                j / 60 / 60,
-                                (j / 60) % 60))
-                            })
-                            .await {
-                                warn!("updating the reactdrop didn't go well: {e:?}");
-                            }
+            //             while j > 120 {
+            //                 interval.tick().await;
 
-                            i -= 60;
-                            j -= 60;
-                        }
-                        interval.tick().await;
-                    }
-                    mut j => {
-                        let mut interval = tokio::time::interval(Duration::from_secs(1));
+            //                 if let Err(e) = msg.edit(http.clone(), |f| {
+            //                     f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} hour(s), {} minute(s)",
+            //                     &reaction_type,
+            //                     j / 60 / 60,
+            //                     (j / 60) % 60))
+            //                 })
+            //                 .await {
+            //                     warn!("updating the reactdrop didn't go well: {e:?}");
+            //                 }
 
-                        while j > 0 {
-                            interval.tick().await;
-                            if let Err(e) = msg.edit(http.clone(), |f| {
-                                f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, j))
-                            })
-                            .await {
-                                warn!("updating the reactdrop didn't go well: {e:?}");
-                            }
-                            trace!("time remaining: {} seconds", j);
-                            i -= 1;
-                            j -= 1;
-                        }
-                        interval.tick().await;
-                        if let Err(e) = msg.edit(http.clone(), |f| {
-                            f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, j))
-                        })
-                        .await {
-                            warn!("updating the reactdrop didn't go well: {e:?}");
-                        }
+            //                 i -= 60;
+            //                 j -= 60;
+            //             }
+            //             interval.tick().await;
+            //         }
+            //         mut j => {
+            //             let mut interval = tokio::time::interval(Duration::from_secs(1));
 
-                        break;
-                    }
-                };
-            }
+            //             while j > 0 {
+            //                 interval.tick().await;
+            //                 if let Err(e) = msg.edit(http.clone(), |f| {
+            //                     f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, j))
+            //                 })
+            //                 .await {
+            //                     warn!("updating the reactdrop didn't go well: {e:?}");
+            //                 }
+            //                 trace!("time remaining: {} seconds", j);
+            //                 i -= 1;
+            //                 j -= 1;
+            //             }
+            //             interval.tick().await;
+            //             if let Err(e) = msg.edit(http.clone(), |f| {
+            //                 f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, j))
+            //             })
+            //             .await {
+            //                 warn!("updating the reactdrop didn't go well: {e:?}");
+            //             }
 
-            let mut last_user = None;
+            //             break;
+            //         }
+            //     };
+            // }
 
-            let mut reaction_users = vec![];
+            // let mut last_user = None;
+            // let mut reaction_users = vec![];
 
-            while let Ok(users) = msg
-                .reaction_users(&http, reaction_type.clone(), Some(50), last_user)
-                .await
-            {
-                debug!("appending {} users", users.len());
-                reaction_users.extend(users.clone());
+            // while let Ok(users) = msg
+            //     .reaction_users(&http, reaction_type.clone(), Some(50), last_user)
+            //     .await
+            // {
+            //     debug!("appending {} users", users.len());
+            //     reaction_users.extend(users.clone());
 
-                debug!("{users:?}");
+            //     debug!("{users:?}");
 
-                last_user = users.last().map(|user| user.id);
-                if last_user.is_none() {
-                    break;
-                }
-            }
+            //     last_user = users.last().map(|user| user.id);
+            //     if last_user.is_none() {
+            //         break;
+            //     }
+            // }
 
-            debug!(
-                "retrieved {} users who reacted on reactdrop tip\n{:#?}",
-                reaction_users.len(),
-                reaction_users
-            );
+            // debug!(
+            //     "retrieved {} users who reacted on reactdrop tip\n{:#?}",
+            //     reaction_users.len(),
+            //     reaction_users
+            // );
 
-            let reaction_users = reaction_users
-                .iter()
-                .filter(|user| !user.bot)
-                .map(|u| u.id)
-                .collect::<Vec<_>>();
+            // let reaction_users = reaction_users
+            //     .iter()
+            //     .filter(|user| !user.bot)
+            //     .map(|u| u.id)
+            //     .collect::<Vec<_>>();
 
-            if reaction_users.len() == 0 {
-                trace!("no users to tip, abort");
-            } else {
-                trace!("tipping {} users in reactdrop", reaction_users.len());
+            // if reaction_users.len() == 0 {
+            //     trace!("no users to tip, abort");
+            // } else {
+            //     trace!("tipping {} users in reactdrop", reaction_users.len());
 
-                if let Err(e) = tip_multiple_users(
-                    ctx,
-                    &ctx.channel_id(),
-                    &reaction_users,
-                    &tip_amount,
-                    "reactdrop",
-                )
-                .await
-                {
-                    error!("{e:?}");
+            //     if let Err(e) = tip_multiple_users(
+            //         ctx,
+            //         &ctx.channel_id(),
+            //         &reaction_users,
+            //         &tip_amount,
+            //         "reactdrop",
+            //     )
+            //     .await
+            //     {
+            //         error!("{e:?}");
 
-                    channel_id
-                        .send_message(&http, |message| {
-                            message.content(format!(
-                                "<@{}> didn't have enough funds, reactdrop failed",
-                                &ctx.author().id,
-                            ))
-                        })
-                        .await?;
-                }
-            }
+            //         channel_id
+            //             .send_message(&http, |message| {
+            //                 message.content(format!(
+            //                     "<@{}> didn't have enough funds, reactdrop failed",
+            //                     &ctx.author().id,
+            //                 ))
+            //             })
+            //             .await?;
+            //     }
+            // }
 
-            channel_id
-                .delete_reaction_emoji(&http, msg, reaction_type)
-                .await?;
+            // channel_id
+            //     .delete_reaction_emoji(&http, msg, reaction_type)
+            //     .await?;
         }
     }
 

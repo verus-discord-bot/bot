@@ -1,10 +1,13 @@
 use std::str::FromStr;
 
-use crate::{commands::misc::Notification, Error};
+use crate::{commands::misc::Notification, reactdrop::Reactdrop, Error};
 // use num_traits::cast::ToPrimitive;
 use num_traits::cast::ToPrimitive;
 use poise::serenity_prelude::UserId;
-use sqlx::{PgPool, Postgres, QueryBuilder};
+use sqlx::{
+    types::chrono::{self, DateTime, Utc},
+    PgPool, Postgres, QueryBuilder,
+};
 use tracing::*;
 use uuid::Uuid;
 use vrsc::{Address, Amount};
@@ -492,4 +495,49 @@ pub async fn get_all_txids(pool: &PgPool, transaction_action: &str) -> Result<Ve
         .into_iter()
         .map(|row| Txid::from_str(&row.transaction_id).unwrap())
         .collect::<Vec<_>>());
+}
+
+pub async fn insert_reactdrop(
+    pool: &PgPool,
+    channel_id: i64,
+    message_id: i64,
+    finish_time: DateTime<Utc>,
+) -> Result<(), Error> {
+    sqlx::query!(
+        "INSERT INTO reactdrops(channel_id, message_id, finish_time) \
+VALUES ($1, $2, $3) \
+ON CONFLICT (channel_id, message_id) \
+DO NOTHING",
+        channel_id,
+        message_id,
+        finish_time
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Returns reactdrops with a finish time that lies in the future.
+pub async fn get_active_reactdrops(pool: &PgPool) -> Result<Vec<Reactdrop>, Error> {
+    let now = chrono::Utc::now();
+    let rows = sqlx::query!(
+        "SELECT * \
+FROM reactdrops \
+WHERE $1 < finish_time",
+        now
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let vec: Vec<Reactdrop> = rows
+        .into_iter()
+        .map(|row| Reactdrop {
+            channel_id: (row.channel_id as u64).into(),
+            message_id: (row.message_id as u64).into(),
+            finish_time: row.finish_time,
+        })
+        .collect();
+
+    Ok(vec)
 }

@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod configuration;
+pub mod reactdrop;
 pub mod util;
 pub mod wallet_listener;
 
@@ -104,7 +105,7 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
             }
         }
         _ => {
-            warn!("an unrecoverable error occured")
+            error!("an unrecoverable error occured")
         }
     }
 }
@@ -175,7 +176,7 @@ async fn app() -> Result<(), Error> {
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("!".into()),
             edit_tracker: Some(poise::EditTracker::for_timespan(
-                std::time::Duration::from_secs(60 * 60 * 24 * 2), // 2 days
+                std::time::Duration::from_secs(60 * 60 * 24 * 2), // 48 hours
             )),
             ..Default::default()
         },
@@ -242,12 +243,19 @@ async fn app() -> Result<(), Error> {
 
             Box::pin(async move {
                 let tx_proc = Arc::new(TransactionProcessor::new(
-                    http,
-                    pool,
+                    http.clone(),
+                    pool.clone(),
                     config_clone,
                     Arc::new(RwLock::new(false)),
                     deposits_enabled_clone,
                 ));
+
+                tokio::spawn({
+                    let ctx = ctx.clone();
+                    let pool = pool.clone();
+
+                    async move { reactdrop::check_running_reactdrops(ctx, pool).await }
+                });
 
                 let tx_proc_clone = tx_proc.clone();
                 tokio::spawn(async move {

@@ -68,6 +68,50 @@
     },
     "query": "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, opid, transaction_action, fee) VALUES ($1, $2, $3, $4, $5, $6)"
   },
+  "41d1bef46874b3d83b5210577bf6d09c68ae12b7709859128d891e7f41dbcecb": {
+    "describe": {
+      "columns": [
+        {
+          "name": "channel_id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "message_id",
+          "ordinal": 1,
+          "type_info": "Int8"
+        },
+        {
+          "name": "finish_time",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "updated_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "SELECT * FROM reactdrops WHERE $1 < finish_time"
+  },
   "5ebf45d92b3a7f5cf2e2ea7ae8d6fc5e2918f090cbce2eb4b49dc2691be8f40c": {
     "describe": {
       "columns": [],
@@ -93,24 +137,6 @@
     },
     "query": "UPDATE discord_users SET notifications = ($1) WHERE discord_id = ($2)"
   },
-  "689a2f1bc744d2992b9920527455b4ff5aae8e5f03ca8321222789030ddb3b6a": {
-    "describe": {
-      "columns": [
-        {
-          "name": "sum",
-          "ordinal": 0,
-          "type_info": "Numeric"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": []
-      }
-    },
-    "query": "SELECT SUM(CAST(fee AS BIGINT)) FROM transactions_vrsc WHERE fee > 0"
-  },
   "722690fcab368f1c2ecba80ca262ecb06a7c1bf63e12647030608008b29ea44a": {
     "describe": {
       "columns": [],
@@ -123,20 +149,6 @@
       }
     },
     "query": "UPDATE discord_users SET blacklisted = $1 WHERE discord_id = $2"
-  },
-  "83f2166648621c96a1ddc594392850d49e942610d0b518c3236f9c27cd40dae6": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Int8",
-          "Int8"
-        ]
-      }
-    },
-    "query": "\n        INSERT INTO balance_vrsc (discord_id, balance)\n        VALUES ($2, $3)\n        ON CONFLICT (discord_id)\n        DO UPDATE SET balance = CASE\n            WHEN balance_vrsc.discord_id = $1 THEN balance_vrsc.balance - $3\n            WHEN balance_vrsc.discord_id = $2 THEN balance_vrsc.balance + $3\n        END\n        WHERE balance_vrsc.discord_id IN ($1, $2)"
   },
   "88c6f0c4581862cd0fe0432be0441b131f23493ebd0b5ce62cda5f34e2503c90": {
     "describe": {
@@ -371,26 +383,6 @@
     },
     "query": "SELECT txid FROM unprocessed_transactions WHERE status = 'unprocessed'"
   },
-  "d95982d569deedf1e85f9f2f15e2d19a54f9eaa1b5e16b63c8e48c7c7677b20f": {
-    "describe": {
-      "columns": [
-        {
-          "name": "notifications",
-          "ordinal": 0,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Int8"
-        ]
-      }
-    },
-    "query": "SELECT notifications FROM discord_users WHERE discord_id = $1"
-  },
   "e6bc0bd60f2d450ce38e2e5baeef7ee4a586353acc9789986a26f1ce71c0408e": {
     "describe": {
       "columns": [
@@ -408,22 +400,6 @@
       }
     },
     "query": "SELECT SUM(CAST(balance AS BIGINT)) FROM balance_vrsc"
-  },
-  "f0690926b8dc25fe6aea81af8d01d0561c7970da4306d3f2ec440cec0e884a5b": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Int8",
-          "Text",
-          "Int8",
-          "Text"
-        ]
-      }
-    },
-    "query": "INSERT INTO tips_vrsc(uuid, discord_id, kind, amount, counterparty) VALUES ($1, $2, $3, $4, $5)"
   },
   "f17075bd36c71d17a6f6dc4daea80f0405557af6e9f90ca4b77799d9464a7061": {
     "describe": {
@@ -444,6 +420,20 @@
       }
     },
     "query": "SELECT discord_id FROM addresses WHERE address = $1"
+  },
+  "f36e7733aa1b3a8a1ed7bc139888cc243a83f49bc635b6a5ba8a75faff5ea676": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8",
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "INSERT INTO reactdrops(channel_id, message_id, finish_time) VALUES ($1, $2, $3) ON CONFLICT (channel_id, message_id) DO NOTHING"
   },
   "f51ca941dfe1423121100c346c1f7437171635e328c40e5ab0bbe75a0f4f92b7": {
     "describe": {
