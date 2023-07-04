@@ -279,7 +279,6 @@ pub async fn reactdrop(
             let context = ctx.serenity_context().to_owned();
 
             let http = context.http.clone();
-            let http_2 = context.http.clone();
 
             let mut i: u32 = match hms {
                 Hms::Hours => time * 60 * 60,
@@ -345,62 +344,59 @@ pub async fn reactdrop(
 
             let mut last_user = None;
 
-            loop {
-                if let Ok(users) = msg
-                    .reaction_users(http_2.clone(), reaction_type.clone(), None, last_user)
-                    .await
+            let mut reaction_users = vec![];
+
+            while let Ok(users) = msg
+                .reaction_users(&http, reaction_type.clone(), Some(50), last_user)
+                .await
+            {
+                debug!("appending {} users", users.len());
+                reaction_users.extend(users.clone());
+
+                debug!("{users:?}");
+
+                last_user = users.last().map(|user| user.id);
+                if last_user.is_none() {
+                    break;
+                }
+            }
+
+            debug!(
+                "retrieved {} users who reacted on reactdrop tip\n{:#?}",
+                reaction_users.len(),
+                reaction_users
+            );
+
+            let reaction_users = reaction_users
+                .iter()
+                .filter(|user| !user.bot)
+                .map(|u| u.id)
+                .collect::<Vec<_>>();
+
+            if reaction_users.len() == 0 {
+                trace!("no users to tip, abort");
+            } else {
+                trace!("tipping {} users in reactdrop", reaction_users.len());
+
+                if let Err(e) = tip_multiple_users(
+                    ctx,
+                    &ctx.channel_id(),
+                    &reaction_users,
+                    &tip_amount,
+                    "reactdrop",
+                )
+                .await
                 {
-                    last_user = users.last().map(|user| user.id);
-                    if last_user.is_none() {
-                        break;
-                    }
-                    debug!("users: {:#?}", &users);
-                    let users = users
-                        .iter()
-                        .filter(|user| !user.bot)
-                        .map(|u| u.id)
-                        .collect::<Vec<_>>();
+                    error!("{e:?}");
 
-                    if users.len() == 0 {
-                        trace!("no users to tip, abort");
-                    } else {
-                        trace!("tipping {} users in reactdrop", users.len());
-
-                        if let Err(e) = tip_multiple_users(
-                            ctx,
-                            &ctx.channel_id(),
-                            &users,
-                            &tip_amount,
-                            "reactdrop",
-                        )
-                        .await
-                        {
-                            //
-                            // dbg!(e);
-
-                            // if pe.message().contains("non_negative") {
-                            channel_id
-                                .send_message(&http, |message| {
-                                    message.content(format!(
-                                        "<@{}> didn't have enough funds, reactdrop failed",
-                                        &ctx.author().id,
-                                    ))
-                                })
-                                .await?;
-                            // } else {
-                            //     channel_id
-                            //         .send_message(&http, |message| {
-                            //             message.content(format!(
-                            //                 "Something went wrong...",
-                            //                 // &ctx.author().id,
-                            //             ))
-                            //         })
-                            //         .await?;
-                            // }
-                        }
-                    }
-
-                    continue;
+                    channel_id
+                        .send_message(&http, |message| {
+                            message.content(format!(
+                                "<@{}> didn't have enough funds, reactdrop failed",
+                                &ctx.author().id,
+                            ))
+                        })
+                        .await?;
                 }
             }
 
