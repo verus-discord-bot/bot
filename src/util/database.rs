@@ -1,11 +1,15 @@
 use std::str::FromStr;
 
-use crate::{commands::misc::Notification, reactdrop::Reactdrop, Error};
+use crate::{
+    commands::misc::Notification,
+    reactdrop::{Reactdrop, ReactdropState},
+    Error,
+};
 // use num_traits::cast::ToPrimitive;
 use num_traits::cast::ToPrimitive;
 use poise::serenity_prelude::UserId;
 use sqlx::{
-    types::chrono::{self, DateTime, Utc},
+    types::chrono::{DateTime, Utc},
     PgPool, Postgres, QueryBuilder,
 };
 use tracing::*;
@@ -499,18 +503,22 @@ pub async fn get_all_txids(pool: &PgPool, transaction_action: &str) -> Result<Ve
 
 pub async fn insert_reactdrop(
     pool: &PgPool,
+    emoji: String,
+    amount: i64,
     channel_id: i64,
     message_id: i64,
     finish_time: DateTime<Utc>,
 ) -> Result<(), Error> {
     sqlx::query!(
-        "INSERT INTO reactdrops(channel_id, message_id, finish_time) \
-VALUES ($1, $2, $3) \
-ON CONFLICT (channel_id, message_id) \
-DO NOTHING",
+        "INSERT INTO reactdrops(channel_id, message_id, finish_time, emojistr, amount, status) \
+    VALUES ($1, $2, $3, $4, $5, 'pending') \
+    ON CONFLICT (channel_id, message_id) \
+    DO NOTHING",
         channel_id,
         message_id,
-        finish_time
+        finish_time,
+        emoji,
+        amount,
     )
     .execute(pool)
     .await?;
@@ -518,14 +526,12 @@ DO NOTHING",
     Ok(())
 }
 
-/// Returns reactdrops with a finish time that lies in the future.
-pub async fn get_active_reactdrops(pool: &PgPool) -> Result<Vec<Reactdrop>, Error> {
-    let now = chrono::Utc::now();
+/// Returns pending reactdrops, or an emtpy Vec if no pending reactdrops present
+pub async fn get_pending_reactdrops(pool: &PgPool) -> Result<Vec<Reactdrop>, Error> {
     let rows = sqlx::query!(
         "SELECT * \
 FROM reactdrops \
-WHERE $1 < finish_time",
-        now
+WHERE status = 'pending'"
     )
     .fetch_all(pool)
     .await?;
@@ -533,6 +539,9 @@ WHERE $1 < finish_time",
     let vec: Vec<Reactdrop> = rows
         .into_iter()
         .map(|row| Reactdrop {
+            status: crate::reactdrop::ReactdropState::Pending,
+            emoji: row.emojistr,
+            tip_amount: Amount::from_sat(row.amount as u64),
             channel_id: (row.channel_id as u64).into(),
             message_id: (row.message_id as u64).into(),
             finish_time: row.finish_time,
@@ -540,4 +549,22 @@ WHERE $1 < finish_time",
         .collect();
 
     Ok(vec)
+}
+
+pub async fn update_reactdrop(
+    pool: &PgPool,
+    channel_id: i64,
+    message_id: i64,
+    status: ReactdropState,
+) -> Result<(), Error> {
+    sqlx::query!(
+        "UPDATE reactdrops SET status = $3 WHERE channel_id = $1 AND message_id = $2",
+        channel_id,
+        message_id,
+        status.to_string()
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
 }

@@ -1,10 +1,7 @@
 use ::chrono::Duration;
-use poise::{
-    serenity_prelude::{self, CacheHttp, ChannelId, ReactionType, RoleId, UserId},
-    ReplyHandle,
-};
+use poise::serenity_prelude::{self, CacheHttp, ChannelId, ReactionType, RoleId, UserId};
 
-use sqlx::{error::DatabaseError, postgres::PgDatabaseError, types::chrono, Database};
+use sqlx::{types::chrono, PgPool};
 use tracing::*;
 use uuid::Uuid;
 use vrsc::Amount;
@@ -63,7 +60,16 @@ async fn role(
                 .map(|m| m.user.id)
                 .collect::<Vec<_>>();
 
-            tip_multiple_users(ctx, &ctx.channel_id(), &role_members, &tip_amount, "role").await?;
+            tip_multiple_users(
+                &ctx.data().database,
+                ctx.author().id,
+                ctx.http(),
+                &ctx.channel_id(),
+                &role_members,
+                &tip_amount,
+                "role",
+            )
+            .await?;
 
             return Ok(());
         } else {
@@ -239,17 +245,14 @@ pub async fn reactdrop(
 
         if let Ok(reaction_type) = ReactionType::try_from(emoji) {
             match &reaction_type {
-                ReactionType::Custom {
-                    animated: _,
-                    id,
-                    name: _,
-                } => {
+                ReactionType::Custom { id, .. } => {
                     let emojis = ctx.guild().unwrap().emojis(ctx.http()).await?;
                     if !emojis.iter().any(|e| e.id == id.0) {
                         trace!("emoji not in guild");
                         ctx.send(|reply| {
                             reply.ephemeral(true).content("This emoji is not found in this Discord server, so it can't be used. Please pick another one")
                         }).await?;
+
                         return Ok(());
                     } else {
                         debug!("emoji in guild");
@@ -278,11 +281,7 @@ pub async fn reactdrop(
 
             trace!("valid emoji");
 
-            let context = ctx.serenity_context().to_owned();
-
-            let http = context.http.clone();
-
-            let mut time_in_seconds: Duration = match hms {
+            let time_in_seconds: Duration = match hms {
                 Hms::Hours => Duration::seconds(time * 60 * 60),
                 Hms::Minutes => Duration::seconds(time * 60),
                 Hms::Seconds => Duration::seconds(time),
@@ -301,123 +300,13 @@ pub async fn reactdrop(
 
             database::insert_reactdrop(
                 &ctx.data().database,
+                reaction_type.to_string(),
+                Amount::from_vrsc(amount).unwrap().as_sat() as i64,
                 channel_id.try_into()?,
                 message_id.try_into()?,
                 finish_time,
             )
             .await?;
-
-            // loop {
-            //     match i {
-            //         mut j if i > 120 => {
-            //             let mut interval = tokio::time::interval(Duration::from_secs(60));
-
-            //             while j > 120 {
-            //                 interval.tick().await;
-
-            //                 if let Err(e) = msg.edit(http.clone(), |f| {
-            //                     f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} hour(s), {} minute(s)",
-            //                     &reaction_type,
-            //                     j / 60 / 60,
-            //                     (j / 60) % 60))
-            //                 })
-            //                 .await {
-            //                     warn!("updating the reactdrop didn't go well: {e:?}");
-            //                 }
-
-            //                 i -= 60;
-            //                 j -= 60;
-            //             }
-            //             interval.tick().await;
-            //         }
-            //         mut j => {
-            //             let mut interval = tokio::time::interval(Duration::from_secs(1));
-
-            //             while j > 0 {
-            //                 interval.tick().await;
-            //                 if let Err(e) = msg.edit(http.clone(), |f| {
-            //                     f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, j))
-            //                 })
-            //                 .await {
-            //                     warn!("updating the reactdrop didn't go well: {e:?}");
-            //                 }
-            //                 trace!("time remaining: {} seconds", j);
-            //                 i -= 1;
-            //                 j -= 1;
-            //             }
-            //             interval.tick().await;
-            //             if let Err(e) = msg.edit(http.clone(), |f| {
-            //                 f.content(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} seconds", &reaction_type, j))
-            //             })
-            //             .await {
-            //                 warn!("updating the reactdrop didn't go well: {e:?}");
-            //             }
-
-            //             break;
-            //         }
-            //     };
-            // }
-
-            // let mut last_user = None;
-            // let mut reaction_users = vec![];
-
-            // while let Ok(users) = msg
-            //     .reaction_users(&http, reaction_type.clone(), Some(50), last_user)
-            //     .await
-            // {
-            //     debug!("appending {} users", users.len());
-            //     reaction_users.extend(users.clone());
-
-            //     debug!("{users:?}");
-
-            //     last_user = users.last().map(|user| user.id);
-            //     if last_user.is_none() {
-            //         break;
-            //     }
-            // }
-
-            // debug!(
-            //     "retrieved {} users who reacted on reactdrop tip\n{:#?}",
-            //     reaction_users.len(),
-            //     reaction_users
-            // );
-
-            // let reaction_users = reaction_users
-            //     .iter()
-            //     .filter(|user| !user.bot)
-            //     .map(|u| u.id)
-            //     .collect::<Vec<_>>();
-
-            // if reaction_users.len() == 0 {
-            //     trace!("no users to tip, abort");
-            // } else {
-            //     trace!("tipping {} users in reactdrop", reaction_users.len());
-
-            //     if let Err(e) = tip_multiple_users(
-            //         ctx,
-            //         &ctx.channel_id(),
-            //         &reaction_users,
-            //         &tip_amount,
-            //         "reactdrop",
-            //     )
-            //     .await
-            //     {
-            //         error!("{e:?}");
-
-            //         channel_id
-            //             .send_message(&http, |message| {
-            //                 message.content(format!(
-            //                     "<@{}> didn't have enough funds, reactdrop failed",
-            //                     &ctx.author().id,
-            //                 ))
-            //             })
-            //             .await?;
-            //     }
-            // }
-
-            // channel_id
-            //     .delete_reaction_emoji(&http, msg, reaction_type)
-            //     .await?;
         }
     }
 
@@ -428,8 +317,10 @@ pub async fn reactdrop(
 // This function gets called in `tip role` and `reactdrop`
 // We need the ChannelId here because ReactDrops tend to last longer than 15 minutes, which is the time Discord drops the context, giving
 // us an invalid webhook token when trying to send a message using that context.
-async fn tip_multiple_users(
-    ctx: Context<'_>,
+pub async fn tip_multiple_users(
+    pool: &PgPool,
+    author: UserId,
+    http: impl CacheHttp + std::convert::AsRef<poise::serenity_prelude::Http>,
     channel_id: &ChannelId,
     users: &Vec<UserId>,
     amount: &Amount,
@@ -437,9 +328,9 @@ async fn tip_multiple_users(
 ) -> Result<(), Error> {
     // TODO optimize this query (select all that don't exist, insert them in 1 go)
     // check if all the tippees have an entry in the db
-    let pool = &ctx.data().database;
-    let author = ctx.author().id;
-    let http = ctx.http();
+    // let pool = &ctx.data().database;
+    // let author = ctx.author().id;
+    // let http = ctx.http();
 
     debug!("users in tip_users: {:?}", users);
 
@@ -463,8 +354,8 @@ async fn tip_multiple_users(
         for (user_id, notification) in notification_settings {
             match (user_id, notification) {
                 (_, Notification::All) | (_, Notification::DMOnly) => {
-                    let user = UserId(user_id as u64).to_user(http).await?;
-                    user.dm(http, |message| {
+                    let user = UserId(user_id as u64).to_user(&http).await?;
+                    user.dm(&http, |message| {
                         message.content(format!(
                             "You just got tipped {div_tip_amount} from <@{}>!",
                             &author,

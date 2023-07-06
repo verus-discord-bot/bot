@@ -68,7 +68,7 @@
     },
     "query": "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, opid, transaction_action, fee) VALUES ($1, $2, $3, $4, $5, $6)"
   },
-  "41d1bef46874b3d83b5210577bf6d09c68ae12b7709859128d891e7f41dbcecb": {
+  "3427e79ae68620e71af060fb3bf953ead2620a3cb22852c8940ed2aafe2a3325": {
     "describe": {
       "columns": [
         {
@@ -95,6 +95,21 @@
           "name": "updated_at",
           "ordinal": 4,
           "type_info": "Timestamptz"
+        },
+        {
+          "name": "emojistr",
+          "ordinal": 5,
+          "type_info": "Text"
+        },
+        {
+          "name": "amount",
+          "ordinal": 6,
+          "type_info": "Int8"
+        },
+        {
+          "name": "status",
+          "ordinal": 7,
+          "type_info": "Text"
         }
       ],
       "nullable": [
@@ -102,15 +117,16 @@
         false,
         false,
         false,
+        false,
+        false,
+        false,
         false
       ],
       "parameters": {
-        "Left": [
-          "Timestamptz"
-        ]
+        "Left": []
       }
     },
-    "query": "SELECT * FROM reactdrops WHERE $1 < finish_time"
+    "query": "SELECT * FROM reactdrops WHERE status = 'pending'"
   },
   "5ebf45d92b3a7f5cf2e2ea7ae8d6fc5e2918f090cbce2eb4b49dc2691be8f40c": {
     "describe": {
@@ -136,6 +152,20 @@
       }
     },
     "query": "UPDATE discord_users SET notifications = ($1) WHERE discord_id = ($2)"
+  },
+  "6ace687e2000575a1ae90c28c03e160bb3bcb82c02eca6ecdd3a9a58a040f43b": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE reactdrops SET status = $3 WHERE channel_id = $1 AND message_id = $2"
   },
   "722690fcab368f1c2ecba80ca262ecb06a7c1bf63e12647030608008b29ea44a": {
     "describe": {
@@ -383,6 +413,22 @@
     },
     "query": "SELECT txid FROM unprocessed_transactions WHERE status = 'unprocessed'"
   },
+  "e06787ecdfaeeb761b7399d8b2d264569a8fb80402c7a9273f4a33a59ca55612": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8",
+          "Timestamptz",
+          "Text",
+          "Int8"
+        ]
+      }
+    },
+    "query": "INSERT INTO reactdrops(channel_id, message_id, finish_time, emojistr, amount, status) VALUES ($1, $2, $3, $4, $5, 'pending') ON CONFLICT (channel_id, message_id) DO NOTHING"
+  },
   "e6bc0bd60f2d450ce38e2e5baeef7ee4a586353acc9789986a26f1ce71c0408e": {
     "describe": {
       "columns": [
@@ -420,20 +466,6 @@
       }
     },
     "query": "SELECT discord_id FROM addresses WHERE address = $1"
-  },
-  "f36e7733aa1b3a8a1ed7bc139888cc243a83f49bc635b6a5ba8a75faff5ea676": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Int8",
-          "Timestamptz"
-        ]
-      }
-    },
-    "query": "INSERT INTO reactdrops(channel_id, message_id, finish_time) VALUES ($1, $2, $3) ON CONFLICT (channel_id, message_id) DO NOTHING"
   },
   "f51ca941dfe1423121100c346c1f7437171635e328c40e5ab0bbe75a0f4f92b7": {
     "describe": {
