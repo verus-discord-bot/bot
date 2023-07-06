@@ -16,8 +16,13 @@ use secrecy::ExposeSecret;
 use sqlx::PgPool;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing::{debug, error, info, warn, Level};
+use tracing_subscriber::{
+    fmt::{self, writer::MakeWriterExt},
+    layer::SubscriberExt,
+    util::SubscriberInitExt,
+    EnvFilter,
+};
 use vrsc::Amount;
 use vrsc_rpc::{Client as VerusClient, RpcApi};
 
@@ -301,13 +306,17 @@ async fn app() -> Result<(), Error> {
 
 #[tokio::main(worker_threads = 8)]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var(
-            "RUST_LOG",
-            "verusbot=trace,vrsc-rpc=info,poise=info,serenity=info",
-        )
+    log_setup()?;
+
+    if let Err(e) = app().await {
+        error!("{}", e);
+        std::process::exit(1);
     }
 
+    Ok(())
+}
+
+fn log_setup() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
 
     // let tracer = opentelemetry_jaeger::new_agent_pipeline()
@@ -316,22 +325,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var(
+            "RUST_LOG",
+            "verusbot=trace,vrsc-rpc=info,poise=info,serenity=info",
+        )
+    }
+
     let filter_layer = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new("info"))
         .unwrap();
 
+    let file_appender = tracing_appender::rolling::hourly("./logs", "error");
+
     tracing_subscriber::registry()
         // .with(opentelemetry)
         // Continue logging to stdout
-        .with(fmt::Layer::default())
         .with(filter_layer)
+        .with(fmt::Layer::default())
+        .with(
+            fmt::Layer::new()
+                .json()
+                .with_ansi(false)
+                .with_writer(file_appender.with_max_level(Level::ERROR)),
+        )
         .try_init()?;
-
-    // Start actual app:
-    if let Err(e) = app().await {
-        error!("{}", e);
-        std::process::exit(1);
-    }
 
     // global::shutdown_tracer_provider(); // sending remaining spans
 
