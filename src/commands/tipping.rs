@@ -300,6 +300,7 @@ pub async fn reactdrop(
 
             database::insert_reactdrop(
                 &ctx.data().database,
+                ctx.author().id.try_into()?,
                 reaction_type.to_string(),
                 Amount::from_vrsc(amount).unwrap().as_sat() as i64,
                 channel_id.try_into()?,

@@ -1,7 +1,7 @@
 use std::{fmt::Display, str::FromStr};
 
 use poise::serenity_prelude::{
-    ArgumentConvert, ChannelId, Context, Message, MessageId, ReactionType,
+    ArgumentConvert, ChannelId, Context, Message, MessageId, ReactionType, UserId,
 };
 use sqlx::{
     types::chrono::{self, DateTime, Utc},
@@ -39,6 +39,7 @@ impl From<String> for ReactdropState {
 
 #[derive(Debug)]
 pub struct Reactdrop {
+    pub author: UserId,
     pub status: ReactdropState,
     pub emoji: String,
     pub tip_amount: Amount,
@@ -130,7 +131,7 @@ pub async fn check_running_reactdrops(ctx: Context, pool: PgPool) -> Result<(), 
 
                     if let Err(e) = commands::tipping::tip_multiple_users(
                         &pool,
-                        message.author.id,
+                        reactdrop.author,
                         &ctx.http,
                         &reactdrop.channel_id,
                         &reaction_users,

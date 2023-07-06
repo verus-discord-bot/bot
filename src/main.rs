@@ -10,7 +10,7 @@ use crate::{
     wallet_listener::TransactionProcessor,
 };
 use commands::*;
-use opentelemetry::global;
+// use opentelemetry::global;
 use poise::serenity_prelude::{self as serenity, CacheHttp, ChannelId, UserId};
 use secrecy::ExposeSecret;
 use sqlx::PgPool;
@@ -333,7 +333,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         std::process::exit(1);
     }
 
-    global::shutdown_tracer_provider(); // sending remaining spans
+    // global::shutdown_tracer_provider(); // sending remaining spans
 
     Ok(())
 }

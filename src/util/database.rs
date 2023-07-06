@@ -113,7 +113,7 @@ pub async fn process_a_tip(
     query_builder
         .push(" ON CONFLICT (discord_id) DO UPDATE SET balance = balance_vrsc.balance + $2");
 
-    query_builder.build().execute(&mut tx).await?;
+    query_builder.build().execute(&mut *tx).await?;
 
     debug!("updated balances");
 
@@ -123,7 +123,7 @@ pub async fn process_a_tip(
             mul.as_sat() as i64,
             from_user.0 as i64
         )
-        .execute(&mut tx)
+        .execute(&mut *tx)
         .await?;
 
         tx.commit().await?;
@@ -503,6 +503,7 @@ pub async fn get_all_txids(pool: &PgPool, transaction_action: &str) -> Result<Ve
 
 pub async fn insert_reactdrop(
     pool: &PgPool,
+    author: i64,
     emoji: String,
     amount: i64,
     channel_id: i64,
@@ -510,10 +511,11 @@ pub async fn insert_reactdrop(
     finish_time: DateTime<Utc>,
 ) -> Result<(), Error> {
     sqlx::query!(
-        "INSERT INTO reactdrops(channel_id, message_id, finish_time, emojistr, amount, status) \
-    VALUES ($1, $2, $3, $4, $5, 'pending') \
+        "INSERT INTO reactdrops(author, channel_id, message_id, finish_time, emojistr, amount, status) \
+    VALUES ($1, $2, $3, $4, $5, $6, 'pending') \
     ON CONFLICT (channel_id, message_id) \
     DO NOTHING",
+        author,
         channel_id,
         message_id,
         finish_time,
@@ -540,6 +542,7 @@ WHERE status = 'pending'"
         .into_iter()
         .map(|row| Reactdrop {
             status: crate::reactdrop::ReactdropState::Pending,
+            author: (row.author as u64).into(),
             emoji: row.emojistr,
             tip_amount: Amount::from_sat(row.amount as u64),
             channel_id: (row.channel_id as u64).into(),
