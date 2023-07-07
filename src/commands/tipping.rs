@@ -208,7 +208,6 @@ async fn user(
 pub enum Hms {
     Hours,
     Minutes,
-    Seconds,
 }
 
 /// Start a giveaway where users need to react to a message to participate
@@ -233,8 +232,6 @@ pub async fn reactdrop(
         return Ok(());
     }
 
-    // a reactdrop can be started for as long as a user wants it to last. Discord however limits the lifetime of a context to 15 minutes.
-    // We must account for this by extracting the necessary data from `Context` and store it for later use.
     let tip_amount = Amount::from_vrsc(amount)?;
 
     if get_and_check_balance(&ctx, tip_amount, Amount::ZERO)
@@ -284,17 +281,26 @@ pub async fn reactdrop(
             let time_in_seconds: Duration = match hms {
                 Hms::Hours => Duration::seconds(time * 60 * 60),
                 Hms::Minutes => Duration::seconds(time * 60),
-                Hms::Seconds => Duration::seconds(time),
             };
 
             let now = chrono::Utc::now();
             let finish_time = now.checked_add_signed(time_in_seconds).unwrap(); // sane values are guaranteed by command argument limits
             debug!("finish_time: {finish_time:?}");
 
-            let reply_handle = ctx.say(format!(">>> **A reactdrop of {tip_amount} was started!**\n\nReact with the {} emoji to participate\n\nTime remaining: {} {}", reaction_type.clone(), time, hms)).await?;
+            let reply_handle = ctx
+                .say(format!(
+                    ">>> **A reactdrop of {tip_amount} was started!**\n\n \
+React with the {} emoji to participate\n\nTime remaining: {} hour(s) and {} minute(s)",
+                    reaction_type.clone(),
+                    time_in_seconds.num_seconds() / (60 * 60),
+                    (time_in_seconds.num_seconds() / 60) % 60
+                ))
+                .await?;
             let msg = reply_handle.into_message().await?;
             msg.react(ctx.http(), reaction_type.clone()).await?;
 
+            // a reactdrop can be started for as long as a user wants it to last. Discord however limits the lifetime of a context to 15 minutes.
+            // We must account for this by extracting the necessary data from `Context` and store it for later use.
             let channel_id = ctx.channel_id();
             let message_id = msg.id;
 

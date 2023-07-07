@@ -29,92 +29,6 @@ use vrsc_rpc::{Client as VerusClient, RpcApi};
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 
-#[derive(Debug)]
-pub struct Data {
-    _verus: VerusClient,
-    _bot_start_time: std::time::Instant,
-    settings: Settings,
-    _bot_user_id: serenity::UserId,
-    database: sqlx::PgPool,
-    withdrawal_fee: Arc<RwLock<Amount>>,
-    withdrawals_enabled: Arc<RwLock<bool>>,
-    deposits_enabled: Arc<RwLock<bool>>,
-    blacklist: std::sync::Mutex<HashSet<UserId>>,
-    tx_processor: Arc<TransactionProcessor>,
-    owners: HashSet<UserId>,
-}
-
-impl Data {
-    pub fn verus(&self) -> Result<VerusClient, Error> {
-        vrsc_rpc::Client::vrsc(
-            self.settings.application.testnet,
-            vrsc_rpc::Auth::UserPass(
-                format!("http://127.0.0.1:{}", self.settings.application.rpc_port),
-                self.settings.application.rpc_user.clone(),
-                self.settings.application.rpc_password.clone(),
-            ),
-        )
-        .map_err(|e| e.into())
-    }
-}
-
-async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
-    warn!("Encountered error: {:?}", error);
-
-    match error {
-        poise::FrameworkError::Command { ctx, error } => {
-            let owners = &ctx.data().owners;
-            let s = owners
-                .into_iter()
-                .map(|id| format!("<@{}>", id.0.to_string()))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            if let Err(e) = ChannelId(
-                ctx.data()
-                    .settings
-                    .application
-                    .discord_admin_thread_id
-                    .parse::<u64>()
-                    .unwrap(),
-            )
-            .send_message(ctx.http(), |m| {
-                m.content(format!(
-                    "
-                {s}, the following error occured:\n
-                - error message: {error}\n
-                - user that encounted error: {}\n
-                - command used: {}\n
-                - possible arguments used: {}",
-                    ctx.author(),
-                    ctx.invoked_command_name(),
-                    ctx.invocation_string()
-                ))
-            })
-            .await
-            {
-                error!("{}", e)
-            }
-        }
-        poise::FrameworkError::ArgumentParse {
-            error: _,
-            input,
-            ctx,
-        } => {
-            let s = format!(
-                    "The argument you provided ({}) was incorrect. Press arrow up \u{2191} to change the arguments and press Enter when you're done.",
-                     input.unwrap()
-                );
-            if let Err(e) = ctx.say(s).await {
-                warn!("{}", e)
-            }
-        }
-        _ => {
-            error!("an unrecoverable error occured")
-        }
-    }
-}
-
 async fn app() -> Result<(), Error> {
     let config = get_configuration()?;
     let pg_url = &config.database.connection_string();
@@ -128,7 +42,7 @@ async fn app() -> Result<(), Error> {
         .map(|x| UserId(x.parse::<u64>().unwrap()))
         .collect::<HashSet<UserId>>()
         .clone();
-    debug!("{owners:?}");
+    debug!("owners: {owners:?}");
     let owners_clone = owners.clone();
 
     let options = poise::FrameworkOptions {
@@ -211,7 +125,6 @@ async fn app() -> Result<(), Error> {
             })
         },
         on_error: |error| Box::pin(on_error(error)),
-        // event_handler: |ctx, event, _framework, data| Box::pin(listener(ctx, event, data)),
         owners,
 
         ..Default::default()
@@ -232,10 +145,8 @@ async fn app() -> Result<(), Error> {
         return Ok(());
     }
 
-    // let client = client.unwrap();
     debug!("connection string: {}", config.database.connection_string());
-
-    debug!("starting client");
+    info!("starting client");
 
     poise::Framework::builder()
         .token(config.application.discord.expose_secret())
@@ -247,6 +158,19 @@ async fn app() -> Result<(), Error> {
             let deposits_enabled_clone = deposits_enabled.clone();
 
             Box::pin(async move {
+                tokio::spawn({
+                    let ctx = ctx.clone();
+                    let pool = pool.clone();
+
+                    info!("starting reactdrop loop");
+
+                    async move {
+                        if let Err(e) = reactdrop::check_running_reactdrops(ctx, pool).await {
+                            error!("{:?}", e);
+                        }
+                    }
+                });
+
                 let tx_proc = Arc::new(TransactionProcessor::new(
                     http.clone(),
                     pool.clone(),
@@ -254,13 +178,6 @@ async fn app() -> Result<(), Error> {
                     Arc::new(RwLock::new(false)),
                     deposits_enabled_clone,
                 ));
-
-                tokio::spawn({
-                    let ctx = ctx.clone();
-                    let pool = pool.clone();
-
-                    async move { reactdrop::check_running_reactdrops(ctx, pool).await }
-                });
 
                 let tx_proc_clone = tx_proc.clone();
                 tokio::spawn(async move {
@@ -271,6 +188,8 @@ async fn app() -> Result<(), Error> {
                 tokio::spawn(async move {
                     tx_proc_clone.clone().listen_block_notifications().await;
                 });
+
+                info!("listening for daemon notifications");
 
                 let withdrawal_fee =
                     Arc::new(RwLock::new(config.application.global_withdrawal_fee));
@@ -304,6 +223,92 @@ async fn app() -> Result<(), Error> {
     Ok(())
 }
 
+async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
+    info!("Encountered error: {:?}", error);
+
+    match error {
+        poise::FrameworkError::Command { ctx, error } => {
+            let owners = &ctx.data().owners;
+            let s = owners
+                .into_iter()
+                .map(|id| format!("<@{}>", id.0.to_string()))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            if let Err(e) = ChannelId(
+                ctx.data()
+                    .settings
+                    .application
+                    .discord_admin_thread_id
+                    .parse::<u64>()
+                    .unwrap(),
+            )
+            .send_message(ctx.http(), |m| {
+                m.content(format!(
+                    "
+                {s}, the following error occured:\n
+                - error message: {error}\n
+                - user that encounted error: {}\n
+                - command used: {}\n
+                - possible arguments used: {}",
+                    ctx.author(),
+                    ctx.invoked_command_name(),
+                    ctx.invocation_string()
+                ))
+            })
+            .await
+            {
+                error!("{}", e)
+            }
+        }
+        poise::FrameworkError::ArgumentParse {
+            error: _,
+            input,
+            ctx,
+        } => {
+            let s = format!(
+                    "The argument you provided ({}) was incorrect. Press arrow up \u{2191} to change the arguments and press Enter when you're done.",
+                     input.unwrap()
+                );
+            if let Err(e) = ctx.say(s).await {
+                warn!("{}", e)
+            }
+        }
+        _ => {
+            error!("an unrecoverable error occured")
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Data {
+    _verus: VerusClient,
+    _bot_start_time: std::time::Instant,
+    settings: Settings,
+    _bot_user_id: serenity::UserId,
+    database: sqlx::PgPool,
+    withdrawal_fee: Arc<RwLock<Amount>>,
+    withdrawals_enabled: Arc<RwLock<bool>>,
+    deposits_enabled: Arc<RwLock<bool>>,
+    blacklist: std::sync::Mutex<HashSet<UserId>>,
+    tx_processor: Arc<TransactionProcessor>,
+    owners: HashSet<UserId>,
+}
+
+impl Data {
+    pub fn verus(&self) -> Result<VerusClient, Error> {
+        vrsc_rpc::Client::vrsc(
+            self.settings.application.testnet,
+            vrsc_rpc::Auth::UserPass(
+                format!("http://127.0.0.1:{}", self.settings.application.rpc_port),
+                self.settings.application.rpc_user.clone(),
+                self.settings.application.rpc_password.clone(),
+            ),
+        )
+        .map_err(|e| e.into())
+    }
+}
+
 #[tokio::main(worker_threads = 8)]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     log_setup()?;
@@ -328,7 +333,7 @@ fn log_setup() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var(
             "RUST_LOG",
-            "verusbot=trace,vrsc-rpc=info,poise=info,serenity=info",
+            "verusbot=info,vrsc-rpc=info,poise=info,serenity=info",
         )
     }
 

@@ -36,7 +36,7 @@ pub async fn info(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Show this menu
+/// Show help
 #[poise::command(track_edits, slash_command, category = "Miscellaneous")]
 #[instrument]
 pub async fn help(

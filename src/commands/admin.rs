@@ -112,7 +112,7 @@ async fn totaldeposited(ctx: Context<'_>) -> Result<Amount, Error> {
 
     for txid in deposit_transactions {
         let raw_tx = client.get_raw_transaction_verbose(&txid)?;
-        // let vout = raw_tx.vout.first().unwrap();
+
         for vout in raw_tx.vout.iter() {
             if let Some(addresses) = &vout.script_pubkey.addresses {
                 for address in addresses {

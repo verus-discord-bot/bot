@@ -75,7 +75,8 @@ impl TransactionProcessor {
             bind
         });
 
-        // tokio::spawn(async move {
+        info!("walletnotify listening");
+
         loop {
             match wallet_listener.accept().await {
                 Ok((stream, _address)) => {
@@ -106,8 +107,6 @@ impl TransactionProcessor {
                 }
             }
         }
-        // });
-        info!("walletnotify listening");
     }
 
     pub async fn listen_block_notifications(&self) {
@@ -124,6 +123,7 @@ impl TransactionProcessor {
 
         let deposits_enabled = self.deposits_enabled.read().await.clone();
 
+        info!("blocknotify listening");
         loop {
             match block_listener.accept().await {
                 Ok((_stream, _address)) => loop {
@@ -145,8 +145,6 @@ impl TransactionProcessor {
                 }
             }
         }
-
-        info!("blocknotify listening");
     }
 
     pub async fn check_tx(&self, txid: Txid) -> Result<(), Error> {

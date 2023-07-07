@@ -6,6 +6,7 @@ use vrsc::Amount;
 use vrsc_rpc::RpcApi;
 
 use crate::{Context, Error};
+
 /// Show information about Verus blockchain.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(track_edits, slash_command, category = "Miscellaneous")]

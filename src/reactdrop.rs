@@ -7,7 +7,7 @@ use sqlx::{
     types::chrono::{self, DateTime, Utc},
     PgPool,
 };
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 use vrsc::Amount;
 
 use crate::{commands, util::database, Error};
@@ -56,12 +56,14 @@ pub async fn check_running_reactdrops(ctx: Context, pool: PgPool) -> Result<(), 
 
         let pending_reactdrops = database::get_pending_reactdrops(&pool).await?;
 
-        debug!("{pending_reactdrops:?}");
-
         let now = chrono::Utc::now();
+        debug!(
+            "number of pending reactdrops.{} at.{}",
+            pending_reactdrops.len(),
+            now
+        );
 
         for reactdrop in pending_reactdrops {
-            debug!("{reactdrop:#?}");
             let mut message: Message = ArgumentConvert::convert(
                 &ctx,
                 None,
@@ -73,7 +75,6 @@ pub async fn check_running_reactdrops(ctx: Context, pool: PgPool) -> Result<(), 
             let diff = reactdrop.finish_time.signed_duration_since(now);
             let diff_fmt = || -> String {
                 match diff.num_seconds() {
-                    // t @ 0..=60 => format!("{} second(s)", t),
                     t @ 0..=3600 => format!("{} minute(s)", t / 60),
                     t @ _ => {
                         format!("{} hour(s) and {} minute(s)", t / (60 * 60), (t / 60) % 60)
@@ -170,16 +171,9 @@ pub async fn check_running_reactdrops(ctx: Context, pool: PgPool) -> Result<(), 
                     ReactdropState::Processed,
                 )
                 .await?;
+
+                info!("processed reactdrop: {reactdrop:#?}");
             }
         }
     }
-    // database::get_largest_tip(&pool).await?;
-    // query database table
-    // check pending reactdrops
-    // update reactdrop message with remaining time
-
-    // needed in database
-    // - reactdrop id
-    // - finish time
-    // - message id of reactdrop message
 }
