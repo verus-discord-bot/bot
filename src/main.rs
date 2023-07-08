@@ -14,8 +14,8 @@ use commands::*;
 use poise::serenity_prelude::{self as serenity, CacheHttp, ChannelId, UserId};
 use secrecy::ExposeSecret;
 use sqlx::PgPool;
-use std::{collections::HashSet, sync::Arc};
-use tokio::sync::RwLock;
+use std::{collections::HashSet, sync::Arc, time::Duration};
+use tokio::{sync::RwLock, time::interval};
 use tracing::{debug, error, info, warn, Level};
 use tracing_subscriber::{
     fmt::{self, writer::MakeWriterExt},
@@ -165,8 +165,14 @@ async fn app() -> Result<(), Error> {
                     info!("starting reactdrop loop");
 
                     async move {
-                        if let Err(e) = reactdrop::check_running_reactdrops(ctx, pool).await {
-                            error!("{:?}", e);
+                        let mut interval = interval(Duration::from_secs(20));
+
+                        loop {
+                            interval.tick().await;
+
+                            if let Err(e) = reactdrop::check_running_reactdrops(&ctx, &pool).await {
+                                error!("{:?}", e);
+                            }
                         }
                     }
                 });
