@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM transactions_vrsc WHERE transaction_id = $1 AND transaction_action = 'deposit'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "discord_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "transaction_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "transaction_action",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "opid",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "uuid",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "fee",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "bd058a5a7ce91cf460a4c071e2e7b5e75576feee9a8ee3406395d460215000fe"
+}

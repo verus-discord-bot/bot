@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE discord_users SET blacklisted = $1 WHERE discord_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "722690fcab368f1c2ecba80ca262ecb06a7c1bf63e12647030608008b29ea44a"
+}

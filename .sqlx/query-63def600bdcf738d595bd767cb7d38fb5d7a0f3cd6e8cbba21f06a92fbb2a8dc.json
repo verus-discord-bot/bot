@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE discord_users SET notifications = ($1) WHERE discord_id = ($2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "63def600bdcf738d595bd767cb7d38fb5d7a0f3cd6e8cbba21f06a92fbb2a8dc"
+}

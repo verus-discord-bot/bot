@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT txid FROM unprocessed_transactions WHERE status = 'unprocessed'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "txid",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d6ac1264c5461c414910155fb22da28842b3bc610e672c3bba4187ede81d18c0"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE reactdrops SET status = $3 WHERE channel_id = $1 AND message_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6ace687e2000575a1ae90c28c03e160bb3bcb82c02eca6ecdd3a9a58a040f43b"
+}

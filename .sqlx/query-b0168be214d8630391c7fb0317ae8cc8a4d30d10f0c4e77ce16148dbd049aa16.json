@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE unprocessed_transactions SET status = 'processed' WHERE txid = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b0168be214d8630391c7fb0317ae8cc8a4d30d10f0c4e77ce16148dbd049aa16"
+}
