@@ -5,7 +5,6 @@ use crate::{
     reactdrop::{Reactdrop, ReactdropState},
     Error,
 };
-// use num_traits::cast::ToPrimitive;
 use num_traits::cast::ToPrimitive;
 use poise::serenity_prelude::UserId;
 use sqlx::{
