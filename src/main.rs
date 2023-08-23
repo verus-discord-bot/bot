@@ -20,7 +20,7 @@ use std::{
     time::Duration,
 };
 use tokio::{sync::RwLock, time::interval};
-use tracing::{debug, error, info, warn, Level};
+use tracing::{debug, error, info, trace, warn, Level};
 use tracing_subscriber::{
     fmt::{self, writer::MakeWriterExt},
     layer::SubscriberExt,
@@ -324,11 +324,16 @@ impl Data {
     // TODO: cow?
     pub fn to_currency_name(&self, address: &Address) -> Result<String, Error> {
         if let Some(name) = self.currency_names.get(address) {
+            trace!("name is known in currency_names");
             return Ok(name.to_owned());
         } else {
+            trace!("name is unknown in currency_names");
             let client = self.verus()?;
+            trace!("got client");
 
-            let currency = client.get_currency(&address.to_string())?;
+            debug!("address: {:?}", &address);
+            let currency = client.get_currency(&address.to_string()).unwrap();
+            debug!("{currency:?}");
             let currency_name = currency.fullyqualifiedname;
             return Ok(currency_name);
         }

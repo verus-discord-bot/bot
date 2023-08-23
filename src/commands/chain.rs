@@ -3,10 +3,9 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use poise::serenity_prelude::Colour;
 use serde::Deserialize;
-use serde_json::Value;
 use tracing::{debug, instrument};
 use uuid::Uuid;
-use vrsc::{Address, Amount};
+use vrsc::Amount;
 use vrsc_rpc::RpcApi;
 
 use crate::{Context, Error};
@@ -169,89 +168,90 @@ pub async fn currency(ctx: Context<'_>, currency: String) -> Result<(), Error> {
 
     let mut fields = vec![];
 
-    if let Ok(currency_state) = verus_client.get_currency_state(&currency) {
-        let currency_state = currency_state.first().unwrap();
-        fields.push((
-            "Supply",
-            format!("`{}`", currency_state.currencystate.supply.as_vrsc()),
-            false,
-        ));
+    if let Ok(currency) = verus_client.get_currency(&currency) {
+        if let Some(currency_state) = currency.bestcurrencystate {
+            fields.push((
+                "Supply",
+                format!("{}", currency_state.supply.as_vrsc()),
+                false,
+            ));
 
-        if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
-            let mut baskets = reserve_currencies
-                .iter()
-                .filter_map(|rc| {
-                    let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
-                    Some((name, rc.reserves.as_vrsc()))
-                })
-                .collect::<Vec<(String, f64)>>();
-
-            let longest_name_len = baskets.iter().max_by_key(|x| x.0.len()).unwrap().0.len();
-            let longest_value_len = format!(
-                "{}",
-                baskets
+            if let Some(reserve_currencies) = currency_state.reservecurrencies.as_ref() {
+                debug!("{:#?}", &reserve_currencies);
+                let mut baskets = reserve_currencies
                     .iter()
-                    .map(|t| t.1 * 100_000_000.0)
-                    .reduce(|acc, amount| amount.max(acc))
-                    .unwrap()
-            )
-            .len();
+                    .filter_map(|rc| {
+                        let name = ctx.data().to_currency_name(&rc.currencyid).ok()?;
+                        Some((name, rc.reserves.as_vrsc()))
+                    })
+                    .collect::<Vec<(String, f64)>>();
 
-            debug!("{longest_value_len}");
+                let longest_name_len = baskets.iter().max_by_key(|x| x.0.len()).unwrap().0.len();
+                let longest_value_len = format!(
+                    "{}",
+                    baskets
+                        .iter()
+                        .map(|t| t.1 * 100_000_000.0)
+                        .reduce(|acc, amount| amount.max(acc))
+                        .unwrap()
+                )
+                .len();
 
-            baskets.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+                debug!("{longest_value_len}");
 
-            let tvl_str = format!(
-                "```{}```",
-                baskets
-                    .iter()
-                    .map(|tvl| format!(
-                        "{name:<max_name_len$}: {value:>max$.*}",
-                        8,
-                        name = tvl.0,
-                        value = tvl.1,
-                        max_name_len = longest_name_len + 1,
-                        max = longest_value_len + 1
-                    ))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            );
+                baskets.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
 
-            println!("{}", tvl_str);
-
-            fields.push(("Baskets", tvl_str, false));
-
-            // divide supply by the lastconversionprice of verus
-            if ctx.data().settings.application.testnet {
-                let price = dbg!(reserve_currencies
-                    .iter()
-                    .find(|c| c.currencyid.to_string() == "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq")
-                    .and_then(|c| Some(c.priceinreserve))
-                    .unwrap_or(Amount::ZERO));
-
-                let vrsc_value_of_currency_supply = dbg!(
-                    currency_state.currencystate.supply.as_vrsc() * price.as_vrsc() //.unwrap_or(Amount::ZERO)
+                let tvl_str = format!(
+                    "```{}```",
+                    baskets
+                        .iter()
+                        .map(|tvl| format!(
+                            "{name:<max_name_len$}: {value:>max$.*}",
+                            8,
+                            name = tvl.0,
+                            value = tvl.1,
+                            max_name_len = longest_name_len + 1,
+                            max = longest_value_len + 1
+                        ))
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 );
 
-                let dollar_value_of_currency_supply =
-                    dbg!(vrsc_value_of_currency_supply * usd_price);
+                println!("{}", tvl_str);
 
-                fields.push((
-                    "est. currency value (USD)",
-                    format!("$ {dollar_value_of_currency_supply:.2}"),
-                    false,
-                ));
+                fields.push(("Baskets", tvl_str, false));
+
+                // divide supply by the lastconversionprice of verus
+                if ctx.data().settings.application.testnet {
+                    let price = reserve_currencies
+                        .iter()
+                        .find(|c| c.currencyid.to_string() == "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq")
+                        .and_then(|c| Some(c.priceinreserve))
+                        .unwrap_or(Amount::ZERO);
+
+                    let vrsc_value_of_currency_supply =
+                        currency_state.supply.as_vrsc() * price.as_vrsc(); //.unwrap_or(Amount::ZERO)
+
+                    let dollar_value_of_currency_supply =
+                        dbg!(vrsc_value_of_currency_supply * usd_price);
+
+                    fields.push((
+                        "est. currency value (USD)",
+                        format!("$ {dollar_value_of_currency_supply:.2}"),
+                        false,
+                    ));
+                }
             }
-        }
 
-        ctx.send(|reply| {
-            reply.embed(|embed| {
-                embed
-                    .title(format!("`{}` currency information", currency))
-                    .fields(fields)
+            ctx.send(|reply| {
+                reply.embed(|embed| {
+                    embed
+                        .title(format!("{}", currency.fullyqualifiedname))
+                        .fields(fields)
+                })
             })
-        })
-        .await?;
+            .await?;
+        }
     }
 
     Ok(())
