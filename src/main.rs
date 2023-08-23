@@ -14,7 +14,11 @@ use commands::*;
 use poise::serenity_prelude::{self as serenity, CacheHttp, ChannelId, UserId};
 use secrecy::ExposeSecret;
 use sqlx::PgPool;
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::{sync::RwLock, time::interval};
 use tracing::{debug, error, info, warn, Level};
 use tracing_subscriber::{
@@ -23,7 +27,7 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
     EnvFilter,
 };
-use vrsc::Amount;
+use vrsc::{Address, Amount};
 use vrsc_rpc::{Client as VerusClient, RpcApi};
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -65,6 +69,7 @@ async fn app() -> Result<(), Error> {
             chain::chaininfo(),
             chain::peerinfo(),
             chain::price(),
+            chain::currency(),
             wallet::deposit(),
             wallet::balance(),
             wallet::withdraw(),
@@ -213,6 +218,7 @@ async fn app() -> Result<(), Error> {
                     blacklist: std::sync::Mutex::new(HashSet::new()),
                     tx_processor: tx_proc,
                     owners: owners_clone,
+                    currency_names: HashMap::new(),
                 })
             })
         })
@@ -299,6 +305,7 @@ pub struct Data {
     blacklist: std::sync::Mutex<HashSet<UserId>>,
     tx_processor: Arc<TransactionProcessor>,
     owners: HashSet<UserId>,
+    currency_names: HashMap<Address, String>,
 }
 
 impl Data {
@@ -312,6 +319,19 @@ impl Data {
             ),
         )
         .map_err(|e| e.into())
+    }
+
+    // TODO: cow?
+    pub fn to_currency_name(&self, address: &Address) -> Result<String, Error> {
+        if let Some(name) = self.currency_names.get(address) {
+            return Ok(name.to_owned());
+        } else {
+            let client = self.verus()?;
+
+            let currency = client.get_currency(&address.to_string())?;
+            let currency_name = currency.fullyqualifiedname;
+            return Ok(currency_name);
+        }
     }
 }
 
