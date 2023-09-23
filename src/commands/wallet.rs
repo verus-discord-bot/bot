@@ -327,19 +327,22 @@ pub async fn amount(
 }
 
 /// Show your balance
-#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4()))]
 #[poise::command(slash_command, category = "Wallet")]
-pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
-    let balance = Amount::from_sat(
-        database::get_balance_for_user(&ctx.data().database, &ctx.author().id)
-            .await?
-            .unwrap_or(0),
-    );
+pub async fn balance(ctx: Context<'_>, target_user: Option<UserId>) -> Result<(), Error> {
+    let user_id = match target_user {
+        Some(user_id) => user_id,
+        None => ctx.author().id,
+    };
+
+    let balance = Amount::from_sat(database::get_balance_for_user(&ctx.data().database, &user_id)
+        .await?
+        .unwrap_or(0));
 
     ctx.send(|reply| {
         reply
             .ephemeral(true)
-            .content(format!("Your balance is: {}", balance))
+            .content(format!("{}'s balance is: {}", user_id, balance))
     })
     .await?;
 
