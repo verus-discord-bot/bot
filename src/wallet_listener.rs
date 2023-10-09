@@ -13,7 +13,10 @@ use uuid::Uuid;
 use vrsc::Amount;
 use vrsc_rpc::bitcoin::Txid;
 use vrsc_rpc::json::GetRawTransactionResultVerbose;
-use vrsc_rpc::{Auth, Client, RpcApi};
+use vrsc_rpc::{
+    client::{Client, RpcApi},
+    Auth,
+};
 
 use crate::configuration::Settings;
 use crate::util::database::{self, *};

@@ -3,11 +3,10 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use poise::serenity_prelude::Colour;
 use serde::Deserialize;
-use serde_json::Value;
 use tracing::{debug, instrument};
 use uuid::Uuid;
-use vrsc::{Address, Amount};
-use vrsc_rpc::RpcApi;
+use vrsc::Amount;
+use vrsc_rpc::client::RpcApi;
 
 use crate::{Context, Error};
 

@@ -7,7 +7,10 @@ use sqlx::PgPool;
 use tracing::*;
 use uuid::Uuid;
 use vrsc::{Address, Amount};
-use vrsc_rpc::{bitcoin::Txid, Client, RpcApi, SendCurrencyOutput};
+use vrsc_rpc::{
+    bitcoin::Txid,
+    client::{Client, RpcApi, SendCurrencyOutput},
+};
 
 use crate::commands::user_blacklisted;
 use crate::{util::database, Context, Error};

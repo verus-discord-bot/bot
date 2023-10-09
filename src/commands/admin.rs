@@ -4,7 +4,7 @@ use std::{sync::Arc, time::Duration};
 use tracing::{debug, error, instrument, trace};
 use uuid::Uuid;
 use vrsc::Amount;
-use vrsc_rpc::{bitcoin::Txid, RpcApi};
+use vrsc_rpc::{bitcoin::Txid, client::RpcApi};
 
 use crate::{
     util::database,

@@ -28,7 +28,7 @@ use tracing_subscriber::{
     EnvFilter,
 };
 use vrsc::{Address, Amount};
-use vrsc_rpc::{Client as VerusClient, RpcApi};
+use vrsc_rpc::client::{Client as VerusClient, RpcApi};
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
@@ -135,7 +135,7 @@ async fn app() -> Result<(), Error> {
         ..Default::default()
     };
 
-    let client = vrsc_rpc::Client::vrsc(
+    let client = vrsc_rpc::client::Client::vrsc(
         config.application.testnet,
         vrsc_rpc::Auth::UserPass(
             format!("http://127.0.0.1:{}", config.application.rpc_port),
@@ -310,7 +310,7 @@ pub struct Data {
 
 impl Data {
     pub fn verus(&self) -> Result<VerusClient, Error> {
-        vrsc_rpc::Client::vrsc(
+        vrsc_rpc::client::Client::vrsc(
             self.settings.application.testnet,
             vrsc_rpc::Auth::UserPass(
                 format!("http://127.0.0.1:{}", self.settings.application.rpc_port),
