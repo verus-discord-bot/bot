@@ -256,6 +256,113 @@ pub async fn currency(ctx: Context<'_>, currency: String) -> Result<(), Error> {
     Ok(())
 }
 
+/// Show information about the contents of the VRSC-ETH bridge currency.
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(slash_command, category = "Miscellaneous")]
+pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
+    // the contents will be DAI, MKR, VRSC and ETH.
+    // we need to get the actual Dollar price of DAI, MKR and ETH.
+
+    let verus_client = ctx.data().verus()?;
+    let all_prices: Vec<CoinPaprika> =
+        reqwest::get("https://api.coinpaprika.com/v1/tickers?quotes=USD")
+            .await?
+            .json()
+            .await?;
+
+    let mut fields = vec![];
+
+    if let Ok(currency_state) = verus_client.get_currency_state("bridge.vETH") {
+        let currency_state = currency_state.first().unwrap();
+        fields.push((
+            "Supply",
+            format!("{}", currency_state.currencystate.supply.as_vrsc()),
+            false,
+        ));
+
+        if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
+            let mut baskets = reserve_currencies
+                .iter()
+                .filter_map(|rc| {
+                    let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
+                    let market_cap = rc.reserves.as_vrsc() * get_usd_price(&all_prices, &name);
+
+                    Some((name, rc.reserves.as_vrsc(), market_cap))
+                })
+                .collect::<Vec<(String, f64, f64)>>();
+
+            let longest_name_len = baskets.iter().max_by_key(|x| x.0.len()).unwrap().0.len();
+            let longest_value_len = format!(
+                "{}",
+                baskets
+                    .iter()
+                    .map(|t| t.1 * 100_000_000.0)
+                    .reduce(|acc, amount| amount.max(acc))
+                    .unwrap()
+            )
+            .len();
+
+            baskets.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+
+            let tvl_str = format!(
+                "```{}```",
+                baskets
+                    .iter()
+                    .map(|tvl| format!(
+                        "{name:<max_name_len$}: {value:>max$.*} (≈ ${mc:.2})",
+                        8,
+                        name = tvl.0,
+                        value = tvl.1,
+                        mc = tvl.2,
+                        max_name_len = longest_name_len + 1,
+                        max = longest_value_len + 1
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+
+            fields.push(("Reserves", tvl_str, false));
+
+            fields.push((
+                "Total $ value in reserves",
+                format!("${:.2}", baskets.iter().fold(0.0, |acc, sum| acc + sum.2)),
+                false,
+            ));
+        }
+
+        ctx.send(|reply| {
+            reply.embed(|embed| {
+                embed
+                    .title("VRSC-ETH Bridge information")
+                    .fields(fields)
+                    .color(Colour::DARK_BLUE)
+            })
+        })
+        .await?;
+    }
+
+    Ok(())
+}
+
+fn get_usd_price(quotes: &Vec<CoinPaprika>, name: &str) -> f64 {
+    let symbol = match name {
+        "DAI.vETH" => "DAI",
+        "vETH" => "ETH",
+        "VRSCTEST" => "VRSC",
+        "vMKR" => "MKR",
+        _ => return 0.0,
+    };
+
+    quotes
+        .iter()
+        .find(|t| t.symbol == symbol)
+        .unwrap()
+        .quotes
+        .get("USD")
+        .unwrap()
+        .price
+}
+
 #[derive(Deserialize, Debug)]
 pub struct CoinPaprika {
     #[serde(rename = "id")]

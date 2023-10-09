@@ -289,8 +289,9 @@ pub async fn reactdrop(
 
             let reply_handle = ctx
                 .say(format!(
-                    ">>> **A reactdrop of {tip_amount} was started!**\n\n \
-React with the {} emoji to participate\n\nTime remaining: {} hour(s) and {} minute(s)",
+                    ">>> **A reactdrop of {tip_amount} was started!**\n\n\
+React with the {} emoji to participate\n\n
+Time remaining: {} hour(s) and {} minute(s)",
                     reaction_type.clone(),
                     time_in_seconds.num_seconds() / (60 * 60),
                     (time_in_seconds.num_seconds() / 60) % 60
