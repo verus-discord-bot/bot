@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use poise::serenity_prelude::Colour;
 use serde::Deserialize;
 use tracing::{debug, instrument};
@@ -271,6 +271,19 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
             .await?;
 
     let mut fields = vec![];
+
+    // let currency = verus_client.get_currency("bridge.vETH")?;
+    let start_block: u64 = 2758800;
+    let cur_height = verus_client.get_blockchain_info()?.blocks;
+    let diff = start_block.checked_sub(cur_height);
+
+    if let Some(blocks_left) = diff {
+        // blocks_left is minutes in the future.
+        let now = chrono::Utc::now();
+        if let Some(future) = now.checked_add_signed(Duration::minutes(blocks_left as i64)) {
+            fields.push(("Preconversion ends at", future.to_rfc2822(), false))
+        }
+    }
 
     if let Ok(currency_state) = verus_client.get_currency_state("bridge.vETH") {
         let currency_state = currency_state.first().unwrap();
