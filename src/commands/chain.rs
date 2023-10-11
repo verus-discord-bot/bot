@@ -362,7 +362,7 @@ fn get_usd_price(quotes: &Vec<CoinPaprika>, name: &str) -> f64 {
     let symbol = match name {
         "DAI.vETH" => "DAI",
         "vETH" => "ETH",
-        "VRSCTEST" => "VRSC",
+        "VRSC" | "VRSCTEST" => "VRSC",
         "vMKR" => "MKR",
         _ => return 0.0,
     };
