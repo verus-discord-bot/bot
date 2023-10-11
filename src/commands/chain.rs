@@ -281,7 +281,11 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
         // blocks_left is minutes in the future.
         let now = chrono::Utc::now();
         if let Some(future) = now.checked_add_signed(Duration::minutes(blocks_left as i64)) {
-            fields.push(("Preconversion ends at", future.to_rfc2822(), false))
+            fields.push((
+                "Preconversion ends at approximately",
+                future.to_rfc2822(),
+                false,
+            ))
         }
     }
 
