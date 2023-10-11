@@ -321,6 +321,20 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                     .join("\n")
             );
 
+            // fields.push(("-------- Reserves --------", " ".to_string(), false));
+            // fields.push(("DAI.vETH", " ".to_string(), false));
+            // fields.push(("Supply", format!("{}", 156234.12345678), true));
+            // fields.push(("Internal value", format!("{}", 100.12345678), true));
+            // fields.push(("External value", format!("{}", 200.12345678), true));
+            // fields.push((":verus-circle-blue:", " ".to_string(), false));
+            // fields.push(("Supply", format!("{}", 156234.12345678), true));
+            // fields.push(("Internal value", format!("{}", 100.12345678), true));
+            // fields.push(("External value", format!("{}", 200.12345678), true));
+            // fields.push(("VRSC", " ".to_string(), false));
+            // fields.push(("Supply", format!("{}", 156234.12345678), true));
+            // fields.push(("Internal value", format!("{}", 100.12345678), true));
+            // fields.push(("External value", format!("{}", 200.12345678), true));
+
             fields.push(("Reserves", tvl_str, false));
 
             fields.push((
@@ -329,17 +343,17 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                 false,
             ));
         }
-
-        ctx.send(|reply| {
-            reply.embed(|embed| {
-                embed
-                    .title("VRSC-ETH Bridge information")
-                    .fields(fields)
-                    .color(Colour::DARK_BLUE)
-            })
-        })
-        .await?;
     }
+
+    ctx.send(|reply| {
+        reply.embed(|embed| {
+            embed
+                .title("VRSC-ETH Bridge information")
+                .fields(fields)
+                .color(Colour::DARK_BLUE)
+        })
+    })
+    .await?;
 
     Ok(())
 }

@@ -20,7 +20,7 @@ use std::{
     time::Duration,
 };
 use tokio::{sync::RwLock, time::interval};
-use tracing::{debug, error, info, warn, Level};
+use tracing::{debug, error, info, instrument, warn, Level};
 use tracing_subscriber::{
     fmt::{self, writer::MakeWriterExt},
     layer::SubscriberExt,
@@ -33,6 +33,7 @@ use vrsc_rpc::client::{Client as VerusClient, RpcApi};
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 
+#[instrument(err)]
 async fn app() -> Result<(), Error> {
     let config = get_configuration()?;
     let pg_url = &config.database.connection_string();
