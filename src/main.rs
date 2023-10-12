@@ -71,7 +71,7 @@ async fn app() -> Result<(), Error> {
             chain::peerinfo(),
             chain::price(),
             chain::ethbridge(),
-            chain::currency(),
+            // chain::currency(),
             wallet::deposit(),
             wallet::balance(),
             wallet::withdraw(),

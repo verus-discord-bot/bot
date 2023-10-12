@@ -264,12 +264,6 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
     // we need to get the actual Dollar price of DAI, MKR and ETH.
 
     let verus_client = ctx.data().verus()?;
-    let all_prices: Vec<CoinPaprika> =
-        reqwest::get("https://api.coinpaprika.com/v1/tickers?quotes=USD")
-            .await?
-            .json()
-            .await?;
-
     let mut fields = vec![];
 
     // let currency = verus_client.get_currency("bridge.vETH")?;
@@ -308,7 +302,6 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                 .iter()
                 .filter_map(|rc| {
                     let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
-                    // let usd_price = rc.reserves.as_vrsc() * get_usd_price(&all_prices, &name);
                     let dai_price = dai_reserves / rc.reserves.as_vrsc();
 
                     Some((name, rc.reserves.as_vrsc(), dai_price))
@@ -363,8 +356,11 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
             fields.push(("Reserves", tvl_str, false));
 
             fields.push((
-                "Total $ value in reserves",
-                format!("${:.2}", baskets.iter().fold(0.0, |acc, sum| acc + sum.2)),
+                "Total DAI value of reserves",
+                format!(
+                    "{:.2} DAI",
+                    baskets.iter().fold(0.0, |acc, sum| acc + (sum.2 * sum.1))
+                ),
                 false,
             ));
         }
@@ -381,25 +377,6 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
     .await?;
 
     Ok(())
-}
-
-fn get_usd_price(quotes: &Vec<CoinPaprika>, name: &str) -> f64 {
-    let symbol = match name {
-        "DAI.vETH" => "DAI",
-        "vETH" => "ETH",
-        "VRSC" | "VRSCTEST" => "VRSC",
-        "MKR.vETH" => "MKR",
-        _ => return 0.0,
-    };
-
-    quotes
-        .iter()
-        .find(|t| t.symbol == symbol)
-        .unwrap()
-        .quotes
-        .get("USD")
-        .unwrap()
-        .price
 }
 
 #[derive(Deserialize, Debug)]
