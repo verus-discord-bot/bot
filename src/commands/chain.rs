@@ -298,13 +298,20 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
         ));
 
         if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
+            let dai_reserves = reserve_currencies
+                .iter()
+                .find(|c| &c.currencyid.to_string() == "iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM")
+                .and_then(|f| Some(f.reserves.as_vrsc()))
+                .unwrap_or(0.0);
+
             let mut baskets = reserve_currencies
                 .iter()
                 .filter_map(|rc| {
                     let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
-                    let market_cap = rc.reserves.as_vrsc() * get_usd_price(&all_prices, &name);
+                    // let usd_price = rc.reserves.as_vrsc() * get_usd_price(&all_prices, &name);
+                    let dai_price = dai_reserves / rc.reserves.as_vrsc();
 
-                    Some((name, rc.reserves.as_vrsc(), market_cap))
+                    Some((name, rc.reserves.as_vrsc(), dai_price))
                 })
                 .collect::<Vec<(String, f64, f64)>>();
 
@@ -326,11 +333,12 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                 baskets
                     .iter()
                     .map(|tvl| format!(
-                        "{name:<max_name_len$}: {value:>max$.*} (≈ ${mc:.2})",
+                        "{name:<max_name_len$}: {value:>max$.*} ({dai:.2} DAI)",
                         8,
                         name = tvl.0,
                         value = tvl.1,
-                        mc = tvl.2,
+                        dai = tvl.2,
+                        // mc = tvl.3,
                         max_name_len = longest_name_len + 1,
                         max = longest_value_len + 1
                     ))
@@ -380,7 +388,7 @@ fn get_usd_price(quotes: &Vec<CoinPaprika>, name: &str) -> f64 {
         "DAI.vETH" => "DAI",
         "vETH" => "ETH",
         "VRSC" | "VRSCTEST" => "VRSC",
-        "vMKR" => "MKR",
+        "MKR.vETH" => "MKR",
         _ => return 0.0,
     };
 
