@@ -291,12 +291,13 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
 
     if let Ok(currency_state) = verus_client.get_currency_state("bridge.vETH") {
         let currency_state = currency_state.first().unwrap();
-        fields.push((
-            "Supply",
-            format!("{}", currency_state.currencystate.supply.as_vrsc()),
-            false,
-        ));
-
+        if diff.is_none() {
+            fields.push((
+                "Supply",
+                format!("{}", currency_state.currencystate.supply.as_vrsc()),
+                false,
+            ));
+        }
         if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
             let dai_reserves = reserve_currencies
                 .iter()
