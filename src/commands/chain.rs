@@ -264,6 +264,12 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
     // we need to get the actual Dollar price of DAI, MKR and ETH.
 
     let verus_client = ctx.data().verus()?;
+    let all_prices: Vec<CoinPaprika> =
+        reqwest::get("https://api.coinpaprika.com/v1/tickers?quotes=USD")
+            .await?
+            .json()
+            .await?;
+
     let mut fields = vec![];
 
     // let currency = verus_client.get_currency("bridge.vETH")?;
@@ -302,11 +308,12 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                 .iter()
                 .filter_map(|rc| {
                     let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
+                    let usd_market_cap = rc.reserves.as_vrsc() * get_usd_price(&all_prices, &name);
                     let dai_price = dai_reserves / rc.reserves.as_vrsc();
 
-                    Some((name, rc.reserves.as_vrsc(), dai_price))
+                    Some((name, rc.reserves.as_vrsc(), dai_price, usd_market_cap))
                 })
-                .collect::<Vec<(String, f64, f64)>>();
+                .collect::<Vec<(String, f64, f64, f64)>>();
 
             let longest_name_len = baskets.iter().max_by_key(|x| x.0.len()).unwrap().0.len();
             let longest_value_len = format!(
@@ -356,11 +363,8 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
             fields.push(("Reserves", tvl_str, false));
 
             fields.push((
-                "Total DAI value of reserves",
-                format!(
-                    "{:.2} DAI",
-                    baskets.iter().fold(0.0, |acc, sum| acc + (sum.2 * sum.1))
-                ),
+                "Total $ value in reserves",
+                format!("${:.2}", baskets.iter().fold(0.0, |acc, sum| acc + sum.3)),
                 false,
             ));
         }
@@ -377,6 +381,25 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
     .await?;
 
     Ok(())
+}
+
+fn get_usd_price(quotes: &Vec<CoinPaprika>, name: &str) -> f64 {
+    let symbol = match name {
+        "DAI.vETH" => "DAI",
+        "vETH" => "ETH",
+        "VRSC" | "VRSCTEST" => "VRSC",
+        "MKR.vETH" => "MKR",
+        _ => return 0.0,
+    };
+
+    quotes
+        .iter()
+        .find(|t| t.symbol == symbol)
+        .unwrap()
+        .quotes
+        .get("USD")
+        .unwrap()
+        .price
 }
 
 #[derive(Deserialize, Debug)]
