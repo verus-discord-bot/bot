@@ -323,11 +323,12 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                 "{}",
                 baskets
                     .iter()
-                    .map(|t| t.1 * 100_00.0)
+                    .map(|t| t.1 * 100_000_000.0)
                     .reduce(|acc, amount| amount.max(acc))
                     .unwrap()
             )
-            .len();
+            .len()
+                - 4;
 
             baskets.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
 
