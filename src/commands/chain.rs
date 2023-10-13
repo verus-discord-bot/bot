@@ -275,7 +275,9 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
     // let currency = verus_client.get_currency("bridge.vETH")?;
     let start_block: u64 = 2758800;
     let cur_height = verus_client.get_blockchain_info()?.blocks;
-    let diff = start_block.checked_sub(cur_height);
+    let diff = start_block
+        .checked_sub(cur_height)
+        .map(|d| d as f64 * 1.0325);
 
     if let Some(blocks_left) = diff {
         // blocks_left is minutes in the future.
@@ -334,8 +336,8 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                 baskets
                     .iter()
                     .map(|tvl| format!(
-                        "{name:<max_name_len$}: {value:>max$.*} ({dai:.2} DAI)",
-                        8,
+                        "{name:<max_name_len$}: {value:>max$.*} ({dai:.2})",
+                        4,
                         name = tvl.0,
                         value = tvl.1,
                         dai = tvl.2,
@@ -361,7 +363,7 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
             // fields.push(("Internal value", format!("{}", 100.12345678), true));
             // fields.push(("External value", format!("{}", 200.12345678), true));
 
-            fields.push(("Reserves", tvl_str, false));
+            fields.push(("Reserves (price in DAI)", tvl_str, false));
 
             fields.push((
                 "Total $ value in reserves",
