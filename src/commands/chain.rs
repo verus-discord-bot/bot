@@ -279,18 +279,6 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
         .checked_sub(cur_height)
         .map(|d| d as f64 * 1.0325);
 
-    if let Some(blocks_left) = diff {
-        // blocks_left is minutes in the future.
-        let now = chrono::Utc::now();
-        if let Some(future) = now.checked_add_signed(Duration::minutes(blocks_left as i64)) {
-            fields.push((
-                "Preconversion ends at approximately",
-                future.to_rfc2822(),
-                false,
-            ))
-        }
-    }
-
     if let Ok(currency_state) = verus_client.get_currency_state("bridge.vETH") {
         let currency_state = currency_state.first().unwrap();
         if diff.is_none() {
@@ -371,6 +359,19 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                 format!("${:.2}", baskets.iter().fold(0.0, |acc, sum| acc + sum.3)),
                 false,
             ));
+
+            if let Some(blocks_left) = diff {
+                // blocks_left is minutes in the future.
+                let now = chrono::Utc::now();
+                if let Some(future) = now.checked_add_signed(Duration::minutes(blocks_left as i64))
+                {
+                    fields.push((
+                        "Preconversion ends at approximately",
+                        future.to_rfc2822(),
+                        false,
+                    ))
+                }
+            }
         }
     }
 
