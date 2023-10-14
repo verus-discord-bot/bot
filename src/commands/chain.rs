@@ -277,17 +277,13 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
     let cur_height = verus_client.get_blockchain_info()?.blocks;
     let diff = start_block
         .checked_sub(cur_height)
+        // actual block time is 61.95s, so we multiply with 1.0325
+        // https://discord.com/channels/444621794964537354/449633463394500629/1121389199451500625
         .map(|d| d as f64 * 1.0325);
 
     if let Ok(currency_state) = verus_client.get_currency_state("bridge.vETH") {
         let currency_state = currency_state.first().unwrap();
-        if diff.is_none() {
-            fields.push((
-                "Supply",
-                format!("{}", currency_state.currencystate.supply.as_vrsc()),
-                false,
-            ));
-        }
+
         if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
             let dai_reserves = reserve_currencies
                 .iter()
@@ -354,19 +350,19 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
 
             fields.push(("Reserves (price in DAI)", tvl_str, false));
 
-            fields.push((
-                "Total DAI value in reserves",
-                format!("{:.2} DAI", baskets.len() as f64 * dai_reserves),
-                false,
-            ));
-
-            fields.push((
-                "Value of preconverted reserves based on CoinPaprika avg.",
-                format!("${:.2}", baskets.iter().fold(0.0, |acc, sum| acc + sum.3)),
-                false,
-            ));
-
+            // if in preconversion mode:
             if let Some(blocks_left) = diff {
+                fields.push((
+                    "\n\n\n------ PRECONVERSION MODE ------",
+                    " ".to_string(),
+                    false,
+                ));
+                fields.push((
+                    "Value of preconversions",
+                    format!("${:.2}", baskets.iter().fold(0.0, |acc, sum| acc + sum.3)),
+                    false,
+                ));
+
                 // blocks_left is minutes in the future.
                 let now = chrono::Utc::now();
                 if let Some(future) = now.checked_add_signed(Duration::minutes(blocks_left as i64))
@@ -377,6 +373,18 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                         false,
                     ))
                 }
+            } else {
+                fields.push((
+                    "Total liquidity",
+                    format!("{:.2} DAI", baskets.len() as f64 * dai_reserves),
+                    false,
+                ));
+
+                fields.push((
+                    "Supply",
+                    format!("{}", currency_state.currencystate.supply.as_vrsc()),
+                    false,
+                ));
             }
         }
     }
