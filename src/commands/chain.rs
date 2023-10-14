@@ -361,7 +361,7 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
             ));
 
             fields.push((
-                "Total $ value in reserves (CoinPaprika)",
+                "Value of preconverted reserves based on CoinPaprika avg.",
                 format!("${:.2}", baskets.iter().fold(0.0, |acc, sum| acc + sum.3)),
                 false,
             ));
