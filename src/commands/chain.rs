@@ -358,8 +358,8 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                     false,
                 ));
                 fields.push((
-                    "Value of preconversions",
-                    format!("${:.2}", baskets.iter().fold(0.0, |acc, sum| acc + sum.3)),
+                    "Basket value in preconversions",
+                    format!("{:.2} DAI", baskets.len() as f64 * dai_reserves),
                     false,
                 ));
 
