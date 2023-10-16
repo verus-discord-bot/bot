@@ -351,7 +351,7 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
             fields.push(("Reserves (price in DAI)", tvl_str, false));
 
             fields.push((
-                "Total liquidity",
+                "Total value of liquidity",
                 format!("{:.2} DAI", baskets.len() as f64 * dai_reserves),
                 false,
             ));
