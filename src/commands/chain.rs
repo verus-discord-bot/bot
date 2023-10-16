@@ -350,16 +350,17 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
 
             fields.push(("Reserves (price in DAI)", tvl_str, false));
 
+            fields.push((
+                "Total liquidity",
+                format!("{:.2} DAI", baskets.len() as f64 * dai_reserves),
+                false,
+            ));
+
             // if in preconversion mode:
             if let Some(blocks_left) = diff {
                 fields.push((
                     "\n\n\n------ PRECONVERSION MODE ------",
                     " ".to_string(),
-                    false,
-                ));
-                fields.push((
-                    "Value of preconversions",
-                    format!("${:.2}", baskets.iter().fold(0.0, |acc, sum| acc + sum.3)),
                     false,
                 ));
 
@@ -374,12 +375,6 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                     ))
                 }
             } else {
-                fields.push((
-                    "Total liquidity",
-                    format!("{:.2} DAI", baskets.len() as f64 * dai_reserves),
-                    false,
-                ));
-
                 fields.push((
                     "Supply",
                     format!("{}", currency_state.currencystate.supply.as_vrsc()),
