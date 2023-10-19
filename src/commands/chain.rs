@@ -301,17 +301,21 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                 })
                 .collect::<Vec<(String, f64, f64)>>();
 
+            debug!("{:?}", baskets);
+
             let longest_name_len = baskets.iter().max_by_key(|x| x.0.len()).unwrap().0.len();
+            // let largest_value =
+
             let largest_value = baskets
                 .iter()
-                .map(|t| t.1 * 100_000_000.0)
+                .map(|t| t.1 as u64)
                 .reduce(|acc, amount| amount.max(acc))
                 .unwrap();
 
             debug!("largest value: {largest_value}");
             let longest_value_len = format!("{:.8}", largest_value);
             debug!("longest_value_len: {longest_value_len}");
-            let longest_value_len = largest_value.to_string().len() - 4;
+            let longest_value_len = largest_value.to_string().len() + 4;
             debug!("longest_value_len: {longest_value_len}");
 
             baskets.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
