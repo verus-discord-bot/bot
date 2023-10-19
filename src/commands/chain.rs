@@ -314,6 +314,8 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
             .len()
                 - 4;
 
+            debug!("{longest_value_len}");
+
             baskets.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
 
             let tvl_str = format!(
@@ -432,4 +434,43 @@ pub struct CoinPaprikaQuoteCoin {
     pub volume_24h: f64,
     pub percent_change_24h: f64,
     pub percent_from_price_ath: f64,
+}
+
+/// Shows the time until the next halving
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(slash_command, category = "Miscellaneous")]
+pub async fn halving(ctx: Context<'_>) -> Result<(), Error> {
+    let next_halving = 3381840;
+    let blocks = ctx.data().verus()?.get_blockchain_info()?.blocks;
+
+    let time_to_halving = time_until_block(blocks as i64, next_halving);
+
+    ctx.send(|reply| {
+        reply.embed(|embed| {
+            embed
+                .title("Next Verus halving")
+                .field("Time until halving", time_to_halving.to_rfc2822(), false)
+                .color(Colour::GOLD)
+        })
+    })
+    .await?;
+
+    Ok(())
+}
+
+fn time_until_block(curheight: i64, future_height: i64) -> DateTime<Utc> {
+    let diff = future_height
+        .checked_sub(curheight)
+        // actual block time is 61.95s, so we multiply with 1.0325
+        // https://discord.com/channels/444621794964537354/449633463394500629/1121389199451500625
+        .map(|d| d as f64 * 1.0325);
+
+    let now = chrono::Utc::now();
+    if let Some(diff) = diff {
+        return now
+            .checked_add_signed(Duration::minutes(diff as i64))
+            .unwrap_or(DateTime::default());
+    }
+
+    DateTime::default()
 }
