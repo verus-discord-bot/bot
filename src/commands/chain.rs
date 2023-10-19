@@ -295,12 +295,11 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                 .iter()
                 .filter_map(|rc| {
                     let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
-                    let usd_market_cap = rc.reserves.as_vrsc() * get_usd_price(&all_prices, &name);
                     let dai_price = dai_reserves / rc.reserves.as_vrsc();
 
-                    Some((name, rc.reserves.as_vrsc(), dai_price, usd_market_cap))
+                    Some((name, rc.reserves.as_vrsc(), dai_price))
                 })
-                .collect::<Vec<(String, f64, f64, f64)>>();
+                .collect::<Vec<(String, f64, f64)>>();
 
             let longest_name_len = baskets.iter().max_by_key(|x| x.0.len()).unwrap().0.len();
             let largest_value = baskets
@@ -309,7 +308,11 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                 .reduce(|acc, amount| amount.max(acc))
                 .unwrap();
 
+            debug!("largest value: {largest_value}");
+            let longest_value_len = format!("{:.8}", largest_value);
+            debug!("longest_value_len: {longest_value_len}");
             let longest_value_len = largest_value.to_string().len() - 4;
+            debug!("longest_value_len: {longest_value_len}");
 
             baskets.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
 
@@ -323,7 +326,6 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                         name = tvl.0,
                         value = tvl.1,
                         dai = tvl.2,
-                        // mc = tvl.3,
                         max_name_len = longest_name_len + 1,
                         max = longest_value_len + 1
                     ))
@@ -373,25 +375,6 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
     .await?;
 
     Ok(())
-}
-
-fn get_usd_price(quotes: &Vec<CoinPaprika>, name: &str) -> f64 {
-    let symbol = match name {
-        "DAI.vETH" => "DAI",
-        "vETH" => "ETH",
-        "VRSC" | "VRSCTEST" => "VRSC",
-        "MKR.vETH" => "MKR",
-        _ => return 0.0,
-    };
-
-    quotes
-        .iter()
-        .find(|t| t.symbol == symbol)
-        .unwrap()
-        .quotes
-        .get("USD")
-        .unwrap()
-        .price
 }
 
 #[derive(Deserialize, Debug)]
