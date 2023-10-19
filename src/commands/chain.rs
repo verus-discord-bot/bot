@@ -310,9 +310,9 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                     .map(|t| t.1 * 100_000_000.0)
                     .reduce(|acc, amount| amount.max(acc))
                     .unwrap()
+                    - 4.0
             )
-            .len()
-                - 4;
+            .len();
 
             debug!("{longest_value_len}");
 
@@ -434,6 +434,8 @@ pub struct CoinPaprikaQuoteCoin {
     pub volume_24h: f64,
     pub percent_change_24h: f64,
     pub percent_from_price_ath: f64,
+    pub ath_price: f64,
+    pub ath_date: String,
 }
 
 /// Shows the time until the next halving
@@ -449,7 +451,7 @@ pub async fn halving(ctx: Context<'_>) -> Result<(), Error> {
         reply.embed(|embed| {
             embed
                 .title("Next Verus halving")
-                .field("Time until halving", time_to_halving.to_rfc2822(), false)
+                .field(" ", time_to_halving.to_rfc2822(), false)
                 .color(Colour::GOLD)
         })
     })
@@ -473,4 +475,41 @@ fn time_until_block(curheight: i64, future_height: i64) -> DateTime<Utc> {
     }
 
     DateTime::default()
+}
+
+/// All-time high information
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(slash_command, category = "Miscellaneous")]
+pub async fn ath(ctx: Context<'_>) -> Result<(), Error> {
+    let price: CoinPaprika =
+        reqwest::get("https://api.coinpaprika.com/v1/tickers/vrsc-verus-coin?quotes=USD,BTC")
+            .await?
+            .json()
+            .await?;
+
+    let btc_ath = price.quotes.get("BTC").unwrap();
+    let usd_ath = price.quotes.get("USD").unwrap();
+
+    ctx.send(|message| {
+        message.embed(|embed| {
+            embed
+                .field("BTC", format!("₿ {:.8}", btc_ath.ath_price), true)
+                .field("USD", format!("$ {:.2}", usd_ath.ath_price), true)
+                .field(" ", format!(" "), true)
+                .field(
+                    "% from ATH",
+                    format!("{}%", btc_ath.percent_from_price_ath),
+                    true,
+                )
+                .field(
+                    "% from ATH",
+                    format!("{}%", usd_ath.percent_from_price_ath),
+                    true,
+                )
+                .field(" ", format!(" "), true)
+        })
+    })
+    .await?;
+
+    Ok(())
 }

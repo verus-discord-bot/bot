@@ -72,6 +72,7 @@ async fn app() -> Result<(), Error> {
             chain::price(),
             chain::ethbridge(),
             chain::halving(),
+            chain::ath(),
             // chain::currency(),
             wallet::deposit(),
             wallet::balance(),
