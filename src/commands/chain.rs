@@ -275,11 +275,11 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
     // let currency = verus_client.get_currency("bridge.vETH")?;
     let start_block: u64 = 2758800;
     let cur_height = verus_client.get_blockchain_info()?.blocks;
-    let diff = start_block
-        .checked_sub(cur_height)
-        // actual block time is 61.95s, so we multiply with 1.0325
-        // https://discord.com/channels/444621794964537354/449633463394500629/1121389199451500625
-        .map(|d| d as f64 * 1.0325);
+    // let diff = start_block
+    //     .checked_sub(cur_height)
+    //     // actual block time is 61.95s, so we multiply with 1.0325
+    //     // https://discord.com/channels/444621794964537354/449633463394500629/1121389199451500625
+    //     .map(|d| d as f64 * 1.0325);
 
     if let Ok(currency_state) = verus_client.get_currency_state("bridge.vETH") {
         let currency_state = currency_state.first().unwrap();
@@ -303,18 +303,13 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                 .collect::<Vec<(String, f64, f64, f64)>>();
 
             let longest_name_len = baskets.iter().max_by_key(|x| x.0.len()).unwrap().0.len();
-            let longest_value_len = format!(
-                "{}",
-                baskets
-                    .iter()
-                    .map(|t| t.1 * 100_000_000.0)
-                    .reduce(|acc, amount| amount.max(acc))
-                    .unwrap()
-                    - 4.0
-            )
-            .len();
+            let largest_value = baskets
+                .iter()
+                .map(|t| t.1 * 100_000_000.0)
+                .reduce(|acc, amount| amount.max(acc))
+                .unwrap();
 
-            debug!("{longest_value_len}");
+            let longest_value_len = largest_value.to_string().len() - 4;
 
             baskets.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
 
@@ -336,20 +331,6 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
                     .join("\n")
             );
 
-            // fields.push(("-------- Reserves --------", " ".to_string(), false));
-            // fields.push(("DAI.vETH", " ".to_string(), false));
-            // fields.push(("Supply", format!("{}", 156234.12345678), true));
-            // fields.push(("Internal value", format!("{}", 100.12345678), true));
-            // fields.push(("External value", format!("{}", 200.12345678), true));
-            // fields.push((":verus-circle-blue:", " ".to_string(), false));
-            // fields.push(("Supply", format!("{}", 156234.12345678), true));
-            // fields.push(("Internal value", format!("{}", 100.12345678), true));
-            // fields.push(("External value", format!("{}", 200.12345678), true));
-            // fields.push(("VRSC", " ".to_string(), false));
-            // fields.push(("Supply", format!("{}", 156234.12345678), true));
-            // fields.push(("Internal value", format!("{}", 100.12345678), true));
-            // fields.push(("External value", format!("{}", 200.12345678), true));
-
             fields.push(("Reserves (price in DAI)", tvl_str, false));
 
             fields.push((
@@ -359,23 +340,18 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
             ));
 
             // if in preconversion mode:
-            if let Some(blocks_left) = diff {
+            if let Some(future_time) = time_until_block(cur_height, start_block) {
                 fields.push((
                     "\n\n\n------ PRECONVERSION MODE ------",
                     " ".to_string(),
                     false,
                 ));
 
-                // blocks_left is minutes in the future.
-                let now = chrono::Utc::now();
-                if let Some(future) = now.checked_add_signed(Duration::minutes(blocks_left as i64))
-                {
-                    fields.push((
-                        "Preconversion ends at approximately",
-                        future.to_rfc2822(),
-                        false,
-                    ))
-                }
+                fields.push((
+                    "Preconversion ends at approximately",
+                    future_time.to_rfc2822(),
+                    false,
+                ))
             } else {
                 fields.push((
                     "Supply",
@@ -445,13 +421,18 @@ pub async fn halving(ctx: Context<'_>) -> Result<(), Error> {
     let next_halving = 3381840;
     let blocks = ctx.data().verus()?.get_blockchain_info()?.blocks;
 
-    let time_to_halving = time_until_block(blocks as i64, next_halving);
+    let time_to_halving = time_until_block(blocks, next_halving);
 
     ctx.send(|reply| {
         reply.embed(|embed| {
             embed
                 .title("Next Verus halving")
-                .field(" ", time_to_halving.to_rfc2822(), false)
+                .field(
+                    " ",
+                    time_to_halving
+                        .map_or(DateTime::<Utc>::default().to_rfc2822(), |f| f.to_rfc2822()),
+                    false,
+                )
                 .color(Colour::GOLD)
         })
     })
@@ -460,21 +441,17 @@ pub async fn halving(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-fn time_until_block(curheight: i64, future_height: i64) -> DateTime<Utc> {
+/// Returns the DateTime in the future if current_height is not yet at future_height
+fn time_until_block(current_height: u64, future_height: u64) -> Option<DateTime<Utc>> {
+    // actual block time is 61.95s, so we multiply with 1.0325
+    // https://discord.com/channels/444621794964537354/449633463394500629/1121389199451500625
     let diff = future_height
-        .checked_sub(curheight)
-        // actual block time is 61.95s, so we multiply with 1.0325
-        // https://discord.com/channels/444621794964537354/449633463394500629/1121389199451500625
+        .checked_sub(current_height)
         .map(|d| d as f64 * 1.0325);
 
     let now = chrono::Utc::now();
-    if let Some(diff) = diff {
-        return now
-            .checked_add_signed(Duration::minutes(diff as i64))
-            .unwrap_or(DateTime::default());
-    }
 
-    DateTime::default()
+    diff.and_then(|diff| now.checked_add_signed(Duration::minutes(diff as i64)))
 }
 
 /// All-time high information
@@ -482,20 +459,21 @@ fn time_until_block(curheight: i64, future_height: i64) -> DateTime<Utc> {
 #[poise::command(slash_command, category = "Miscellaneous")]
 pub async fn ath(ctx: Context<'_>) -> Result<(), Error> {
     let price: CoinPaprika =
-        reqwest::get("https://api.coinpaprika.com/v1/tickers/vrsc-verus-coin?quotes=USD,BTC")
+        reqwest::get("https://api.coinpaprika.com/v1/tickers/vrsc-verus-coin?quotes=USD,BTC,ETH")
             .await?
             .json()
             .await?;
 
     let btc_ath = price.quotes.get("BTC").unwrap();
     let usd_ath = price.quotes.get("USD").unwrap();
+    let eth_ath = price.quotes.get("ETH").unwrap();
 
     ctx.send(|message| {
         message.embed(|embed| {
             embed
                 .field("BTC", format!("₿ {:.8}", btc_ath.ath_price), true)
+                .field("ETH", format!("Ξ {:.8}", eth_ath.ath_price), true)
                 .field("USD", format!("$ {:.2}", usd_ath.ath_price), true)
-                .field(" ", format!(" "), true)
                 .field(
                     "% from ATH",
                     format!("{}%", btc_ath.percent_from_price_ath),
@@ -503,10 +481,14 @@ pub async fn ath(ctx: Context<'_>) -> Result<(), Error> {
                 )
                 .field(
                     "% from ATH",
+                    format!("{}%", eth_ath.percent_from_price_ath),
+                    true,
+                )
+                .field(
+                    "% from ATH",
                     format!("{}%", usd_ath.percent_from_price_ath),
                     true,
                 )
-                .field(" ", format!(" "), true)
         })
     })
     .await?;
