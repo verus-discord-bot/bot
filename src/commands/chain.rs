@@ -264,11 +264,6 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
     // we need to get the actual Dollar price of DAI, MKR and ETH.
 
     let verus_client = ctx.data().verus()?;
-    let all_prices: Vec<CoinPaprika> =
-        reqwest::get("https://api.coinpaprika.com/v1/tickers?quotes=USD")
-            .await?
-            .json()
-            .await?;
 
     let mut fields = vec![];
 
@@ -439,46 +434,4 @@ fn time_until_block(current_height: u64, future_height: u64) -> Option<DateTime<
     let now = chrono::Utc::now();
 
     diff.and_then(|diff| now.checked_add_signed(Duration::minutes(diff as i64)))
-}
-
-/// All-time high information
-#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
-#[poise::command(slash_command, category = "Miscellaneous")]
-pub async fn ath(ctx: Context<'_>) -> Result<(), Error> {
-    let price: CoinPaprika =
-        reqwest::get("https://api.coinpaprika.com/v1/tickers/vrsc-verus-coin?quotes=USD,BTC,ETH")
-            .await?
-            .json()
-            .await?;
-
-    let btc_ath = price.quotes.get("BTC").unwrap();
-    let usd_ath = price.quotes.get("USD").unwrap();
-    let eth_ath = price.quotes.get("ETH").unwrap();
-
-    ctx.send(|message| {
-        message.embed(|embed| {
-            embed
-                .field("BTC", format!("₿ {:.8}", btc_ath.ath_price), true)
-                .field("ETH", format!("Ξ {:.8}", eth_ath.ath_price), true)
-                .field("USD", format!("$ {:.2}", usd_ath.ath_price), true)
-                .field(
-                    "% from ATH",
-                    format!("{}%", btc_ath.percent_from_price_ath),
-                    true,
-                )
-                .field(
-                    "% from ATH",
-                    format!("{}%", eth_ath.percent_from_price_ath),
-                    true,
-                )
-                .field(
-                    "% from ATH",
-                    format!("{}%", usd_ath.percent_from_price_ath),
-                    true,
-                )
-        })
-    })
-    .await?;
-
-    Ok(())
 }
