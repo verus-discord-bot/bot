@@ -127,11 +127,11 @@ pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
                     false,
                 )
                 .field("Volume 24h (USD)", format!("{:.8}", &usd_volume), false)
-                .field(
-                    "Circulating supply (VRSC)",
-                    format!("{}", resp.circulating_supply),
-                    false,
-                )
+                // .field(
+                //     "Circulating supply (VRSC)",
+                //     format!("{}", resp.circulating_supply),
+                //     false,
+                // )
                 .timestamp(resp.last_updated)
                 .color(match price_up {
                     true => Colour::DARK_GREEN,
@@ -381,7 +381,7 @@ pub struct CoinPaprika {
     #[serde(rename = "id")]
     pub guid: String,
     pub symbol: String,
-    pub circulating_supply: u64,
+    // pub circulating_supply: u64,
     pub last_updated: DateTime<Utc>,
     pub quotes: HashMap<String, CoinPaprikaQuoteCoin>,
 }
