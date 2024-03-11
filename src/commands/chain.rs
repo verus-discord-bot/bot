@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Duration, Utc};
 use poise::serenity_prelude::Colour;
 use serde::Deserialize;
+use serde_json::{json, Value};
 use tracing::{debug, instrument};
 use uuid::Uuid;
 use vrsc::Amount;
@@ -87,6 +88,30 @@ pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
             .json()
             .await?;
 
+    // TODO: get current circulating supply
+    // The below does not work because it is very slow (5+ secs)
+    //
+    // let reqw_client = reqwest::Client::new();
+    // let res: Value = reqw_client
+    //     .post("https://api.verus.services")
+    //     .json(&json!({"method":"coinsupply", "params":[]}))
+    //     .send()
+    //     .await?
+    //     .json()
+    //     .await?;
+
+    // let supply: f64 = if let Some(result) = res["result"].as_object() {
+    //     result["supply"].as_f64().unwrap_or(0.0)
+    // } else {
+    //     reqwest::get("https://explorer.verus.io/ext/getmoneysupply")
+    //         .await?
+    //         .text()
+    //         .await?
+    //         .parse::<f64>()?
+    // };
+
+    // dbg!(supply);
+
     let btc_price = resp
         .quotes
         .get("BTC")
@@ -127,11 +152,7 @@ pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
                     false,
                 )
                 .field("Volume 24h (USD)", format!("{:.8}", &usd_volume), false)
-                // .field(
-                //     "Circulating supply (VRSC)",
-                //     format!("{}", resp.circulating_supply),
-                //     false,
-                // )
+                // .field("Circulating supply (VRSC)", format!("{}", supply), false)
                 .timestamp(resp.last_updated)
                 .color(match price_up {
                     true => Colour::DARK_GREEN,
@@ -148,6 +169,11 @@ pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
 
     Ok(())
 }
+
+// for all reserve currencies:
+// (reserves of DAI / reserves of currency) == price of reserve, DAI, VRSC, vETH, or MKR in DAI
+// for the basket currency
+// (reserves of DAI * number of currencies, which will be 4 for the bridge / reserves of currency) == price of basket currency, Bridge.vETH, in DAI
 
 /// Show currency information
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
