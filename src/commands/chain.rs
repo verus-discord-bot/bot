@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use tracing::{debug, instrument};
 use uuid::Uuid;
 use vrsc::Amount;
-use vrsc_rpc::client::RpcApi;
+use vrsc_rpc::client::{Client, RpcApi};
 
 use crate::{Context, Error};
 
@@ -402,6 +402,123 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
+/// Show information about the contents of the VRSC-ETH bridge currency.
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(slash_command, category = "Miscellaneous")]
+pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
+    // the contents will be VRSC and tBTC.
+    // we need to get the actual Dollar price of DAI, and use it to calculate tBTC and VRSC price.
+
+    // first express both in VRSC, then multiply with DAI price.
+
+    let verus_client = ctx.data().verus()?;
+
+    let mut fields = vec![];
+
+    let start_block: u64 = 2900000;
+    let cur_height = verus_client.get_blockchain_info()?.blocks;
+
+    if let Ok(currency_state) = verus_client.get_currency_state("pure") {
+        let currency_state = currency_state.first().unwrap();
+
+        if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
+            let vrsc_price_in_dai = get_vrsc_price_in_dai(&verus_client).unwrap().as_vrsc();
+            let vrsc_reserves = reserve_currencies
+                .iter()
+                .find(|c| &c.currencyid.to_string() == "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV")
+                .and_then(|f| Some(f.reserves.as_vrsc()))
+                .unwrap_or(0.0);
+
+            let mut baskets = reserve_currencies
+                .iter()
+                .filter_map(|rc| {
+                    let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
+                    let vrsc_price = vrsc_reserves / rc.reserves.as_vrsc();
+                    let dai_price = vrsc_price * vrsc_price_in_dai;
+
+                    Some((name, rc.reserves.as_vrsc(), dai_price))
+                })
+                .collect::<Vec<(String, f64, f64)>>();
+
+            debug!("{:?}", baskets);
+
+            let longest_name_len = baskets.iter().max_by_key(|x| x.0.len()).unwrap().0.len();
+
+            let largest_value = baskets
+                .iter()
+                .map(|t| t.1 as u64)
+                .reduce(|acc, amount| amount.max(acc))
+                .unwrap();
+
+            debug!("largest value: {largest_value}");
+            let longest_value_len = format!("{:.8}", largest_value);
+            debug!("longest_value_len: {longest_value_len}");
+            let longest_value_len = largest_value.to_string().len() + 4;
+            debug!("longest_value_len: {longest_value_len}");
+
+            baskets.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+
+            let tvl_str = format!(
+                "```{}```",
+                baskets
+                    .iter()
+                    .map(|tvl| format!(
+                        "{name:<max_name_len$}: {value:>max$.*} ({dai:.2})",
+                        4,
+                        name = tvl.0,
+                        value = tvl.1,
+                        dai = tvl.2,
+                        max_name_len = longest_name_len + 1,
+                        max = longest_value_len + 1
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+
+            fields.push(("Reserves (price in DAI)", tvl_str, false));
+
+            fields.push((
+                "Total value of liquidity",
+                format!("{:.2} DAI", baskets.len() as f64 * vrsc_reserves),
+                false,
+            ));
+
+            // if in preconversion mode:
+            if let Some(future_time) = time_until_block(cur_height, start_block) {
+                fields.push((
+                    "\n\n\n------ PRECONVERSION MODE ------",
+                    " ".to_string(),
+                    false,
+                ));
+
+                fields.push((
+                    "Preconversion ends at approximately",
+                    future_time.to_rfc2822(),
+                    false,
+                ))
+            } else {
+                fields.push((
+                    "Supply",
+                    format!("{}", currency_state.currencystate.supply.as_vrsc()),
+                    false,
+                ));
+            }
+        }
+    }
+
+    ctx.send(|reply| {
+        reply.embed(|embed| {
+            embed
+                .title("**Pure** currency information")
+                .fields(fields)
+                .color(Colour::DARK_BLUE)
+        })
+    })
+    .await?;
+
+    Ok(())
+}
+
 #[derive(Deserialize, Debug)]
 pub struct CoinPaprika {
     #[serde(rename = "id")]
@@ -460,4 +577,30 @@ fn time_until_block(current_height: u64, future_height: u64) -> Option<DateTime<
     let now = chrono::Utc::now();
 
     diff.and_then(|diff| now.checked_add_signed(Duration::minutes(diff as i64)))
+}
+
+fn get_vrsc_price_in_dai(verus_client: &Client) -> Option<Amount> {
+    if let Ok(currency_state) = verus_client.get_currency_state("bridge.vETH") {
+        let currency_state = currency_state.first().unwrap();
+
+        if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
+            let dai_reserves = reserve_currencies
+                .iter()
+                .find(|c| &c.currencyid.to_string() == "iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM")
+                .and_then(|f| Some(f.reserves.as_vrsc()))
+                .unwrap_or(0.0);
+
+            let vrsc_reserves = reserve_currencies
+                .iter()
+                .find(|c| &c.currencyid.to_string() == "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV")
+                .and_then(|f| Some(f.reserves.as_vrsc()))
+                .unwrap_or(0.0);
+
+            let vrsc_price_in_dai = dai_reserves / vrsc_reserves;
+
+            return Some(Amount::from_vrsc(vrsc_price_in_dai).unwrap_or(Amount::ZERO));
+        }
+    }
+
+    None
 }

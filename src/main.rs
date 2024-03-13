@@ -71,6 +71,7 @@ async fn app() -> Result<(), Error> {
             chain::peerinfo(),
             chain::price(),
             chain::ethbridge(),
+            chain::pure(),
             chain::halving(),
             chain::currency(),
             wallet::deposit(),
@@ -79,6 +80,7 @@ async fn app() -> Result<(), Error> {
             tipping::tip(),
             tipping::reactdrop(),
         ],
+
         command_check: Some(|ctx| {
             let author = &ctx.author().id;
             let owners = &ctx.data().owners;
