@@ -406,6 +406,7 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Miscellaneous")]
 pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.defer().await?;
     // the contents will be VRSC and tBTC.
     // we need to get the actual Dollar price of DAI, and use it to calculate tBTC and VRSC price.
 
