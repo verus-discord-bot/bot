@@ -415,7 +415,7 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
 
     let mut fields = vec![];
 
-    let start_block: u64 = 2900000;
+    let start_block: u64 = 2975703;
     let cur_height = verus_client.get_blockchain_info()?.blocks;
 
     if let Ok(currency_state) = verus_client.get_currency_state("pure") {
@@ -433,8 +433,13 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
                 .iter()
                 .filter_map(|rc| {
                     let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
-                    let vrsc_price = vrsc_reserves / rc.reserves.as_vrsc();
-                    let dai_price = vrsc_price * vrsc_price_in_dai;
+                    // TODO `.checked_div()` needed
+                    let vrsc_price = if rc.reserves.as_vrsc() == 0.0 {
+                        0.0
+                    } else {
+                        vrsc_reserves / rc.reserves.as_vrsc()
+                    };
+                    let dai_price = dbg!(vrsc_price) * dbg!(vrsc_price_in_dai);
 
                     Some((name, rc.reserves.as_vrsc(), dai_price))
                 })
