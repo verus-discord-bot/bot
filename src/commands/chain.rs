@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use chrono::{DateTime, Duration, Utc};
 use poise::serenity_prelude::Colour;
 use serde::Deserialize;
-use serde_json::{json, Value};
 use tracing::{debug, instrument};
 use uuid::Uuid;
 use vrsc::Amount;
@@ -438,7 +437,7 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
                     let vrsc_price = if rc.reserves.as_vrsc() == 0.0 {
                         0.0
                     } else {
-                        vrsc_reserves / rc.reserves.as_vrsc()
+                        dbg!(vrsc_reserves) / dbg!(rc.reserves.as_vrsc())
                     };
                     let dai_price = dbg!(vrsc_price) * dbg!(vrsc_price_in_dai);
 
@@ -459,7 +458,7 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
             debug!("largest value: {largest_value}");
             let longest_value_len = format!("{:.8}", largest_value);
             debug!("longest_value_len: {longest_value_len}");
-            let longest_value_len = largest_value.to_string().len() + 4;
+            let longest_value_len = largest_value.to_string().len() + 8;
             debug!("longest_value_len: {longest_value_len}");
 
             baskets.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
@@ -470,7 +469,7 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
                     .iter()
                     .map(|tvl| format!(
                         "{name:<max_name_len$}: {value:>max$.*} ({dai:.2})",
-                        4,
+                        8,
                         name = tvl.0,
                         value = tvl.1,
                         dai = tvl.2,
@@ -603,8 +602,15 @@ fn get_vrsc_price_in_dai(verus_client: &Client) -> Option<Amount> {
                 .unwrap_or(0.0);
 
             let vrsc_price_in_dai = dai_reserves / vrsc_reserves;
+            dbg!(&vrsc_price_in_dai);
 
-            return Some(Amount::from_vrsc(vrsc_price_in_dai).unwrap_or(Amount::ZERO));
+            return dbg!(Some(
+                Amount::from_str_in(
+                    &format!("{:.8}", vrsc_price_in_dai),
+                    vrsc::Denomination::Verus
+                )
+                .unwrap_or(Amount::ZERO)
+            ));
         }
     }
 
