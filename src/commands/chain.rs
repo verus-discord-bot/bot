@@ -484,7 +484,16 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
 
             fields.push((
                 "Total value of liquidity",
-                format!("{:.2} DAI", baskets.len() as f64 * vrsc_reserves),
+                format!(
+                    "{:.2} DAI",
+                    baskets.len() as f64 * vrsc_reserves * vrsc_price_in_dai
+                ),
+                false,
+            ));
+
+            fields.push((
+                "Supply",
+                format!("{}", currency_state.currencystate.supply.as_vrsc()),
                 false,
             ));
 
@@ -501,12 +510,6 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
                     future_time.to_rfc2822(),
                     false,
                 ))
-            } else {
-                fields.push((
-                    "Supply",
-                    format!("{}", currency_state.currencystate.supply.as_vrsc()),
-                    false,
-                ));
             }
         }
     }
@@ -516,7 +519,7 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
             embed
                 .title("**Pure** currency information")
                 .fields(fields)
-                .color(Colour::DARK_BLUE)
+                .color(Colour::DARK_PURPLE)
         })
     })
     .await?;
