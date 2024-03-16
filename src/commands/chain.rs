@@ -422,10 +422,9 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
         let currency_state = currency_state.first().unwrap();
 
         if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
-            let vrsc_price_in_dai = get_vrsc_price_in_dai(&verus_client).unwrap().as_vrsc();
-            let vrsc_reserves = reserve_currencies
+            let tbtc_reserves = reserve_currencies
                 .iter()
-                .find(|c| &c.currencyid.to_string() == "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV")
+                .find(|c| &c.currencyid.to_string() == "iS8TfRPfVpKo5FVfSUzfHBQxo9KuzpnqLU")
                 .and_then(|f| Some(f.reserves.as_vrsc()))
                 .unwrap_or(0.0);
 
@@ -434,14 +433,13 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
                 .filter_map(|rc| {
                     let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
                     // TODO `.checked_div()` needed
-                    let vrsc_price = if rc.reserves.as_vrsc() == 0.0 {
+                    let tbtc_price = if rc.reserves.as_vrsc() == 0.0 {
                         0.0
                     } else {
-                        dbg!(vrsc_reserves) / dbg!(rc.reserves.as_vrsc())
+                        tbtc_reserves / rc.reserves.as_vrsc()
                     };
-                    let dai_price = dbg!(vrsc_price) * dbg!(vrsc_price_in_dai);
 
-                    Some((name, rc.reserves.as_vrsc(), dai_price))
+                    Some((name, rc.reserves.as_vrsc(), tbtc_price))
                 })
                 .collect::<Vec<(String, f64, f64)>>();
 
@@ -468,7 +466,7 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
                 baskets
                     .iter()
                     .map(|tvl| format!(
-                        "{name:<max_name_len$}: {value:>max$.*} ({dai:.2})",
+                        "{name:<max_name_len$}: {value:>max$.*} ({dai:.8})",
                         8,
                         name = tvl.0,
                         value = tvl.1,
@@ -480,14 +478,11 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
                     .join("\n")
             );
 
-            fields.push(("Reserves (price in DAI)", tvl_str, false));
+            fields.push(("Reserves (price in tBTC)", tvl_str, false));
 
             fields.push((
                 "Total value of liquidity",
-                format!(
-                    "{:.2} DAI",
-                    baskets.len() as f64 * vrsc_reserves * vrsc_price_in_dai
-                ),
+                format!("{:.8} tBTC", baskets.len() as f64 * tbtc_reserves),
                 false,
             ));
 
@@ -500,7 +495,7 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
             // if in preconversion mode:
             if let Some(future_time) = time_until_block(cur_height, start_block) {
                 fields.push((
-                    "\n\n\n------ PRECONVERSION MODE ------",
+                    "\n\n\n:rotating_light:  PRECONVERSION MODE",
                     " ".to_string(),
                     false,
                 ));
@@ -587,6 +582,7 @@ fn time_until_block(current_height: u64, future_height: u64) -> Option<DateTime<
     diff.and_then(|diff| now.checked_add_signed(Duration::minutes(diff as i64)))
 }
 
+#[allow(unused)]
 fn get_vrsc_price_in_dai(verus_client: &Client) -> Option<Amount> {
     if let Ok(currency_state) = verus_client.get_currency_state("bridge.vETH") {
         let currency_state = currency_state.first().unwrap();
@@ -605,15 +601,14 @@ fn get_vrsc_price_in_dai(verus_client: &Client) -> Option<Amount> {
                 .unwrap_or(0.0);
 
             let vrsc_price_in_dai = dai_reserves / vrsc_reserves;
-            dbg!(&vrsc_price_in_dai);
 
-            return dbg!(Some(
+            return Some(
                 Amount::from_str_in(
                     &format!("{:.8}", vrsc_price_in_dai),
-                    vrsc::Denomination::Verus
+                    vrsc::Denomination::Verus,
                 )
-                .unwrap_or(Amount::ZERO)
-            ));
+                .unwrap_or(Amount::ZERO),
+            );
         }
     }
 
