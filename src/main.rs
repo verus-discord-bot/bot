@@ -155,7 +155,6 @@ async fn app() -> Result<(), Error> {
         return Ok(());
     }
 
-    debug!("connection string: {}", config.database.connection_string());
     info!("starting client");
 
     poise::Framework::builder()
