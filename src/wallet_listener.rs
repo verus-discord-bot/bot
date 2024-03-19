@@ -8,7 +8,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, instrument, trace};
+use tracing::{debug, error, info, instrument, trace, warn};
 use uuid::Uuid;
 use vrsc::Amount;
 use vrsc_rpc::bitcoin::Txid;
@@ -124,18 +124,10 @@ impl TransactionProcessor {
             bind
         });
 
-        let deposits_enabled = self.deposits_enabled.read().await.clone();
-
         info!("blocknotify listening");
         loop {
             match block_listener.accept().await {
                 Ok((_stream, _address)) => loop {
-                    if deposits_enabled == false {
-                        // deposits are disabled, let's return
-                        info!("deposits are disabled");
-                        break;
-                    }
-
                     self.process_short_queue().await.unwrap();
                     self.process_long_queue().await.unwrap();
 
@@ -200,6 +192,13 @@ impl TransactionProcessor {
         // http: Arc<Http>,
         &self,
     ) -> Result<(), Error> {
+        let deposits_enabled = self.deposits_enabled.read().await.clone();
+        if !deposits_enabled {
+            warn!("deposits disabled");
+
+            return Ok(());
+        }
+
         let mut write = self.queue_small_txns.write().await;
         let http = Arc::clone(&self.http);
         let pool = self.pool.clone();
@@ -255,6 +254,12 @@ impl TransactionProcessor {
 
     #[instrument(skip(self))]
     pub async fn process_long_queue(&self) -> Result<(), Error> {
+        let deposits_enabled = self.deposits_enabled.read().await.clone();
+        if !deposits_enabled {
+            warn!("deposits disabled");
+
+            return Ok(());
+        }
         let mut write = self.queue_large_txns.write().await;
         let http = Arc::clone(&self.http);
         let pool = self.pool.clone();

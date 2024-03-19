@@ -404,6 +404,127 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
 /// Show information about the contents of the VRSC-ETH bridge currency.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Miscellaneous")]
+pub async fn varrrbridge(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.defer().await?;
+    // the contents will be VRSC and tBTC.
+    // we need to get the actual Dollar price of DAI, and use it to calculate tBTC and VRSC price.
+
+    // first express both in VRSC, then multiply with DAI price.
+
+    let verus_client = ctx.data().verus()?;
+
+    let mut fields = vec![];
+
+    let start_block: u64 = 2986660;
+    let cur_height = verus_client.get_blockchain_info()?.blocks;
+
+    if let Ok(currency_state) = verus_client.get_currency_state("bridge.varrr") {
+        let currency_state = currency_state.first().unwrap();
+
+        if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
+            let tbtc_reserves = reserve_currencies
+                .iter()
+                .find(|c| &c.currencyid.to_string() == "iS8TfRPfVpKo5FVfSUzfHBQxo9KuzpnqLU")
+                .and_then(|f| Some(f.reserves.as_vrsc()))
+                .unwrap_or(0.0);
+
+            let mut baskets = reserve_currencies
+                .iter()
+                .filter_map(|rc| {
+                    let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
+                    // TODO `.checked_div()` needed
+                    let tbtc_price = if rc.reserves.as_vrsc() == 0.0 {
+                        0.0
+                    } else {
+                        tbtc_reserves / rc.reserves.as_vrsc()
+                    };
+
+                    Some((name, rc.reserves.as_vrsc(), tbtc_price))
+                })
+                .collect::<Vec<(String, f64, f64)>>();
+
+            debug!("{:?}", baskets);
+
+            let longest_name_len = baskets.iter().max_by_key(|x| x.0.len()).unwrap().0.len();
+
+            let largest_value = baskets
+                .iter()
+                .map(|t| t.1 as u64)
+                .reduce(|acc, amount| amount.max(acc))
+                .unwrap();
+
+            debug!("largest value: {largest_value}");
+            let longest_value_len = format!("{:.8}", largest_value);
+            debug!("longest_value_len: {longest_value_len}");
+            let longest_value_len = largest_value.to_string().len() + 8;
+            debug!("longest_value_len: {longest_value_len}");
+
+            baskets.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+
+            let tvl_str = format!(
+                "```{}```",
+                baskets
+                    .iter()
+                    .map(|tvl| format!(
+                        "{name:<max_name_len$}: {value:>max$.*} ({dai:.8})",
+                        8,
+                        name = tvl.0,
+                        value = tvl.1,
+                        dai = tvl.2,
+                        max_name_len = longest_name_len + 1,
+                        max = longest_value_len + 1
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+
+            fields.push(("Reserves (price in tBTC)", tvl_str, false));
+
+            fields.push((
+                "Total value of liquidity",
+                format!("{:.8} tBTC", baskets.len() as f64 * tbtc_reserves),
+                false,
+            ));
+
+            fields.push((
+                "Supply",
+                format!("{}", currency_state.currencystate.supply.as_vrsc()),
+                false,
+            ));
+
+            // if in preconversion mode:
+            if let Some(future_time) = time_until_block(cur_height, start_block) {
+                fields.push((
+                    "\n\n\n:rotating_light:  PRECONVERSION MODE",
+                    " ".to_string(),
+                    false,
+                ));
+
+                fields.push((
+                    "Preconversion ends at approximately",
+                    future_time.to_rfc2822(),
+                    false,
+                ))
+            }
+        }
+    }
+
+    ctx.send(|reply| {
+        reply.embed(|embed| {
+            embed
+                .title("**Bridge.vARRR** currency information")
+                .fields(fields)
+                .color(Colour::GOLD)
+        })
+    })
+    .await?;
+
+    Ok(())
+}
+
+/// Show information about the contents of the VRSC-ETH bridge currency.
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(slash_command, category = "Miscellaneous")]
 pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
     ctx.defer().await?;
     // the contents will be VRSC and tBTC.
