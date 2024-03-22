@@ -175,111 +175,111 @@ pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
 // (reserves of DAI * number of currencies, which will be 4 for the bridge / reserves of currency) == price of basket currency, Bridge.vETH, in DAI
 
 /// Show currency information
-#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
-#[poise::command(slash_command, category = "Miscellaneous")]
-pub async fn currency(ctx: Context<'_>, currency: String) -> Result<(), Error> {
-    let verus_client = ctx.data().verus()?;
-    let price: CoinPaprika =
-        reqwest::get("https://api.coinpaprika.com/v1/tickers/vrsc-verus-coin?quotes=USD,BTC")
-            .await?
-            .json()
-            .await?;
+// #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+// #[poise::command(slash_command, category = "Miscellaneous")]
+// pub async fn currency(ctx: Context<'_>, currency: String) -> Result<(), Error> {
+//     let verus_client = ctx.data().verus()?;
+//     let price: CoinPaprika =
+//         reqwest::get("https://api.coinpaprika.com/v1/tickers/vrsc-verus-coin?quotes=USD,BTC")
+//             .await?
+//             .json()
+//             .await?;
 
-    let usd_price = price
-        .quotes
-        .get("USD")
-        .and_then(|obj| Some(obj.price))
-        .unwrap_or(0.0);
+//     let usd_price = price
+//         .quotes
+//         .get("USD")
+//         .and_then(|obj| Some(obj.price))
+//         .unwrap_or(0.0);
 
-    let mut fields = vec![];
+//     let mut fields = vec![];
 
-    if let Ok(currency_state) = verus_client.get_currency_state(&currency) {
-        let currency_state = currency_state.first().unwrap();
-        fields.push((
-            "Supply",
-            format!("`{}`", currency_state.currencystate.supply.as_vrsc()),
-            false,
-        ));
+//     if let Ok(currency_state) = verus_client.get_currency_state(&currency) {
+//         let currency_state = currency_state.first().unwrap();
+//         fields.push((
+//             "Supply",
+//             format!("`{}`", currency_state.currencystate.supply.as_vrsc()),
+//             false,
+//         ));
 
-        if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
-            let mut baskets = reserve_currencies
-                .iter()
-                .filter_map(|rc| {
-                    let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
-                    Some((name, rc.reserves.as_vrsc()))
-                })
-                .collect::<Vec<(String, f64)>>();
+//         if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
+//             let mut baskets = reserve_currencies
+//                 .iter()
+//                 .filter_map(|rc| {
+//                     let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
+//                     Some((name, rc.reserves.as_vrsc()))
+//                 })
+//                 .collect::<Vec<(String, f64)>>();
 
-            let longest_name_len = baskets.iter().max_by_key(|x| x.0.len()).unwrap().0.len();
-            let longest_value_len = format!(
-                "{}",
-                baskets
-                    .iter()
-                    .map(|t| t.1 * 100_000_000.0)
-                    .reduce(|acc, amount| amount.max(acc))
-                    .unwrap()
-            )
-            .len();
+//             let longest_name_len = baskets.iter().max_by_key(|x| x.0.len()).unwrap().0.len();
+//             let longest_value_len = format!(
+//                 "{}",
+//                 baskets
+//                     .iter()
+//                     .map(|t| t.1 * 100_000_000.0)
+//                     .reduce(|acc, amount| amount.max(acc))
+//                     .unwrap()
+//             )
+//             .len();
 
-            debug!("{longest_value_len}");
+//             debug!("{longest_value_len}");
 
-            baskets.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+//             baskets.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
 
-            let tvl_str = format!(
-                "```{}```",
-                baskets
-                    .iter()
-                    .map(|tvl| format!(
-                        "{name:<max_name_len$}: {value:>max$.*}",
-                        8,
-                        name = tvl.0,
-                        value = tvl.1,
-                        max_name_len = longest_name_len + 1,
-                        max = longest_value_len + 1
-                    ))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            );
+//             let tvl_str = format!(
+//                 "```{}```",
+//                 baskets
+//                     .iter()
+//                     .map(|tvl| format!(
+//                         "{name:<max_name_len$}: {value:>max$.*}",
+//                         8,
+//                         name = tvl.0,
+//                         value = tvl.1,
+//                         max_name_len = longest_name_len + 1,
+//                         max = longest_value_len + 1
+//                     ))
+//                     .collect::<Vec<_>>()
+//                     .join("\n")
+//             );
 
-            println!("{}", tvl_str);
+//             println!("{}", tvl_str);
 
-            fields.push(("Baskets", tvl_str, false));
+//             fields.push(("Baskets", tvl_str, false));
 
-            // divide supply by the lastconversionprice of verus
-            if ctx.data().settings.application.testnet {
-                let price = dbg!(reserve_currencies
-                    .iter()
-                    .find(|c| c.currencyid.to_string() == "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq")
-                    .and_then(|c| Some(c.priceinreserve))
-                    .unwrap_or(Amount::ZERO));
+//             // divide supply by the lastconversionprice of verus
+//             if ctx.data().settings.application.testnet {
+//                 let price = dbg!(reserve_currencies
+//                     .iter()
+//                     .find(|c| c.currencyid.to_string() == "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq")
+//                     .and_then(|c| Some(c.priceinreserve))
+//                     .unwrap_or(Amount::ZERO));
 
-                let vrsc_value_of_currency_supply = dbg!(
-                    currency_state.currencystate.supply.as_vrsc() * price.as_vrsc() //.unwrap_or(Amount::ZERO)
-                );
+//                 let vrsc_value_of_currency_supply = dbg!(
+//                     currency_state.currencystate.supply.as_vrsc() * price.as_vrsc() //.unwrap_or(Amount::ZERO)
+//                 );
 
-                let dollar_value_of_currency_supply =
-                    dbg!(vrsc_value_of_currency_supply * usd_price);
+//                 let dollar_value_of_currency_supply =
+//                     dbg!(vrsc_value_of_currency_supply * usd_price);
 
-                fields.push((
-                    "est. currency value (USD)",
-                    format!("$ {dollar_value_of_currency_supply:.2}"),
-                    false,
-                ));
-            }
-        }
+//                 fields.push((
+//                     "est. currency value (USD)",
+//                     format!("$ {dollar_value_of_currency_supply:.2}"),
+//                     false,
+//                 ));
+//             }
+//         }
 
-        ctx.send(|reply| {
-            reply.embed(|embed| {
-                embed
-                    .title(format!("`{}` currency information", currency))
-                    .fields(fields)
-            })
-        })
-        .await?;
-    }
+//         ctx.send(|reply| {
+//             reply.embed(|embed| {
+//                 embed
+//                     .title(format!("`{}` currency information", currency))
+//                     .fields(fields)
+//             })
+//         })
+//         .await?;
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 /// Show information about the contents of the VRSC-ETH bridge currency.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
@@ -301,10 +301,10 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
     //     // https://discord.com/channels/444621794964537354/449633463394500629/1121389199451500625
     //     .map(|d| d as f64 * 1.0325);
 
-    if let Ok(currency_state) = verus_client.get_currency_state("bridge.vETH") {
-        let currency_state = currency_state.first().unwrap();
-
-        if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
+    if let Ok(currency_state) = verus_client.get_currency("bridge.vETH") {
+        if let Some(reserve_currencies) =
+            currency_state.bestcurrencystate.reservecurrencies.as_ref()
+        {
             let dai_reserves = reserve_currencies
                 .iter()
                 .find(|c| &c.currencyid.to_string() == "iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM")
@@ -314,7 +314,14 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
             let mut baskets = reserve_currencies
                 .iter()
                 .filter_map(|rc| {
-                    let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
+                    let name = currency_state
+                        .currencynames
+                        .as_ref()
+                        .unwrap()
+                        .0
+                        .get(&rc.currencyid)
+                        .unwrap()
+                        .clone();
                     let dai_price = dai_reserves / rc.reserves.as_vrsc();
 
                     Some((name, rc.reserves.as_vrsc(), dai_price))
@@ -381,7 +388,7 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
             } else {
                 fields.push((
                     "Supply",
-                    format!("{}", currency_state.currencystate.supply.as_vrsc()),
+                    format!("{}", currency_state.bestcurrencystate.supply.as_vrsc()),
                     false,
                 ));
             }
@@ -401,6 +408,195 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(slash_command, category = "Miscellaneous")]
+pub async fn basket(ctx: Context<'_>, basket_name: String) -> Result<(), Error> {
+    // check if in preconversion mode:
+    let verus_client = ctx.data().verus()?;
+
+    if let Ok(currency) = verus_client.get_currency(&basket_name) {
+        if let Some(reserves) = currency.bestcurrencystate.reservecurrencies.as_ref() {
+            // need to find reserve in this order:
+            let mut main_reserve = None;
+            for ordered_reserve in [
+                "iS8TfRPfVpKo5FVfSUzfHBQxo9KuzpnqLU", // tBTC.vETH
+                "iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM", // DAI.vETH
+                "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV", // VRSC (is always a reserve)
+            ] {
+                main_reserve = reserves
+                    .iter()
+                    .find(|rc| rc.currencyid.to_string().as_str() == ordered_reserve);
+
+                if main_reserve.is_some() {
+                    break;
+                }
+            }
+
+            let main_reserve = main_reserve.unwrap();
+            let main_reserve_name = currency
+                .currencynames
+                .as_ref()
+                .unwrap()
+                .0
+                .get(&main_reserve.currencyid)
+                .unwrap()
+                .clone();
+
+            let mut basket_reserves = reserves
+                .iter()
+                .filter_map(|rc| {
+                    let name = currency
+                        .currencynames
+                        .as_ref()
+                        .unwrap()
+                        .0
+                        .get(&rc.currencyid)
+                        .unwrap()
+                        .clone();
+                    let amount = rc.reserves.as_vrsc();
+                    // TODO `.checked_div()` needed
+                    let price = if amount == 0.0 {
+                        0.0
+                    } else {
+                        main_reserve.reserves.as_vrsc() / amount
+                    };
+
+                    Some(Reserve {
+                        name,
+                        amount,
+                        price,
+                    })
+                })
+                .collect::<Vec<Reserve>>();
+
+            let precision: usize = match &*main_reserve_name {
+                "DAI.vETH" => 2,
+                _ => 8,
+            };
+
+            let mut fields = vec![];
+
+            fields.push((
+                format!("Reserves (price in {main_reserve_name})"),
+                reserve_table_str(&mut basket_reserves, precision),
+                false,
+            ));
+
+            fields.push((
+                "Total value of liquidity".to_string(),
+                format!(
+                    "{:.precision$} {main_reserve_name}",
+                    reserves.len() as f64 * main_reserve.reserves.as_vrsc()
+                ),
+                false,
+            ));
+
+            fields.push((
+                "Supply".to_string(),
+                format!("{}", currency.bestcurrencystate.supply.as_vrsc()),
+                true,
+            ));
+
+            fields.push((
+                "Price".to_string(),
+                format!(
+                    "{:.precision$} {main_reserve_name}",
+                    (reserves.len() as f64 * main_reserve.reserves.as_vrsc())
+                        / currency.bestcurrencystate.supply.as_vrsc()
+                ),
+                true,
+            ));
+
+            // if in preconversion mode:
+            let current_height = verus_client.get_blockchain_info()?.blocks;
+            let start_block = currency.startblock;
+
+            if let Some(future_time) = time_until_block(current_height, start_block) {
+                fields.push((
+                    "\n\n\n:rotating_light:  PRECONVERSION MODE".to_string(),
+                    " ".to_string(),
+                    false,
+                ));
+
+                fields.push((
+                    "Preconversion ends at approximately".to_string(),
+                    future_time.to_rfc2822(),
+                    false,
+                ))
+            }
+
+            ctx.send(|reply| {
+                reply.embed(|embed| {
+                    embed
+                        .title(format!(
+                            "**{}** basket information",
+                            currency.fullyqualifiedname
+                        ))
+                        .fields(fields)
+                        .color(Colour::BLITZ_BLUE)
+                })
+            })
+            .await?;
+        }
+    } else {
+        ctx.send(|reply| {
+            reply
+                .content("Invalid basket or basket not found")
+                .ephemeral(true)
+        })
+        .await?;
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct Reserve {
+    name: String,
+    amount: f64,
+    price: f64,
+}
+
+fn reserve_table_str(reserves: &mut Vec<Reserve>, precision: usize) -> String {
+    let longest_name_len = reserves
+        .iter()
+        .max_by_key(|x| x.name.len())
+        .unwrap()
+        .name
+        .len();
+
+    let largest_value = reserves
+        .iter()
+        .map(|t| t.amount as u64)
+        .reduce(|acc, amount| amount.max(acc))
+        .unwrap();
+
+    debug!("largest value: {largest_value}");
+    let longest_value_len = format!("{:.precision$}", largest_value);
+    debug!("longest_value_len: {longest_value_len}");
+    let longest_value_len = largest_value.to_string().len() + precision;
+    debug!("longest_value_len: {longest_value_len}");
+
+    reserves.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+    format!(
+        "```{}```",
+        reserves
+            .iter()
+            .map(|tvl| format!(
+                "{name:<max_name_len$}: {amount:>max$.*} ({price:.precision$})",
+                precision,
+                name = tvl.name,
+                amount = tvl.amount,
+                price = tvl.price,
+                max_name_len = longest_name_len + 1,
+                max = longest_value_len + 1
+            ))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
 /// Show information about the contents of the VRSC-ETH bridge currency.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Miscellaneous")]
@@ -418,20 +614,27 @@ pub async fn varrrbridge(ctx: Context<'_>) -> Result<(), Error> {
     let start_block: u64 = 2986660;
     let cur_height = verus_client.get_blockchain_info()?.blocks;
 
-    if let Ok(currency_state) = verus_client.get_currency_state("bridge.varrr") {
-        let currency_state = currency_state.first().unwrap();
-
-        if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
+    if let Ok(currency_state) = verus_client.get_currency("bridge.varrr") {
+        if let Some(reserve_currencies) =
+            currency_state.bestcurrencystate.reservecurrencies.as_ref()
+        {
             let tbtc_reserves = reserve_currencies
                 .iter()
                 .find(|c| &c.currencyid.to_string() == "iS8TfRPfVpKo5FVfSUzfHBQxo9KuzpnqLU")
                 .and_then(|f| Some(f.reserves.as_vrsc()))
                 .unwrap_or(0.0);
 
-            let mut baskets = reserve_currencies
+            let mut reserves = reserve_currencies
                 .iter()
                 .filter_map(|rc| {
-                    let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
+                    let name = currency_state
+                        .currencynames
+                        .as_ref()
+                        .unwrap()
+                        .0
+                        .get(&rc.currencyid)
+                        .unwrap()
+                        .clone();
                     // TODO `.checked_div()` needed
                     let tbtc_price = if rc.reserves.as_vrsc() == 0.0 {
                         0.0
@@ -439,56 +642,31 @@ pub async fn varrrbridge(ctx: Context<'_>) -> Result<(), Error> {
                         tbtc_reserves / rc.reserves.as_vrsc()
                     };
 
-                    Some((name, rc.reserves.as_vrsc(), tbtc_price))
+                    Some(Reserve {
+                        name,
+                        amount: rc.reserves.as_vrsc(),
+                        price: tbtc_price,
+                    })
                 })
-                .collect::<Vec<(String, f64, f64)>>();
+                .collect::<Vec<Reserve>>();
 
-            debug!("{:?}", baskets);
+            debug!("{:?}", reserves);
 
-            let longest_name_len = baskets.iter().max_by_key(|x| x.0.len()).unwrap().0.len();
-
-            let largest_value = baskets
-                .iter()
-                .map(|t| t.1 as u64)
-                .reduce(|acc, amount| amount.max(acc))
-                .unwrap();
-
-            debug!("largest value: {largest_value}");
-            let longest_value_len = format!("{:.8}", largest_value);
-            debug!("longest_value_len: {longest_value_len}");
-            let longest_value_len = largest_value.to_string().len() + 8;
-            debug!("longest_value_len: {longest_value_len}");
-
-            baskets.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
-
-            let tvl_str = format!(
-                "```{}```",
-                baskets
-                    .iter()
-                    .map(|tvl| format!(
-                        "{name:<max_name_len$}: {value:>max$.*} ({dai:.8})",
-                        8,
-                        name = tvl.0,
-                        value = tvl.1,
-                        dai = tvl.2,
-                        max_name_len = longest_name_len + 1,
-                        max = longest_value_len + 1
-                    ))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            );
-
-            fields.push(("Reserves (price in tBTC)", tvl_str, false));
+            fields.push((
+                "Reserves (price in tBTC)",
+                reserve_table_str(&mut reserves, 8),
+                false,
+            ));
 
             fields.push((
                 "Total value of liquidity",
-                format!("{:.8} tBTC", baskets.len() as f64 * tbtc_reserves),
+                format!("{:.8} tBTC", reserves.len() as f64 * tbtc_reserves),
                 false,
             ));
 
             fields.push((
                 "Supply",
-                format!("{}", currency_state.currencystate.supply.as_vrsc()),
+                format!("{}", currency_state.bestcurrencystate.supply.as_vrsc()),
                 false,
             ));
 
@@ -539,10 +717,8 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
     let start_block: u64 = 2975703;
     let cur_height = verus_client.get_blockchain_info()?.blocks;
 
-    if let Ok(currency_state) = verus_client.get_currency_state("pure") {
-        let currency_state = currency_state.first().unwrap();
-
-        if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
+    if let Ok(currency) = verus_client.get_currency("pure") {
+        if let Some(reserve_currencies) = currency.bestcurrencystate.reservecurrencies.as_ref() {
             let tbtc_reserves = reserve_currencies
                 .iter()
                 .find(|c| &c.currencyid.to_string() == "iS8TfRPfVpKo5FVfSUzfHBQxo9KuzpnqLU")
@@ -552,7 +728,14 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
             let mut baskets = reserve_currencies
                 .iter()
                 .filter_map(|rc| {
-                    let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
+                    let name = currency
+                        .currencynames
+                        .as_ref()
+                        .unwrap()
+                        .0
+                        .get(&rc.currencyid)
+                        .unwrap()
+                        .clone();
                     // TODO `.checked_div()` needed
                     let tbtc_price = if rc.reserves.as_vrsc() == 0.0 {
                         0.0
@@ -609,7 +792,7 @@ pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
 
             fields.push((
                 "Supply",
-                format!("{}", currency_state.currencystate.supply.as_vrsc()),
+                format!("{}", currency.bestcurrencystate.supply.as_vrsc()),
                 false,
             ));
 

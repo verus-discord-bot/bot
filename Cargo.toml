@@ -24,7 +24,7 @@ tracing-appender = "0.2.2"
 uuid = { version = "1.4", features = ["v4"] }
 vrsc = "0.0.1"
 # vrsc-rpc = { path = "../rust-vrsc-rpc/client" } # "0.1.8"
-vrsc-rpc = "0.1.15"
+vrsc-rpc = "0.1.18"
 
 futures = "0.3"
 poise = { features = ["cache"], version = "0.5.0" }
