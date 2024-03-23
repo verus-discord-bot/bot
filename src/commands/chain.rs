@@ -283,7 +283,7 @@ pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
 
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Miscellaneous")]
-pub async fn basket(ctx: Context<'_>, basket_name: String) -> Result<(), Error> {
+pub async fn basket(ctx: Context<'_>, #[rename = "name"] basket_name: String) -> Result<(), Error> {
     // check if in preconversion mode:
     let verus_client = ctx.data().verus()?;
 
