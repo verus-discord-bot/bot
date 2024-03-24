@@ -374,7 +374,7 @@ pub async fn basket(ctx: Context<'_>, #[rename = "name"] basket_name: String) ->
                 "Price".to_string(),
                 format!(
                     "{:.precision$} {main_reserve_name}",
-                    (reserves.len() as f64 * main_reserve.reserves.as_vrsc())
+                    (main_reserve.reserves.as_vrsc() / main_reserve.weight)
                         / currency.bestcurrencystate.supply.as_vrsc()
                 ),
                 true,
