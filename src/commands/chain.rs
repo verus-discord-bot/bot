@@ -175,111 +175,47 @@ pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
 // (reserves of DAI * number of currencies, which will be 4 for the bridge / reserves of currency) == price of basket currency, Bridge.vETH, in DAI
 
 /// Show currency information
-// #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
-// #[poise::command(slash_command, category = "Miscellaneous")]
-// pub async fn currency(ctx: Context<'_>, currency: String) -> Result<(), Error> {
-//     let verus_client = ctx.data().verus()?;
-//     let price: CoinPaprika =
-//         reqwest::get("https://api.coinpaprika.com/v1/tickers/vrsc-verus-coin?quotes=USD,BTC")
-//             .await?
-//             .json()
-//             .await?;
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(slash_command, category = "Miscellaneous")]
+pub async fn currency(ctx: Context<'_>, name: String) -> Result<(), Error> {
+    let verus_client = ctx.data().verus()?;
+    let mut fields = vec![];
 
-//     let usd_price = price
-//         .quotes
-//         .get("USD")
-//         .and_then(|obj| Some(obj.price))
-//         .unwrap_or(0.0);
+    if let Ok(currency) = verus_client.get_currency(&name) {
+        // let currency = verus_client.get_currency(&name)?;
+        fields.push(("Options", currency.options.to_string(), true));
+        fields.push(("Proof protocol", currency.proofprotocol.to_string(), true));
+        fields.push((
+            "Id registration fees",
+            currency.idregistrationfees.to_string(),
+            false,
+        ));
+        fields.push((
+            "Supply",
+            currency.bestcurrencystate.supply.as_vrsc().to_string(),
+            false,
+        ));
 
-//     let mut fields = vec![];
+        ctx.send(|reply| {
+            reply.embed(|embed| {
+                embed
+                    .title(format!("Currency: **{}**", currency.fullyqualifiedname))
+                    .fields(fields)
+                    .color(Colour::DARK_GREEN)
+            })
+        })
+        .await?;
+    } else {
+        ctx.send(|reply| {
+            reply
+                .content("Invalid basket or basket not found")
+                .ephemeral(true)
+        })
+        .await?;
+    }
 
-//     if let Ok(currency_state) = verus_client.get_currency_state(&currency) {
-//         let currency_state = currency_state.first().unwrap();
-//         fields.push((
-//             "Supply",
-//             format!("`{}`", currency_state.currencystate.supply.as_vrsc()),
-//             false,
-//         ));
-
-//         if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
-//             let mut baskets = reserve_currencies
-//                 .iter()
-//                 .filter_map(|rc| {
-//                     let name = ctx.data().to_currency_name(&rc.currencyid).ok().unwrap();
-//                     Some((name, rc.reserves.as_vrsc()))
-//                 })
-//                 .collect::<Vec<(String, f64)>>();
-
-//             let longest_name_len = baskets.iter().max_by_key(|x| x.0.len()).unwrap().0.len();
-//             let longest_value_len = format!(
-//                 "{}",
-//                 baskets
-//                     .iter()
-//                     .map(|t| t.1 * 100_000_000.0)
-//                     .reduce(|acc, amount| amount.max(acc))
-//                     .unwrap()
-//             )
-//             .len();
-
-//             debug!("{longest_value_len}");
-
-//             baskets.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
-
-//             let tvl_str = format!(
-//                 "```{}```",
-//                 baskets
-//                     .iter()
-//                     .map(|tvl| format!(
-//                         "{name:<max_name_len$}: {value:>max$.*}",
-//                         8,
-//                         name = tvl.0,
-//                         value = tvl.1,
-//                         max_name_len = longest_name_len + 1,
-//                         max = longest_value_len + 1
-//                     ))
-//                     .collect::<Vec<_>>()
-//                     .join("\n")
-//             );
-
-//             println!("{}", tvl_str);
-
-//             fields.push(("Baskets", tvl_str, false));
-
-//             // divide supply by the lastconversionprice of verus
-//             if ctx.data().settings.application.testnet {
-//                 let price = dbg!(reserve_currencies
-//                     .iter()
-//                     .find(|c| c.currencyid.to_string() == "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq")
-//                     .and_then(|c| Some(c.priceinreserve))
-//                     .unwrap_or(Amount::ZERO));
-
-//                 let vrsc_value_of_currency_supply = dbg!(
-//                     currency_state.currencystate.supply.as_vrsc() * price.as_vrsc() //.unwrap_or(Amount::ZERO)
-//                 );
-
-//                 let dollar_value_of_currency_supply =
-//                     dbg!(vrsc_value_of_currency_supply * usd_price);
-
-//                 fields.push((
-//                     "est. currency value (USD)",
-//                     format!("$ {dollar_value_of_currency_supply:.2}"),
-//                     false,
-//                 ));
-//             }
-//         }
-
-//         ctx.send(|reply| {
-//             reply.embed(|embed| {
-//                 embed
-//                     .title(format!("`{}` currency information", currency))
-//                     .fields(fields)
-//             })
-//         })
-//         .await?;
-//     }
-
-//     Ok(())
-// }
+    Ok(())
+}
 
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Miscellaneous")]
@@ -402,10 +338,7 @@ pub async fn basket(ctx: Context<'_>, #[rename = "name"] basket_name: String) ->
             ctx.send(|reply| {
                 reply.embed(|embed| {
                     embed
-                        .title(format!(
-                            "**{}** basket information",
-                            currency.fullyqualifiedname
-                        ))
+                        .title(format!("Basket: **{}**", currency.fullyqualifiedname))
                         .fields(fields)
                         .color(Colour::BLITZ_BLUE)
                 })

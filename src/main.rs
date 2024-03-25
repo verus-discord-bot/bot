@@ -75,7 +75,7 @@ async fn app() -> Result<(), Error> {
             chain::varrrbridge(),
             chain::pure(),
             chain::halving(),
-            // chain::currency(),
+            chain::currency(),
             wallet::deposit(),
             wallet::balance(),
             wallet::withdraw(),
