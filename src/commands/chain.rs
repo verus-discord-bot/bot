@@ -326,17 +326,18 @@ pub async fn basket(ctx: Context<'_>, #[rename = "name"] basket_name: String) ->
                         .get(&rc.currencyid)
                         .unwrap()
                         .clone();
-                    let amount = rc.reserves.as_vrsc();
+                    let rc_reserves = rc.reserves.as_vrsc();
                     // TODO `.checked_div()` needed
-                    let price = if amount == 0.0 {
+                    let price = if rc_reserves == 0.0 {
                         0.0
                     } else {
-                        main_reserve.reserves.as_vrsc() / amount
+                        (main_reserve.reserves.as_vrsc() / rc_reserves)
+                            / (main_reserve.weight / rc.weight)
                     };
 
                     Some(Reserve {
                         name,
-                        amount,
+                        amount: rc_reserves,
                         price,
                     })
                 })
