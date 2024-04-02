@@ -2960,6 +2960,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "thousands"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bf63baf9f5039dadc247375c29eb13706706cfde997d0330d05aa63a77d8820"
+
+[[package]]
 name = "thread_local"
 version = "1.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3479,6 +3485,7 @@ dependencies = [
  "serde-aux",
  "serde_json",
  "sqlx",
+ "thousands",
  "tokio",
  "tracing",
  "tracing-appender",
@@ -3502,7 +3509,9 @@ dependencies = [
 
 [[package]]
 name = "vrsc-rpc"
-version = "0.1.19"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e3914b8f42a4bdf06a00ae207ec6985838a12ed1b98e9c7a9232602100af502"
 dependencies = [
  "dirs",
  "jsonrpc",
@@ -3516,7 +3525,9 @@ dependencies = [
 
 [[package]]
 name = "vrsc-rpc-json"
-version = "0.1.19"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "270b1e153c7a081c1547819ccf12d9ca55488259f8f8341de45fea8357c5d292"
 dependencies = [
  "bitcoin 0.29.2",
  "hex",

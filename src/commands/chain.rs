@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Duration, Utc};
 use poise::serenity_prelude::Colour;
 use serde::Deserialize;
+use thousands::Separable;
 use tracing::{debug, instrument};
 use uuid::Uuid;
 use vrsc::Amount;
@@ -286,36 +287,59 @@ pub async fn basket(ctx: Context<'_>, #[rename = "name"] basket_name: String) ->
 
             let mut fields = vec![];
 
-            fields.push((
-                format!("Reserves (price in {main_reserve_name})"),
-                reserve_table_str(&mut basket_reserves, precision),
-                false,
-            ));
+            for (i, b) in basket_reserves.iter().enumerate() {
+                let amount = format_amount(b.amount, precision);
+                let price = format_amount(b.price, precision);
+
+                fields.push((
+                    b.name.clone(),
+                    format!("`{}`\n`({})`", &amount, price),
+                    true,
+                ));
+                if i % 3 == 1 {
+                    fields.push(("\u{200b}".to_string(), "\u{200b}".to_string(), true));
+                }
+            }
+
+            while fields.len() % 3 != 0 {
+                fields.push(("\u{200b}".to_string(), "\u{200b}".to_string(), true));
+            }
 
             fields.push((
                 "Total value of liquidity".to_string(),
                 format!(
-                    "{:.precision$} {main_reserve_name}",
-                    main_reserve.reserves.as_vrsc() / main_reserve.weight
+                    "`{}` {main_reserve_name}",
+                    format_amount(
+                        main_reserve.reserves.as_vrsc() / main_reserve.weight,
+                        precision,
+                    ),
                 ),
                 false,
             ));
 
             fields.push((
                 "Supply".to_string(),
-                format!("{}", currency.bestcurrencystate.supply.as_vrsc()),
+                format!(
+                    "`{}`",
+                    format_amount(currency.bestcurrencystate.supply.as_vrsc(), precision)
+                ),
                 true,
             ));
 
             fields.push((
                 "Price".to_string(),
                 format!(
-                    "{:.precision$} {main_reserve_name}",
-                    (main_reserve.reserves.as_vrsc() / main_reserve.weight)
-                        / currency.bestcurrencystate.supply.as_vrsc()
+                    "`{}` {main_reserve_name}",
+                    format_amount(
+                        (main_reserve.reserves.as_vrsc() / main_reserve.weight)
+                            / currency.bestcurrencystate.supply.as_vrsc(),
+                        precision
+                    )
                 ),
                 true,
             ));
+
+            fields.push(("\u{200b}".to_string(), "\u{200b}".to_string(), true));
 
             // if in preconversion mode:
             let current_height = verus_client.get_blockchain_info()?.blocks;
@@ -339,6 +363,7 @@ pub async fn basket(ctx: Context<'_>, #[rename = "name"] basket_name: String) ->
                 reply.embed(|embed| {
                     embed
                         .title(format!("Basket: **{}**", currency.fullyqualifiedname))
+                        .description(format!("_(price in {})_", main_reserve_name))
                         .fields(fields)
                         .color(Colour::BLITZ_BLUE)
                 })
@@ -355,6 +380,20 @@ pub async fn basket(ctx: Context<'_>, #[rename = "name"] basket_name: String) ->
     }
 
     Ok(())
+}
+
+fn format_amount(amount: f64, precision: usize) -> String {
+    let amount = amount.separate_with_commas();
+    let mut v = amount.split('.');
+
+    let first = v.nth(0).unwrap();
+    let last = v.nth(0).unwrap_or("0000000000");
+
+    let (last, _) = last.split_at(precision);
+
+    let amount = format!("{}.{}", first, last);
+
+    amount
 }
 
 #[derive(Debug, Clone)]
