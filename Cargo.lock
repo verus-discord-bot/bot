@@ -3510,8 +3510,7 @@ dependencies = [
 [[package]]
 name = "vrsc-rpc"
 version = "0.1.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e3914b8f42a4bdf06a00ae207ec6985838a12ed1b98e9c7a9232602100af502"
+source = "git+https://github.com/jorian/rust-vrsc-rpc#360e020248881456dc7f06b092c095226f60f2d8"
 dependencies = [
  "dirs",
  "jsonrpc",
@@ -3526,8 +3525,7 @@ dependencies = [
 [[package]]
 name = "vrsc-rpc-json"
 version = "0.1.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "270b1e153c7a081c1547819ccf12d9ca55488259f8f8341de45fea8357c5d292"
+source = "git+https://github.com/jorian/rust-vrsc-rpc#360e020248881456dc7f06b092c095226f60f2d8"
 dependencies = [
  "bitcoin 0.29.2",
  "hex",

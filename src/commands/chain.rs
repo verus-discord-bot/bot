@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use poise::serenity_prelude::Colour;
 use serde::Deserialize;
 use thousands::Separable;
@@ -252,7 +252,7 @@ pub async fn basket(ctx: Context<'_>, #[rename = "name"] basket_name: String) ->
                 .unwrap()
                 .clone();
 
-            let mut basket_reserves = reserves
+            let basket_reserves = reserves
                 .iter()
                 .filter_map(|rc| {
                     let name = currency
@@ -291,11 +291,7 @@ pub async fn basket(ctx: Context<'_>, #[rename = "name"] basket_name: String) ->
                 let amount = format_amount(b.amount, precision);
                 let price = format_amount(b.price, precision);
 
-                fields.push((
-                    b.name.clone(),
-                    format!("`{}`\n`({})`", &amount, price),
-                    true,
-                ));
+                fields.push((b.name.clone(), format!("{}\n({})", &amount, price), true));
                 if i % 3 == 1 {
                     fields.push(("\u{200b}".to_string(), "\u{200b}".to_string(), true));
                 }
@@ -308,7 +304,7 @@ pub async fn basket(ctx: Context<'_>, #[rename = "name"] basket_name: String) ->
             fields.push((
                 "Total value of liquidity".to_string(),
                 format!(
-                    "`{}` {main_reserve_name}",
+                    "{} {main_reserve_name}",
                     format_amount(
                         main_reserve.reserves.as_vrsc() / main_reserve.weight,
                         precision,
@@ -320,7 +316,7 @@ pub async fn basket(ctx: Context<'_>, #[rename = "name"] basket_name: String) ->
             fields.push((
                 "Supply".to_string(),
                 format!(
-                    "`{}`",
+                    "{}",
                     format_amount(currency.bestcurrencystate.supply.as_vrsc(), precision)
                 ),
                 true,
@@ -329,7 +325,7 @@ pub async fn basket(ctx: Context<'_>, #[rename = "name"] basket_name: String) ->
             fields.push((
                 "Price".to_string(),
                 format!(
-                    "`{}` {main_reserve_name}",
+                    "{} {main_reserve_name}",
                     format_amount(
                         (main_reserve.reserves.as_vrsc() / main_reserve.weight)
                             / currency.bestcurrencystate.supply.as_vrsc(),
@@ -839,6 +835,37 @@ pub async fn halving(ctx: Context<'_>) -> Result<(), Error> {
                     false,
                 )
                 .color(Colour::GOLD)
+        })
+    })
+    .await?;
+
+    Ok(())
+}
+
+/// Shows the time until the next halving
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(slash_command, category = "Miscellaneous", rename = "time-of-block")]
+pub async fn time_of_block(ctx: Context<'_>, block: u64) -> Result<(), Error> {
+    let blocks = ctx.data().verus()?.get_blockchain_info()?.blocks;
+
+    let time_to_halving = if block < blocks {
+        let timestamp = ctx.data().verus()?.get_block_by_height(block, 2)?.time;
+        NaiveDateTime::from_timestamp_opt(timestamp as i64, 0)
+            .unwrap()
+            .and_utc()
+            .to_rfc2822()
+    } else {
+        time_until_block(blocks, block).map_or(chrono::Utc::now().to_rfc2822(), |f| f.to_rfc2822())
+    };
+
+    dbg!(&time_to_halving);
+
+    ctx.send(|reply| {
+        reply.embed(|embed| {
+            embed
+                .title(format!("Time of block {block}"))
+                .field(" ", time_to_halving, false)
+                .color(Colour::BLURPLE)
         })
     })
     .await?;

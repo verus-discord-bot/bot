@@ -32,7 +32,7 @@ tracing-appender = "0.2.2"
 uuid = { version = "1.4", features = ["v4"] }
 vrsc = "0.0.1"
 # vrsc-rpc = { path = "../rust-vrsc-rpc/client" } # "0.1.8"
-vrsc-rpc = "0.1.20"
+vrsc-rpc = { git = "https://github.com/jorian/rust-vrsc-rpc" }
 
 [dependencies.sqlx]
 default-features = false

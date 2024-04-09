@@ -75,6 +75,7 @@ async fn app() -> Result<(), Error> {
             chain::varrrbridge(),
             chain::pure(),
             chain::halving(),
+            chain::time_of_block(),
             chain::currency(),
             wallet::deposit(),
             wallet::balance(),
@@ -269,7 +270,7 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
                 - user that encounted error: {}\n
                 - command used: {}\n
                 - possible arguments used: {}",
-                    ctx.author(),
+                    ctx.author().name,
                     ctx.invoked_command_name(),
                     ctx.invocation_string()
                 ))
