@@ -1,11 +1,11 @@
 pub mod commands;
-pub mod configuration;
+pub mod config;
 pub mod reactdrop;
 pub mod util;
 pub mod wallet_listener;
 
 use crate::{
-    configuration::{get_configuration, Settings},
+    config::{get_configuration, Config},
     util::database,
     wallet_listener::TransactionProcessor,
 };
@@ -158,6 +158,8 @@ async fn app() -> Result<(), Error> {
         return Ok(());
     }
 
+    let client = client?;
+
     info!("starting client");
 
     poise::Framework::builder()
@@ -198,13 +200,33 @@ async fn app() -> Result<(), Error> {
                 ));
 
                 let tx_proc_clone = tx_proc.clone();
-                tokio::spawn(async move {
-                    tx_proc_clone.clone().listen_wallet_notifications().await;
+
+                tokio::spawn({
+                    let verus = vrsc_rpc::client::Client::vrsc(
+                        config.application.testnet,
+                        vrsc_rpc::Auth::UserPass(
+                            format!("http://127.0.0.1:{}", config.application.rpc_port),
+                            config.application.rpc_user.clone(),
+                            config.application.rpc_password.clone(),
+                        ),
+                    )?;
+
+                    async move {
+                        if let Err(e) = tx_proc_clone
+                            .clone()
+                            .listen_wallet_notifications(verus)
+                            .await
+                        {
+                            panic!("listening for new tx failed: {e:?}");
+                        };
+                    }
                 });
 
                 let tx_proc_clone = tx_proc.clone();
                 tokio::spawn(async move {
-                    tx_proc_clone.clone().listen_block_notifications().await;
+                    if let Err(e) = tx_proc_clone.clone().listen_block_notifications().await {
+                        panic!("listening for new blocks failed: {e:?}");
+                    }
                 });
 
                 info!("listening for daemon notifications");
@@ -214,7 +236,7 @@ async fn app() -> Result<(), Error> {
 
                 Ok(Data {
                     // maintenance: Arc::new(RwLock::new(false)),
-                    _verus: client.unwrap(),
+                    _verus: client,
                     _bot_start_time: std::time::Instant::now(),
                     settings: config,
                     _bot_user_id: bot.user.id,
@@ -303,7 +325,7 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
 pub struct Data {
     _verus: VerusClient,
     _bot_start_time: std::time::Instant,
-    settings: Settings,
+    settings: Config,
     _bot_user_id: serenity::UserId,
     database: sqlx::PgPool,
     withdrawal_fee: Arc<RwLock<Amount>>,

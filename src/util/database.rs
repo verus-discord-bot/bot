@@ -5,6 +5,7 @@ use crate::{
     reactdrop::{Reactdrop, ReactdropState},
     Error,
 };
+use color_eyre::eyre::Report;
 use num_traits::cast::ToPrimitive;
 use poise::serenity_prelude::UserId;
 use sqlx::{
@@ -180,7 +181,7 @@ pub async fn get_address_from_user(
 pub async fn get_user_from_address(
     pool: &PgPool,
     address: &Address,
-) -> Result<Option<UserId>, Error> {
+) -> Result<Option<UserId>, Report> {
     if let Some(row) = sqlx::query!(
         "SELECT discord_id FROM addresses WHERE address = $1",
         &address.to_string()

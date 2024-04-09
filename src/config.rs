@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::PathBuf};
+use std::collections::HashSet;
 
 use secrecy::{ExposeSecret, Secret};
 use serde::Deserialize;
@@ -6,7 +6,7 @@ use serde_aux::field_attributes::deserialize_number_from_string;
 use vrsc::Amount;
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct Settings {
+pub struct Config {
     pub database: DatabaseSettings,
     pub application: ApplicationSettings,
 }
@@ -61,12 +61,12 @@ pub struct ApplicationSettings {
     pub min_deposit_threshold: Amount,
     pub min_deposit_confirmations_small: u32,
     pub min_deposit_confirmations_large: u32,
-    pub vrsc_block_notify_socket_path: PathBuf,
-    pub vrsc_wallet_notify_socket_path: PathBuf,
+    pub zmq_block_port: u16,
+    pub zmq_tx_port: u16,
     pub owners: HashSet<String>,
 }
 
-pub fn get_configuration() -> Result<Settings, config::ConfigError> {
+pub fn get_configuration() -> Result<Config, config::ConfigError> {
     let base_path = std::env::current_dir().expect("Failed to determine the current directory");
     let configuration_directory = base_path.join("config");
 
@@ -93,7 +93,7 @@ pub fn get_configuration() -> Result<Settings, config::ConfigError> {
         )
         .build()?;
 
-    settings.try_deserialize::<Settings>()
+    settings.try_deserialize::<Config>()
 }
 
 pub enum Environment {

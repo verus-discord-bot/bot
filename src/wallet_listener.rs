@@ -1,14 +1,12 @@
 use color_eyre::Report;
+use futures::StreamExt;
 use poise::serenity_prelude::{Http, UserId};
 use sqlx::PgPool;
 use std::collections::VecDeque;
-use std::fs::Permissions;
-use std::os::unix::prelude::PermissionsExt;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 use uuid::Uuid;
 use vrsc::Amount;
 use vrsc_rpc::bitcoin::Txid;
@@ -18,8 +16,8 @@ use vrsc_rpc::{
     Auth,
 };
 
-use crate::configuration::Settings;
-use crate::util::database::{self, *};
+use crate::config::Config;
+use crate::util::database::*;
 use crate::Error;
 
 /// Listens for wallet transactions and processes them.
@@ -33,14 +31,11 @@ use crate::Error;
 ///
 /// The bot can be in maintenance mode, in which case processing will be postponed by putting the yet-to-be-processed
 /// txids in a database table. When maintenance mode is disabled, the transactions will be processed.
-///
-///
-
 #[derive(Debug)]
 pub struct TransactionProcessor {
     http: Arc<Http>,
     pool: PgPool,
-    config: Settings,
+    config: Config,
     pub maintenance: Arc<RwLock<bool>>,
     pub deposits_enabled: Arc<RwLock<bool>>,
     queue_small_txns: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
@@ -51,7 +46,7 @@ impl TransactionProcessor {
     pub fn new(
         http: Arc<Http>,
         pool: PgPool,
-        config: Settings,
+        config: Config,
         maintenance: Arc<RwLock<bool>>,
         deposits_enabled: Arc<RwLock<bool>>,
     ) -> Self {
@@ -66,78 +61,87 @@ impl TransactionProcessor {
         }
     }
 
-    pub async fn listen_wallet_notifications(&self) {
-        let wallet_notify_socket_path = &self.config.application.vrsc_wallet_notify_socket_path;
-        let wallet_listener = UnixListener::bind(&wallet_notify_socket_path).unwrap_or_else(|_| {
-            std::fs::remove_file(&wallet_notify_socket_path).unwrap();
-            let bind = UnixListener::bind(&wallet_notify_socket_path).unwrap();
-
-            std::fs::set_permissions(&wallet_notify_socket_path, Permissions::from_mode(0o777))
-                .unwrap();
-
-            bind
-        });
-
-        info!("walletnotify listening");
+    pub async fn listen_wallet_notifications(&self, verus_client: Client) -> Result<(), Report> {
+        let mut socket = tmq::subscribe(&tmq::Context::new())
+            .connect(&format!(
+                "tcp://127.0.0.1:{}",
+                self.config.application.zmq_tx_port
+            ))?
+            .subscribe(b"hash")?;
 
         loop {
-            match wallet_listener.accept().await {
-                Ok((stream, _address)) => {
-                    let parsed_str = parse_bytes(&stream).await.expect("valid string");
-                    let txid = Txid::from_str(&parsed_str).expect("valid txid");
+            if let Some(Ok(msg)) = socket.next().await {
+                if let Some(hash) = msg.iter().nth(1) {
+                    let tx_hash_str = hash
+                        .iter()
+                        .map(|byte| format!("{:02x}", *byte))
+                        .collect::<Vec<_>>()
+                        .join("");
 
-                    // at this point, the bot could be in maintenance mode, so we should check for that.
-                    // if it is in maintenance mode, we should store all the transactions in a database for later check
-                    if *self.maintenance.read().await || !*self.deposits_enabled.read().await {
-                        trace!("store {txid} in unprocessed_transactions");
-                        if let Err(e) =
-                            database::store_unprocessed_transaction(&self.pool, &txid).await
-                        {
-                            error!("Something went wrong while storing an unprocessed transaction: {:?}", e);
+                    trace!("new tx: {tx_hash_str}");
+
+                    let txid = Txid::from_str(&tx_hash_str)?;
+                    let raw_tx = verus_client.get_raw_transaction_verbose(&txid)?;
+
+                    for vout in raw_tx.vout.iter() {
+                        if let Some(addresses) = &vout.script_pubkey.addresses {
+                            for address in addresses {
+                                if let Some(user_id) =
+                                    get_user_from_address(&self.pool, address).await?
+                                {
+                                    trace!("there is a user for this address: {user_id}",);
+
+                                    if vout
+                                        .value
+                                        .gt(&self.config.application.min_deposit_threshold)
+                                    {
+                                        trace!("{txid} put in long queue");
+                                        let mut long_write = self.queue_large_txns.write().await;
+                                        long_write.push_back((txid.clone(), vout.value))
+                                    } else {
+                                        trace!("{txid} put in short queue");
+                                        let mut write = self.queue_small_txns.write().await;
+                                        write.push_back((txid.clone(), vout.value))
+                                    }
+                                }
+                            }
                         }
-
-                        return;
                     }
-
-                    if let Err(e) = self.check_tx(txid).await {
-                        error!("something went wrong while checking a transaction: {:?}", e);
-                    }
+                } else {
+                    return Err(Report::msg(format!("not a valid message: {msg:?}")));
                 }
-                Err(e) => {
-                    error!("connection to socket listener failed: {}", e);
-
-                    break;
-                }
+            } else {
+                warn!("message was None");
             }
         }
     }
 
-    pub async fn listen_block_notifications(&self) {
-        let block_notify_socket_path = &self.config.application.vrsc_block_notify_socket_path;
-        let block_listener = UnixListener::bind(&block_notify_socket_path).unwrap_or_else(|_| {
-            std::fs::remove_file(&block_notify_socket_path).unwrap();
-            let bind = UnixListener::bind(&block_notify_socket_path).unwrap();
+    pub async fn listen_block_notifications(&self) -> Result<(), Report> {
+        let mut socket = tmq::subscribe(&tmq::Context::new())
+            .connect(&format!(
+                "tcp://127.0.0.1:{}",
+                self.config.application.zmq_block_port
+            ))?
+            .subscribe(b"hash")?;
 
-            std::fs::set_permissions(&block_notify_socket_path, Permissions::from_mode(0o777))
-                .unwrap();
-
-            bind
-        });
-
-        info!("blocknotify listening");
         loop {
-            match block_listener.accept().await {
-                Ok((_stream, _address)) => loop {
-                    self.process_short_queue().await.unwrap();
-                    self.process_long_queue().await.unwrap();
+            if let Some(Ok(msg)) = socket.next().await {
+                if let Some(hash) = msg.into_iter().nth(1) {
+                    let _block_hash = hash
+                        .iter()
+                        .map(|byte| format!("{:02x}", *byte))
+                        .collect::<Vec<_>>()
+                        .join("");
 
-                    break;
-                },
-                Err(e) => {
-                    error!("connection to socket listener failed: {}", e);
+                    trace!("new block: {_block_hash}");
 
-                    break;
+                    self.process_short_queue().await?;
+                    self.process_long_queue().await?;
+                } else {
+                    error!("not a valid message!");
                 }
+            } else {
+                error!("no correct message received");
             }
         }
     }
@@ -191,7 +195,7 @@ impl TransactionProcessor {
         // pool: &PgPool,
         // http: Arc<Http>,
         &self,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Report> {
         let deposits_enabled = self.deposits_enabled.read().await.clone();
         if !deposits_enabled {
             warn!("deposits disabled");
@@ -253,7 +257,7 @@ impl TransactionProcessor {
     }
 
     #[instrument(skip(self))]
-    pub async fn process_long_queue(&self) -> Result<(), Error> {
+    pub async fn process_long_queue(&self) -> Result<(), Report> {
         let deposits_enabled = self.deposits_enabled.read().await.clone();
         if !deposits_enabled {
             warn!("deposits disabled");
@@ -354,21 +358,6 @@ pub async fn process_txid(
     }
 
     Ok(())
-}
-
-async fn parse_bytes(stream: &UnixStream) -> Result<String, Report> {
-    stream.readable().await?;
-
-    let mut data = vec![0; 64];
-    match stream.try_read(&mut data) {
-        Ok(_) => {
-            let tx_hash = String::from_utf8(data)?;
-            return Ok(tx_hash);
-        }
-        Err(e) => {
-            return Err(e.into());
-        }
-    }
 }
 
 async fn send_deposit_dm(http: Arc<Http>, user_id: UserId, amount: Amount) -> Result<(), Error> {

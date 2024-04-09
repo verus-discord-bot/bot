@@ -842,13 +842,13 @@ pub async fn halving(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Shows the time until the next halving
+/// Show the (estimated) time of a block.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Miscellaneous", rename = "time-of-block")]
 pub async fn time_of_block(ctx: Context<'_>, block: u64) -> Result<(), Error> {
     let blocks = ctx.data().verus()?.get_blockchain_info()?.blocks;
 
-    let time_to_halving = if block < blocks {
+    let time = if block < blocks {
         let timestamp = ctx.data().verus()?.get_block_by_height(block, 2)?.time;
         NaiveDateTime::from_timestamp_opt(timestamp as i64, 0)
             .unwrap()
@@ -858,13 +858,11 @@ pub async fn time_of_block(ctx: Context<'_>, block: u64) -> Result<(), Error> {
         time_until_block(blocks, block).map_or(chrono::Utc::now().to_rfc2822(), |f| f.to_rfc2822())
     };
 
-    dbg!(&time_to_halving);
-
     ctx.send(|reply| {
         reply.embed(|embed| {
             embed
                 .title(format!("Time of block {block}"))
-                .field(" ", time_to_halving, false)
+                .field(" ", time, false)
                 .color(Colour::BLURPLE)
         })
     })
