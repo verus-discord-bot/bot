@@ -269,17 +269,17 @@ fn reserve_table_str(reserves: &mut Vec<Reserve>, precision: usize) -> String {
 }
 
 fn format_amount(amount: f64, precision: usize) -> String {
-    let amount = amount.separate_with_commas();
-    let mut v = amount.split('.');
+    // let amount = amount.separate_with_commas();
+    // let mut v = amount.split('.');
 
-    let first = v.nth(0).unwrap();
-    let last = v.nth(0).unwrap_or("0000000000");
+    // let first = v.nth(0).unwrap();
+    // let last = v.nth(0).unwrap_or("0000000000");
 
-    let (last, _) = last.split_at(precision);
+    // let (last, _) = last.split_at(precision);
 
-    let amount = format!("{}.{}", first, last);
+    // let amount = format!("{}.{}", first, last);
 
-    amount
+    format!("{:.precision$}", amount)
 }
 
 async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
