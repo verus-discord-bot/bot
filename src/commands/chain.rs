@@ -542,21 +542,36 @@ pub async fn halving(ctx: Context<'_>) -> Result<(), Error> {
 pub async fn time_of_block(ctx: Context<'_>, block: u64) -> Result<(), Error> {
     let blocks = ctx.data().verus()?.get_blockchain_info()?.blocks;
 
-    let time = if block < blocks {
+    let mut fields = vec![];
+    if block < blocks {
         let timestamp = ctx.data().verus()?.get_block_by_height(block, 2)?.time;
-        NaiveDateTime::from_timestamp_opt(timestamp as i64, 0)
+        let time = NaiveDateTime::from_timestamp_opt(timestamp as i64, 0)
             .unwrap()
-            .and_utc()
-            .to_rfc2822()
+            .and_utc();
+
+        fields.push((" ", time.to_rfc2822(), false))
     } else {
-        time_until_block(blocks, block).map_or(chrono::Utc::now().to_rfc2822(), |f| f.to_rfc2822())
+        let now = chrono::Utc::now();
+        let time = time_until_block(blocks, block).unwrap_or(now);
+        let duration = Duration::seconds(((block - blocks) as f64 * 61.95) as i64);
+        fields.push((" ", time.to_rfc2822(), false));
+        fields.push((
+            "Remaining",
+            format!(
+                "{} days, {} hours and {} minutes",
+                duration.num_days(),
+                duration.num_hours() % 24,
+                duration.num_minutes() % 60
+            ),
+            false,
+        ))
     };
 
     ctx.send(|reply| {
         reply.embed(|embed| {
             embed
                 .title(format!("Time of block {block}"))
-                .field(" ", time, false)
+                .fields(fields)
                 .color(Colour::BLURPLE)
         })
     })
