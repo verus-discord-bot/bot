@@ -13,7 +13,7 @@ A server with at least 6G of RAM is required, or set some swapspace in case it's
 ```sh
 apt update
 apt -y upgrade
-apt -y install pkg-config libssl-dev libgomp1 git libboost-all-dev libsodium-dev build-essential ca-certificates curl gnupg lsb-release
+apt -y install libzmq3-dev pkg-config libssl-dev libgomp1 git libboost-all-dev libsodium-dev build-essential ca-certificates curl gnupg lsb-release
 ```
 
 ```sh
@@ -23,6 +23,7 @@ su - verus
 ```
 
 ## Verus
+(Note: the latest Verus version might differ from the one below, please change the command when there is a newer version)
 ```sh
 wget https://github.com/VerusCoin/VerusCoin/releases/download/v0.9.6-1/Verus-CLI-Linux-v0.9.6-1-x86_64.tgz
 tar xf Verus-CLI-Linux-v0.9.6-1-x86_64.tgz; 
@@ -50,8 +51,8 @@ nano VRSC.conf
 edit the config file with the following contents. NOTE: add the password you just generated.
 
 ```conf
-walletnotify=/home/bot/bot/walletnotify.sh %s
-blocknotify=/home/bot/bot/blocknotify.sh %s
+zmqpubhashblock=tcp://127.0.0.1:59790
+zmqpubhashtx=tcp://127.0.0.1:59791
 
 server=1
 port=27485

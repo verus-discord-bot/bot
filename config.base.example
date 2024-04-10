@@ -21,9 +21,9 @@ global_withdrawal_fee = 50000 # in sats
 min_deposit_threshold = 100000000
 min_deposit_confirmations_small = 3
 min_deposit_confirmations_large = 10
-vrsc_block_notify_socket_path = "/tmp/discord_block_notify_vrsc.sock"
-vrsc_wallet_notify_socket_path = "/tmp/discord_wallet_notify_vrsc.sock"
-# these should be the admins of the bot
+zmq_block_port = 59790
+zmq_tx_port = 59791
+# these should be the discord user ids of the admins of the bot
 owners = [
     "0123", 
     "4567"
