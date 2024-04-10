@@ -252,7 +252,7 @@ pub async fn basket(ctx: Context<'_>, #[rename = "name"] basket_name: String) ->
                 .unwrap()
                 .clone();
 
-            let basket_reserves = reserves
+            let mut basket_reserves = reserves
                 .iter()
                 .filter_map(|rc| {
                     let name = currency
@@ -287,19 +287,28 @@ pub async fn basket(ctx: Context<'_>, #[rename = "name"] basket_name: String) ->
 
             let mut fields = vec![];
 
-            for (i, b) in basket_reserves.iter().enumerate() {
-                let amount = format_amount(b.amount, precision);
-                let price = format_amount(b.price, precision);
+            let reserves_string = reserve_table_str(&mut basket_reserves, precision);
+            debug!("{reserves_string:?}");
 
-                fields.push((b.name.clone(), format!("{}\n({})", &amount, price), true));
-                if i % 3 == 1 {
-                    fields.push(("\u{200b}".to_string(), "\u{200b}".to_string(), true));
-                }
-            }
+            fields.push((
+                format!("Reserves _(price in {main_reserve_name})_"),
+                reserves_string,
+                false,
+            ));
 
-            while fields.len() % 3 != 0 {
-                fields.push(("\u{200b}".to_string(), "\u{200b}".to_string(), true));
-            }
+            // for (i, b) in basket_reserves.iter().enumerate() {
+            //     let amount = format_amount(b.amount, precision);
+            //     let price = format_amount(b.price, precision);
+
+            //     fields.push((b.name.clone(), format!("{}\n({})", &amount, price), true));
+            //     if i % 3 == 1 {
+            //         fields.push(("\u{200b}".to_string(), "\u{200b}".to_string(), true));
+            //     }
+            // }
+
+            // while fields.len() % 3 != 0 {
+            //     fields.push(("\u{200b}".to_string(), "\u{200b}".to_string(), true));
+            // }
 
             fields.push((
                 "Total value of liquidity".to_string(),
@@ -359,7 +368,7 @@ pub async fn basket(ctx: Context<'_>, #[rename = "name"] basket_name: String) ->
                 reply.embed(|embed| {
                     embed
                         .title(format!("Basket: **{}**", currency.fullyqualifiedname))
-                        .description(format!("_(price in {})_", main_reserve_name))
+                        // .description(format!("_(price in {})_", main_reserve_name))
                         .fields(fields)
                         .color(Colour::BLITZ_BLUE)
                 })
