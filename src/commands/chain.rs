@@ -451,7 +451,7 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
 fn deterministic_color<T: std::hash::Hash>(string: T) -> u64 {
     let mut s = DefaultHasher::new();
     string.hash(&mut s);
-    s.finish() % 16777215
+    dbg!(s.finish() % 16777215)
 }
 
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
