@@ -61,7 +61,7 @@ impl TransactionProcessor {
         }
     }
 
-    pub async fn listen_wallet_notifications(&self, verus_client: Client) -> Result<(), Report> {
+    pub async fn listen_wallet_notifications(&self, verus_client: &Client) -> Result<(), Report> {
         let mut socket = tmq::subscribe(&tmq::Context::new())
             .connect(&format!(
                 "tcp://127.0.0.1:{}",
@@ -89,7 +89,7 @@ impl TransactionProcessor {
                                 if let Some(user_id) =
                                     get_user_from_address(&self.pool, address).await?
                                 {
-                                    trace!("there is a user for this address: {user_id}",);
+                                    trace!(?user_id, "there is a user for this address");
 
                                     if vout
                                         .value
@@ -108,7 +108,7 @@ impl TransactionProcessor {
                         }
                     }
                 } else {
-                    return Err(Report::msg(format!("not a valid message: {msg:?}")));
+                    error!(?msg, "not a valid message");
                 }
             } else {
                 warn!("message was None");

@@ -405,7 +405,7 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
                 true,
             ));
 
-            fields.push(("\u{200b}".to_string(), "\u{200b}".to_string(), true));
+            fields.push(("\u{200b}".to_string(), "\u{200b}\u{200b}\u{200b}\u{200b}\u{200b}\u{200b}\u{200b}\u{200b}\u{200b}\u{200b}\u{200b}\u{200b}\u{200b}\u{200b}\u{200b}\u{200b}\u{200b}\u{200b}".to_string(), true));
 
             // if in preconversion mode:
             let current_height = verus_client.get_blockchain_info()?.blocks;

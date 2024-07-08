@@ -202,23 +202,28 @@ async fn app() -> Result<(), Error> {
                 let tx_proc_clone = tx_proc.clone();
 
                 tokio::spawn({
-                    let verus = vrsc_rpc::client::Client::vrsc(
-                        config.application.testnet,
-                        vrsc_rpc::Auth::UserPass(
-                            format!("http://127.0.0.1:{}", config.application.rpc_port),
-                            config.application.rpc_user.clone(),
-                            config.application.rpc_password.clone(),
-                        ),
-                    )?;
+                    let config = config.clone();
 
                     async move {
-                        if let Err(e) = tx_proc_clone
-                            .clone()
-                            .listen_wallet_notifications(verus)
-                            .await
-                        {
-                            panic!("listening for new tx failed: {e:?}");
-                        };
+                        let verus = vrsc_rpc::client::Client::vrsc(
+                            config.application.testnet,
+                            vrsc_rpc::Auth::UserPass(
+                                format!("http://127.0.0.1:{}", config.application.rpc_port),
+                                config.application.rpc_user.clone(),
+                                config.application.rpc_password.clone(),
+                            ),
+                        )
+                        .expect("verus client could not be created");
+
+                        loop {
+                            if let Err(e) = tx_proc_clone
+                                .clone()
+                                .listen_wallet_notifications(&verus)
+                                .await
+                            {
+                                error!("listening for new tx failed: {e:?}");
+                            };
+                        }
                     }
                 });
 
@@ -364,7 +369,7 @@ impl Data {
     }
 }
 
-#[tokio::main(worker_threads = 8)]
+#[tokio::main(worker_threads = 2)]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     log_setup()?;
 
