@@ -32,7 +32,8 @@ tracing-subscriber = { version = "0.3.17", features = [
 tracing-appender = "0.2.2"
 uuid = { version = "1.4", features = ["v4"] }
 vrsc = "0.0.1"
-vrsc-rpc = { git = "https://github.com/jorian/rust-vrsc-rpc" }
+vrsc-rpc = { git = "https://github.com/jorian/rust-vrsc-rpc", rev = "4c19eb0c" }
+# vrsc-rpc = { path = "../rust-vrsc-rpc/client" }
 
 [dependencies.sqlx]
 default-features = false

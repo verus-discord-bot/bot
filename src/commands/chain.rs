@@ -6,11 +6,10 @@ use std::{
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use poise::serenity_prelude::Colour;
 use serde::Deserialize;
-use thousands::Separable;
 use tracing::{debug, instrument};
 use uuid::Uuid;
 use vrsc::Amount;
-use vrsc_rpc::client::{Client, RpcApi};
+use vrsc_rpc::{client::RpcApi, json::GetCurrencyStateResult};
 
 use crate::{Context, Error};
 
@@ -383,6 +382,27 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
                 false,
             ));
 
+            let blockheight = verus_client.get_blockchain_info()?.blocks;
+
+            if let Ok(currencystate_res) = verus_client.get_currency_state(
+                basket_name,
+                Some(&format!("{},{},{}", blockheight - 1440, blockheight, 1440)),
+                Some(&main_reserve_name),
+            ) {
+                if let Some(GetCurrencyStateResult::TotalVolume { totalvolume }) =
+                    currencystate_res.last()
+                {
+                    fields.push((
+                        "Volume (24h)".to_string(),
+                        format!(
+                            "{} {main_reserve_name}",
+                            format_amount(*totalvolume, precision)
+                        ),
+                        false,
+                    ));
+                }
+            };
+
             fields.push((
                 "Supply".to_string(),
                 format!(
@@ -451,7 +471,7 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
 fn deterministic_color<T: std::hash::Hash>(string: T) -> u64 {
     let mut s = DefaultHasher::new();
     string.hash(&mut s);
-    dbg!(s.finish() % 16777215)
+    s.finish() % 16777215
 }
 
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
@@ -593,35 +613,35 @@ fn time_until_block(current_height: u64, future_height: u64) -> Option<DateTime<
     diff.and_then(|diff| now.checked_add_signed(Duration::minutes(diff as i64)))
 }
 
-#[allow(unused)]
-fn get_vrsc_price_in_dai(verus_client: &Client) -> Option<Amount> {
-    if let Ok(currency_state) = verus_client.get_currency_state("bridge.vETH") {
-        let currency_state = currency_state.first().unwrap();
+// #[allow(unused)]
+// fn get_vrsc_price_in_dai(verus_client: &Client) -> Option<Amount> {
+//     if let Ok(currency_state) = verus_client.get_currency_state("bridge.vETH", None, None) {
+//         let currency_state = currency_state.first().unwrap();
 
-        if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
-            let dai_reserves = reserve_currencies
-                .iter()
-                .find(|c| &c.currencyid.to_string() == "iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM")
-                .and_then(|f| Some(f.reserves.as_vrsc()))
-                .unwrap_or(0.0);
+//         if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
+//             let dai_reserves = reserve_currencies
+//                 .iter()
+//                 .find(|c| &c.currencyid.to_string() == "iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM")
+//                 .and_then(|f| Some(f.reserves.as_vrsc()))
+//                 .unwrap_or(0.0);
 
-            let vrsc_reserves = reserve_currencies
-                .iter()
-                .find(|c| &c.currencyid.to_string() == "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV")
-                .and_then(|f| Some(f.reserves.as_vrsc()))
-                .unwrap_or(0.0);
+//             let vrsc_reserves = reserve_currencies
+//                 .iter()
+//                 .find(|c| &c.currencyid.to_string() == "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV")
+//                 .and_then(|f| Some(f.reserves.as_vrsc()))
+//                 .unwrap_or(0.0);
 
-            let vrsc_price_in_dai = dai_reserves / vrsc_reserves;
+//             let vrsc_price_in_dai = dai_reserves / vrsc_reserves;
 
-            return Some(
-                Amount::from_str_in(
-                    &format!("{:.8}", vrsc_price_in_dai),
-                    vrsc::Denomination::Verus,
-                )
-                .unwrap_or(Amount::ZERO),
-            );
-        }
-    }
+//             return Some(
+//                 Amount::from_str_in(
+//                     &format!("{:.8}", vrsc_price_in_dai),
+//                     vrsc::Denomination::Verus,
+//                 )
+//                 .unwrap_or(Amount::ZERO),
+//             );
+//         }
+//     }
 
-    None
-}
+//     None
+// }
