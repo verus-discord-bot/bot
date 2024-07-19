@@ -13,6 +13,7 @@ username = "postgres"
 [application]
 discord = "<bot token>"
 discord_guild_id = <guild_id of discord server (guild) to run bot on>
+discord_admin_thread_id = <Thread ID for reporting to admins>
 testnet = true
 rpc_user = "<rpc_user>"
 rpc_password = "<rpc_password>"
