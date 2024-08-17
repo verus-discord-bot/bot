@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use poise::ChoiceParameter;
-use tracing::{instrument, trace};
+use tracing::instrument;
 use uuid::Uuid;
 
 use crate::{util::database, Context, Error};
@@ -25,6 +25,11 @@ pub async fn info(ctx: Context<'_>) -> Result<(), Error> {
                             m = (elapsed.as_secs() / 60) % 60,
                             s = elapsed.as_secs() % 60
                         ),
+                        false,
+                    )
+                    .field(
+                        "Source code",
+                        "https://github.com/verus-discord-bot/bot",
                         false,
                     )
                     .footer(|footer| footer.text("Made for Verus by jorian@"))
@@ -64,8 +69,12 @@ Type `/help <command>` for more info on a command.";
 /// Links to the bot GitHub repo
 #[poise::command(discard_spare_arguments, slash_command, category = "Miscellaneous")]
 pub async fn source(ctx: Context<'_>) -> Result<(), Error> {
-    trace!("source called");
-    ctx.say("https://github.com/verus-discord-bot/bot").await?;
+    ctx.send(|msg| {
+        msg.content("https://github.com/verus-discord-bot/bot")
+            .ephemeral(true)
+    })
+    .await?;
+
     Ok(())
 }
 
@@ -83,9 +92,11 @@ pub async fn register(ctx: Context<'_>, #[flag] global: bool) -> Result<(), Erro
 ///
 /// -------- :robot: **Notification settings** --------
 ///
-/// - **All**: Get both notifications in DM when you get tipped as a role, and get tagged in channels where you get tipped directly.
+/// - **All**: Get both notifications in DM when you get tipped as a role, \
+/// and get tagged in channels where you get tipped directly.
 /// - **DM Only**: Get a DM of every tip, even direct tips.
-/// - **Channel only**: Do not get DM's about tips, only get notifications of direct tips in channels where you get tipped directly.
+/// - **Channel only**: Do not get DM's about tips, only get notifications of \
+/// direct tips in channels where you get tipped directly.
 /// - **Off**: Do not get notifications of any kind.
 #[instrument(skip(ctx, notifications), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(track_edits, slash_command, category = "Miscellaneous")]

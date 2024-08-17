@@ -112,8 +112,6 @@ pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
     //         .parse::<f64>()?
     // };
 
-    // dbg!(supply);
-
     let btc_price = resp
         .quotes
         .get("BTC")
@@ -172,11 +170,6 @@ pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-// for all reserve currencies:
-// (reserves of DAI / reserves of currency) == price of reserve, DAI, VRSC, vETH, or MKR in DAI
-// for the basket currency
-// (reserves of DAI * number of currencies, which will be 4 for the bridge / reserves of currency) == price of basket currency, Bridge.vETH, in DAI
-
 /// Show currency information
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Miscellaneous")]
@@ -185,7 +178,6 @@ pub async fn currency(ctx: Context<'_>, name: String) -> Result<(), Error> {
     let mut fields = vec![];
 
     if let Ok(currency) = verus_client.get_currency(&name) {
-        // let currency = verus_client.get_currency(&name)?;
         fields.push(("Options", currency.options.to_string(), true));
         fields.push(("Proof protocol", currency.proofprotocol.to_string(), true));
         fields.push((
@@ -204,7 +196,7 @@ pub async fn currency(ctx: Context<'_>, name: String) -> Result<(), Error> {
                 embed
                     .title(format!("Currency: **{}**", currency.fullyqualifiedname))
                     .fields(fields)
-                    .color(Colour::DARK_GREEN)
+                    .color(deterministic_color(currency.fullyqualifiedname))
             })
         })
         .await?;
@@ -227,66 +219,14 @@ struct Reserve {
     price: f64,
 }
 
-fn reserve_table_str(reserves: &mut Vec<Reserve>, precision: usize) -> String {
-    let longest_name_len = reserves
-        .iter()
-        .max_by_key(|x| x.name.len())
-        .unwrap()
-        .name
-        .len();
-
-    let largest_value = reserves
-        .iter()
-        .map(|t| t.amount as u64)
-        .reduce(|acc, amount| amount.max(acc))
-        .unwrap();
-
-    debug!("largest value: {largest_value}");
-    let longest_value_len = format!("{:.precision$}", largest_value);
-    debug!("longest_value_len: {longest_value_len}");
-    let longest_value_len = largest_value.to_string().len() + precision;
-    debug!("longest_value_len: {longest_value_len}");
-
-    reserves.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-
-    format!(
-        "```{}```",
-        reserves
-            .iter()
-            .map(|tvl| format!(
-                "{name:<max_name_len$}: {amount:>max$.*} ({price:.precision$})",
-                precision,
-                name = tvl.name,
-                amount = tvl.amount,
-                price = tvl.price,
-                max_name_len = longest_name_len + 1,
-                max = longest_value_len + 1
-            ))
-            .collect::<Vec<_>>()
-            .join("\n")
-    )
-}
-
-fn format_amount(amount: f64, precision: usize) -> String {
-    // let amount = amount.separate_with_commas();
-    // let mut v = amount.split('.');
-
-    // let first = v.nth(0).unwrap();
-    // let last = v.nth(0).unwrap_or("0000000000");
-
-    // let (last, _) = last.split_at(precision);
-
-    // let amount = format!("{}.{}", first, last);
-
-    format!("{:.precision$}", amount)
-}
-
 async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
     let verus_client = ctx.data().verus()?;
 
     if let Ok(currency) = verus_client.get_currency(basket_name) {
         if let Some(reserves) = currency.bestcurrencystate.reservecurrencies.as_ref() {
-            // need to find reserve in this order:
+            // the order of the ordered_reserve is to first always try to show currency
+            // prices expressed in DAI, if that does not exist, show it in tBTC, and
+            // if all else fails, show it in VRSC because that always is a currency.
             let mut main_reserve = None;
             for ordered_reserve in [
                 "iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM", // DAI.vETH
@@ -356,28 +296,14 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
                 false,
             ));
 
-            // for (i, b) in basket_reserves.iter().enumerate() {
-            //     let amount = format_amount(b.amount, precision);
-            //     let price = format_amount(b.price, precision);
-
-            //     fields.push((b.name.clone(), format!("{}\n({})", &amount, price), true));
-            //     if i % 3 == 1 {
-            //         fields.push(("\u{200b}".to_string(), "\u{200b}".to_string(), true));
-            //     }
-            // }
-
-            // while fields.len() % 3 != 0 {
-            //     fields.push(("\u{200b}".to_string(), "\u{200b}".to_string(), true));
-            // }
-
             fields.push((
                 "Total value of liquidity".to_string(),
                 format!(
                     "{} {main_reserve_name}",
-                    format_amount(
-                        main_reserve.reserves.as_vrsc() / main_reserve.weight,
-                        precision,
-                    ),
+                    format!(
+                        "{:.precision$}",
+                        main_reserve.reserves.as_vrsc() / main_reserve.weight
+                    )
                 ),
                 false,
             ));
@@ -396,7 +322,7 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
                         "Volume (24h)".to_string(),
                         format!(
                             "{} {main_reserve_name}",
-                            format_amount(*totalvolume, precision)
+                            format!("{:.precision$}", *totalvolume)
                         ),
                         false,
                     ));
@@ -407,7 +333,10 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
                 "Supply".to_string(),
                 format!(
                     "{}",
-                    format_amount(currency.bestcurrencystate.supply.as_vrsc(), precision)
+                    format!(
+                        "{:.precision$}",
+                        currency.bestcurrencystate.supply.as_vrsc()
+                    )
                 ),
                 true,
             ));
@@ -416,10 +345,10 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
                 "Price".to_string(),
                 format!(
                     "{} {main_reserve_name}",
-                    format_amount(
+                    format!(
+                        "{:.precision$}",
                         (main_reserve.reserves.as_vrsc() / main_reserve.weight)
-                            / currency.bestcurrencystate.supply.as_vrsc(),
-                        precision
+                            / currency.bestcurrencystate.supply.as_vrsc()
                     )
                 ),
                 true,
@@ -449,9 +378,8 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
                 reply.embed(|embed| {
                     embed
                         .title(format!("Basket: **{}**", currency.fullyqualifiedname))
-                        // .description(format!("_(price in {})_", main_reserve_name))
                         .fields(fields)
-                        .color(deterministic_color(basket_name))
+                        .color(deterministic_color(currency.fullyqualifiedname))
                 })
             })
             .await?;
@@ -466,12 +394,6 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
     }
 
     Ok(())
-}
-
-fn deterministic_color<T: std::hash::Hash>(string: T) -> u64 {
-    let mut s = DefaultHasher::new();
-    string.hash(&mut s);
-    s.finish() % 16777215
 }
 
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
@@ -491,7 +413,7 @@ pub async fn ethbridge(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Show information about the contents of the VRSC-ETH bridge currency.
+/// Show information about the contents of the vARRR bridge currency.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Miscellaneous")]
 pub async fn varrrbridge(ctx: Context<'_>) -> Result<(), Error> {
@@ -500,7 +422,7 @@ pub async fn varrrbridge(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Show information about the contents of the VRSC-ETH bridge currency.
+/// Show information about the contents of the Pure currency.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Miscellaneous")]
 pub async fn pure(ctx: Context<'_>) -> Result<(), Error> {
@@ -514,7 +436,6 @@ pub struct CoinPaprika {
     #[serde(rename = "id")]
     pub guid: String,
     pub symbol: String,
-    // pub circulating_supply: u64,
     pub last_updated: DateTime<Utc>,
     pub quotes: HashMap<String, CoinPaprikaQuoteCoin>,
 }
@@ -602,7 +523,7 @@ pub async fn time_of_block(ctx: Context<'_>, block: u64) -> Result<(), Error> {
 
 /// Returns the DateTime in the future if current_height is not yet at future_height
 fn time_until_block(current_height: u64, future_height: u64) -> Option<DateTime<Utc>> {
-    // actual block time is 61.95s, so we multiply with 1.0325
+    // actual block time in practice is 61.95s, so we multiply with 1.0325
     // https://discord.com/channels/444621794964537354/449633463394500629/1121389199451500625
     let diff = future_height
         .checked_sub(current_height)
@@ -613,35 +534,48 @@ fn time_until_block(current_height: u64, future_height: u64) -> Option<DateTime<
     diff.and_then(|diff| now.checked_add_signed(Duration::minutes(diff as i64)))
 }
 
-// #[allow(unused)]
-// fn get_vrsc_price_in_dai(verus_client: &Client) -> Option<Amount> {
-//     if let Ok(currency_state) = verus_client.get_currency_state("bridge.vETH", None, None) {
-//         let currency_state = currency_state.first().unwrap();
+fn reserve_table_str(reserves: &mut Vec<Reserve>, precision: usize) -> String {
+    let longest_name_len = reserves
+        .iter()
+        .max_by_key(|x| x.name.len())
+        .unwrap()
+        .name
+        .len();
 
-//         if let Some(reserve_currencies) = currency_state.currencystate.reservecurrencies.as_ref() {
-//             let dai_reserves = reserve_currencies
-//                 .iter()
-//                 .find(|c| &c.currencyid.to_string() == "iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM")
-//                 .and_then(|f| Some(f.reserves.as_vrsc()))
-//                 .unwrap_or(0.0);
+    let largest_value = reserves
+        .iter()
+        .map(|t| t.amount as u64)
+        .reduce(|acc, amount| amount.max(acc))
+        .unwrap();
 
-//             let vrsc_reserves = reserve_currencies
-//                 .iter()
-//                 .find(|c| &c.currencyid.to_string() == "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV")
-//                 .and_then(|f| Some(f.reserves.as_vrsc()))
-//                 .unwrap_or(0.0);
+    debug!("largest value: {largest_value}");
+    let longest_value_len = format!("{:.precision$}", largest_value);
+    debug!("longest_value_len: {longest_value_len}");
+    let longest_value_len = largest_value.to_string().len() + precision;
+    debug!("longest_value_len: {longest_value_len}");
 
-//             let vrsc_price_in_dai = dai_reserves / vrsc_reserves;
+    reserves.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
-//             return Some(
-//                 Amount::from_str_in(
-//                     &format!("{:.8}", vrsc_price_in_dai),
-//                     vrsc::Denomination::Verus,
-//                 )
-//                 .unwrap_or(Amount::ZERO),
-//             );
-//         }
-//     }
+    format!(
+        "```{}```",
+        reserves
+            .iter()
+            .map(|tvl| format!(
+                "{name:<max_name_len$}: {amount:>max$.*} ({price:.precision$})",
+                precision,
+                name = tvl.name,
+                amount = tvl.amount,
+                price = tvl.price,
+                max_name_len = longest_name_len + 1,
+                max = longest_value_len + 1
+            ))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
 
-//     None
-// }
+fn deterministic_color<T: std::hash::Hash>(string: T) -> u64 {
+    let mut s = DefaultHasher::new();
+    string.hash(&mut s);
+    s.finish() % 16777215
+}

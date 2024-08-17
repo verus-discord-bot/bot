@@ -17,8 +17,7 @@ use crate::{
 pub async fn adminhelp(ctx: Context<'_>) -> Result<(), Error> {
     ctx.send(|builder| {
         builder.ephemeral(true).content(
-            r#"
-```
+            r#"```
 !status                         - (financial) status of the bot
 !blacklist <user_id>            - blacklists a user (no more tipping, deposits & withdraws)
 !rescanfromheight <blockheight> - rescan blockchain from given height
@@ -27,9 +26,7 @@ pub async fn adminhelp(ctx: Context<'_>) -> Result<(), Error> {
 !depositenabled <true/false>    - enable / disable deposits
 !setwithdrawfee <sats>          - sets the fee a user is charged when withdrawing funds
 !maintenance <true/false>       - set maintenance mode (commands are not executed) 
-
-```
-    "#,
+```"#,
         )
     })
     .await?;
@@ -353,31 +350,6 @@ async fn process_stored_txids(
 
         database::set_stored_txid_to_processed(&pool, &txid).await?;
     }
-
-    Ok(())
-}
-
-/// Set maintenance mode on or off
-#[instrument(skip(ctx))]
-#[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
-pub async fn test_17000(ctx: Context<'_>, value: bool) -> Result<(), Error> {
-    trace!("setting maintenance mode to {value}");
-
-    {
-        let mut write = ctx.data().tx_processor.maintenance.write().await;
-        if *write == true && value == false {
-            trace!("need to process possible unprocessed transactions");
-
-            let pool = &ctx.data().database;
-            let tx_proc = Arc::clone(&ctx.data().tx_processor);
-
-            process_stored_txids(pool, tx_proc).await?
-        }
-        *write = value;
-    }
-
-    ctx.send(|reply| reply.content(format!("Maintenance mode set to {value}")))
-        .await?;
 
     Ok(())
 }

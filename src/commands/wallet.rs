@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::{cmp::Ordering, fmt, ops::Sub, str::FromStr, time::Duration};
+use std::{cmp::Ordering, ops::Sub, str::FromStr, time::Duration};
 
 use fast_qr::convert::{image::ImageBuilder, Builder, Shape};
 use fast_qr::qr::QRBuilder;
@@ -42,7 +42,7 @@ pub async fn withdraw(
     Ok(())
 }
 
-/// Withdraw everything or a given amount from the tipbot wallet
+/// Withdraw everything from the tipbot wallet
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Wallet")]
 pub async fn all(
@@ -329,7 +329,7 @@ pub async fn amount(
     Ok(())
 }
 
-/// Show your balance
+/// Shows your balance
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Wallet")]
 pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
@@ -405,6 +405,7 @@ async fn send_deposit_address_msg(ctx: Context<'_>, address: &Address) -> Result
 
     Ok(())
 }
+
 // Sendcurrency works with op-ids because it can work with zk-transactions. Therefore the txid of a transactions is not always known directly after sending.
 // This function waits a bit and gets the txid once the operation_status RPC gives one.
 // if it doesn't give one, the user is notified and the op-id is stored in the database.
@@ -596,14 +597,3 @@ mod tests {
         assert!(balance_is_enough(&balance, &to_withdraw, &tx_fee));
     }
 }
-
-#[derive(Debug)]
-struct MyError(String);
-
-impl fmt::Display for MyError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "There is an error: {}", self.0)
-    }
-}
-
-impl std::error::Error for MyError {}

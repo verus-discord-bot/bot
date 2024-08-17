@@ -19,7 +19,8 @@ use crate::{
 /// Tip a role by entering and selecting the user name. The selection menu will update as you type.
 ///
 /// -------- :robot: **Tipping a role** --------
-/// Tip a role by entering and selecting the role name. The role name can be any role, even the @everyone role. \
+/// Tip a role by entering and selecting the role name. The role name can be any role, \
+/// even the @everyone role.
 /// The amount entered in the second parameter will be split evenly among the members of the role.
 #[instrument(skip(_ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Tipping", subcommands("role", "user"))]
@@ -55,7 +56,8 @@ async fn role(
             let guild_members = guild.members.values();
             let role_members = guild_members
                 .filter(
-                    |m| m.roles.contains(&role.id) || &role.id == &RoleId(guild.id.0), // @everyone role_id (same as guild_id) does never get tips
+                    // @everyone role_id (same as guild_id) does never get tips
+                    |m| m.roles.contains(&role.id) || &role.id == &RoleId(guild.id.0),
                 )
                 .map(|m| m.user.id)
                 .collect::<Vec<_>>();
@@ -216,7 +218,8 @@ pub enum Hms {
 /// When initiating a reactdrop, find a suitable emoji in the first parameter. \
 /// It can be any Emoji, as long as the emoji is in the current server.
 ///
-/// The amount is entered in the second parameter. This amount will be split among the participants of the reactdrop when it ends.
+/// The amount is entered in the second parameter. This amount will be split \
+/// among the participants of the reactdrop when it ends.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Tipping")]
 pub async fn reactdrop(
@@ -247,8 +250,12 @@ pub async fn reactdrop(
                     if !emojis.iter().any(|e| e.id == id.0) {
                         trace!("emoji not in guild");
                         ctx.send(|reply| {
-                            reply.ephemeral(true).content("This emoji is not found in this Discord server, so it can't be used. Please pick another one")
-                        }).await?;
+                            reply.ephemeral(true).content(
+                                "This emoji is not found in this Discord server, so it can't be \
+                                used. Please pick another one",
+                            )
+                        })
+                        .await?;
 
                         return Ok(());
                     } else {
@@ -261,7 +268,8 @@ pub async fn reactdrop(
                     if emoji.is_none() {
                         ctx.send(|reply| {
                             reply.ephemeral(true).content(
-                                "This is not a valid emoji. Please pick an emoji to start a Reactdrop",
+                                "This is not a valid emoji. \
+                                Please pick an emoji to start a Reactdrop",
                             )
                         })
                         .await?;
@@ -284,7 +292,8 @@ pub async fn reactdrop(
             };
 
             let now = chrono::Utc::now();
-            let finish_time = now.checked_add_signed(time_in_seconds).unwrap(); // sane values are guaranteed by command argument limits
+            // sane values are guaranteed by command argument limits
+            let finish_time = now.checked_add_signed(time_in_seconds).unwrap();
             debug!("finish_time: {finish_time:?}");
 
             let reply_handle = ctx
@@ -300,8 +309,10 @@ Time remaining: {} hour(s) and {} minute(s)",
             let msg = reply_handle.into_message().await?;
             msg.react(ctx.http(), reaction_type.clone()).await?;
 
-            // a reactdrop can be started for as long as a user wants it to last. Discord however limits the lifetime of a context to 15 minutes.
-            // We must account for this by extracting the necessary data from `Context` and store it for later use.
+            // a reactdrop can be started for as long as a user wants it to last.
+            // Discord however limits the lifetime of a context to 15 minutes.
+            // We must account for this by extracting the necessary data from `Context`
+            // and store it for later use.
             let channel_id = ctx.channel_id();
             let message_id = msg.id;
 
@@ -321,9 +332,11 @@ Time remaining: {} hour(s) and {} minute(s)",
     Ok(())
 }
 
-// Divides the amount over the `users` vec, increases the balance for all `users` and stores the tip transaction
+// Divides the amount over the `users` vec, increases the balance for all `users`
+// and stores the tip transaction
 // This function gets called in `tip role` and `reactdrop`
-// We need the ChannelId here because ReactDrops tend to last longer than 15 minutes, which is the time Discord drops the context, giving
+// We need the ChannelId here because ReactDrops tend to last longer than 15 minutes,
+// which is the time Discord drops the context, giving
 // us an invalid webhook token when trying to send a message using that context.
 pub async fn tip_multiple_users(
     pool: &PgPool,

@@ -322,12 +322,10 @@ impl TransactionProcessor {
 // if it exists, the balance of that user is increased
 // the transactions is stored in the database such that it doesn't get processed again
 // a dm is sent to the user afterwards
-
 pub async fn process_txid(
     http: Arc<Http>,
     pool: &PgPool,
     raw_tx: &GetRawTransactionResultVerbose,
-    // _config: ?Settings,
 ) -> Result<(), Error> {
     if !transaction_processed(&pool, &raw_tx.txid).await? {
         for vout in raw_tx.vout.iter() {

@@ -10,7 +10,6 @@ use crate::{
     wallet_listener::TransactionProcessor,
 };
 use commands::*;
-// use opentelemetry::global;
 use poise::serenity_prelude::{self as serenity, CacheHttp, ChannelId, UserId};
 use secrecy::ExposeSecret;
 use sqlx::PgPool;
@@ -32,6 +31,18 @@ use vrsc_rpc::client::{Client as VerusClient, RpcApi};
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
+
+#[tokio::main(worker_threads = 1)]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    log_setup()?;
+
+    if let Err(e) = app().await {
+        error!("{}", e);
+        return Err(e);
+    }
+
+    Ok(())
+}
 
 #[instrument(err)]
 async fn app() -> Result<(), Error> {
@@ -367,18 +378,6 @@ impl Data {
             return Ok(currency_name);
         }
     }
-}
-
-#[tokio::main(worker_threads = 2)]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    log_setup()?;
-
-    if let Err(e) = app().await {
-        error!("{}", e);
-        std::process::exit(1);
-    }
-
-    Ok(())
 }
 
 fn log_setup() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
