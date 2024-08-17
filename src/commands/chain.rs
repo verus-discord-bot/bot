@@ -289,8 +289,8 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
             // need to find reserve in this order:
             let mut main_reserve = None;
             for ordered_reserve in [
-                "iS8TfRPfVpKo5FVfSUzfHBQxo9KuzpnqLU", // tBTC.vETH
                 "iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM", // DAI.vETH
+                "iS8TfRPfVpKo5FVfSUzfHBQxo9KuzpnqLU", // tBTC.vETH
                 "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV", // VRSC (is always a reserve)
             ] {
                 main_reserve = reserves
