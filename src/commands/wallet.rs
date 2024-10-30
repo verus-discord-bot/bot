@@ -472,7 +472,6 @@ async fn wait_for_sendcurrency_finish(
     }
 }
 
-// Let's do some address parsing
 // - is the withdrawal address a valid address?
 // (- is the withdrawal address a z_address?)
 // - is the withdrawal address an identity?

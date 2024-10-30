@@ -189,13 +189,7 @@ impl TransactionProcessor {
     }
 
     #[instrument(skip(self))]
-    pub async fn process_short_queue(
-        // queue: Arc<RwLock<VecDeque<(Txid, Amount)>>>,
-        // config: &Settings,
-        // pool: &PgPool,
-        // http: Arc<Http>,
-        &self,
-    ) -> Result<(), Report> {
+    pub async fn process_short_queue(&self) -> Result<(), Report> {
         let deposits_enabled = self.deposits_enabled.read().await.clone();
         if !deposits_enabled {
             warn!("deposits disabled");

@@ -37,41 +37,6 @@ cd bin
 ./fetch-bootstrap
 ./fetch-params
 ```
-
-```sh
-# run this command to get a random password:
-cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1
-```
-
-```sh
-cd ~/.komodo/VRSC/`
-nano VRSC.conf
-```
-
-edit the config file with the following contents. NOTE: add the password you just generated.
-
-```conf
-zmqpubhashblock=tcp://127.0.0.1:59790
-zmqpubhashtx=tcp://127.0.0.1:59791
-
-server=1
-port=27485
-rpcport=27486
-rpcuser=verus
-rpcpassword=<password you just generated>
-rpcbind=127.0.0.1
-rpcallowip=127.0.0.1
-rpcthreads=256
-rpcworkqueue=1024
-
-exportdir=/home/verus/export
-```
-
-Now, run verusd and let it sync up:
-```sh
-verusd -daemon
-```
-
 ## Docker
 
 In a new tmux pane / ssh session:
@@ -124,7 +89,7 @@ apt install netcat-openbsd
 Now start the docker container for postgres:
 NOTE:
 `<password>` should be the same as defined in the config file for the bot.
-```
+```sh
 docker run --name postgres -e POSTGRES_PASSWORD=<password> -d -p 5432:5432 postgres:alpine
 ```
 

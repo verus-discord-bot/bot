@@ -10,7 +10,7 @@ use crate::{
     wallet_listener::TransactionProcessor,
 };
 use commands::*;
-use poise::serenity_prelude::{self as serenity, CacheHttp, ChannelId, UserId};
+use poise::serenity_prelude::{self as serenity, ChannelId, UserId};
 use secrecy::ExposeSecret;
 use sqlx::PgPool;
 use std::{
@@ -366,7 +366,6 @@ impl Data {
         .map_err(|e| e.into())
     }
 
-    // TODO: cow?
     pub fn to_currency_name(&self, address: &Address) -> Result<String, Error> {
         if let Some(name) = self.currency_names.get(address) {
             return Ok(name.to_owned());
@@ -381,14 +380,6 @@ impl Data {
 }
 
 fn log_setup() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
-
-    // let tracer = opentelemetry_jaeger::new_agent_pipeline()
-    //     .with_service_name("verusbot")
-    //     .install_simple()?;
-
-    // let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
-
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var(
             "RUST_LOG",
@@ -403,10 +394,8 @@ fn log_setup() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let file_appender = tracing_appender::rolling::hourly("./logs", "error");
 
     tracing_subscriber::registry()
-        // .with(opentelemetry)
-        // Continue logging to stdout
         .with(filter_layer)
-        .with(fmt::Layer::default())
+        .with(fmt::Layer::default().with_file(true).with_line_number(true))
         .with(
             fmt::Layer::new()
                 .json()
@@ -414,8 +403,6 @@ fn log_setup() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .with_writer(file_appender.with_max_level(Level::ERROR)),
         )
         .try_init()?;
-
-    // global::shutdown_tracer_provider(); // sending remaining spans
 
     Ok(())
 }

@@ -3,7 +3,7 @@ use std::{
     hash::Hasher,
 };
 
-use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use poise::serenity_prelude::Colour;
 use serde::Deserialize;
 use tracing::{debug, instrument};
@@ -90,27 +90,12 @@ pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
             .json()
             .await?;
 
-    // TODO: get current circulating supply
-    // The below does not work because it is very slow (5+ secs)
-    //
-    // let reqw_client = reqwest::Client::new();
-    // let res: Value = reqw_client
-    //     .post("https://api.verus.services")
-    //     .json(&json!({"method":"coinsupply", "params":[]}))
-    //     .send()
+    // let supply: f64 = reqwest::get("https://explorer.verus.io/ext/getmoneysupply")
     //     .await?
-    //     .json()
-    //     .await?;
-
-    // let supply: f64 = if let Some(result) = res["result"].as_object() {
-    //     result["supply"].as_f64().unwrap_or(0.0)
-    // } else {
-    //     reqwest::get("https://explorer.verus.io/ext/getmoneysupply")
-    //         .await?
-    //         .text()
-    //         .await?
-    //         .parse::<f64>()?
-    // };
+    //     .text()
+    //     .await?
+    //     .trim()
+    //     .parse()?;
 
     let btc_price = resp
         .quotes
@@ -486,9 +471,7 @@ pub async fn time_of_block(ctx: Context<'_>, block: u64) -> Result<(), Error> {
     let mut fields = vec![];
     if block < blocks {
         let timestamp = ctx.data().verus()?.get_block_by_height(block, 2)?.time;
-        let time = NaiveDateTime::from_timestamp_opt(timestamp as i64, 0)
-            .unwrap()
-            .and_utc();
+        let time = DateTime::from_timestamp(timestamp as i64, 0).unwrap();
 
         fields.push((" ", time.to_rfc2822(), false))
     } else {
