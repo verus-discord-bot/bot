@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use secrecy::{ExposeSecret, Secret};
+use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use serde_aux::field_attributes::deserialize_number_from_string;
 use vrsc::Amount;
@@ -14,7 +14,7 @@ pub struct Config {
 #[derive(Debug, Deserialize, Clone)]
 pub struct DatabaseSettings {
     pub username: String,
-    pub password: Secret<String>,
+    pub password: SecretString,
     #[serde(deserialize_with = "deserialize_number_from_string")]
     pub port: u16,
     pub host: String,
@@ -52,7 +52,7 @@ pub struct ApplicationSettings {
     pub rpc_port: u16,
     pub trace_level: String,
     pub enable_tracing: bool,
-    pub discord: Secret<String>,
+    pub discord: SecretString,
     pub discord_guild_id: String,
     pub discord_admin_thread_id: String,
     #[serde(with = "vrsc::util::amount::serde::as_sat")]
