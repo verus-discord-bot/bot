@@ -1,4 +1,4 @@
-use poise::serenity_prelude::UserId;
+use poise::{serenity_prelude::UserId, CreateReply};
 use tracing::trace;
 
 use crate::{Context, Error};
@@ -14,11 +14,11 @@ async fn user_blacklisted(ctx: Context<'_>, user_id: UserId) -> Result<bool, Err
 
     if blacklist.lock().unwrap().contains(&user_id) {
         trace!("user is blacklisted");
-        ctx.send(|reply| {
-            reply
+        ctx.send(
+            CreateReply::default()
                 .ephemeral(true)
-                .content(format!("You have been temporarily suspended"))
-        })
+                .content(format!("You have been temporarily suspended")),
+        )
         .await?;
 
         return Ok(true);

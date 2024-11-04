@@ -9,7 +9,7 @@ version = "0.1.0"
 chrono = { version = "0.4.38", features = ["rkyv"] }
 color-eyre = "0.6.2"
 config = { version = "0.14.1", default-features = false, features = ["toml"] }
-poise = { features = ["cache"], version = "0.5.0" }
+poise = { features = ["cache"], version = "0.6.1" }
 emojis = "0.6.4"
 fancy-regex = "0.14.0"
 fast_qr = { version = "0.12.6", features = ["image"] }
@@ -33,7 +33,6 @@ tracing-appender = "0.2.2"
 uuid = { version = "1.11.0", features = ["v4"] }
 vrsc = "0.0.1"
 vrsc-rpc = { git = "https://github.com/jorian/rust-vrsc-rpc", rev = "4c19eb0c" }
-# vrsc-rpc = { path = "../rust-vrsc-rpc/client" }
 
 [dependencies.sqlx]
 default-features = false

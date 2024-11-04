@@ -1,5 +1,8 @@
 use ::chrono::Duration;
-use poise::serenity_prelude::{self, CacheHttp, ChannelId, ReactionType, RoleId, UserId};
+use poise::{
+    serenity_prelude::{self, CacheHttp, ChannelId, CreateMessage, ReactionType, RoleId, UserId},
+    CreateReply,
+};
 
 use sqlx::{types::chrono, PgPool};
 use tracing::*;
@@ -50,14 +53,17 @@ async fn role(
         .is_some()
     {
         trace!("tipper has enough balance");
+        let guild_id = ctx.guild_id();
 
-        if let Some(guild) = ctx.guild() {
-            debug!("guildid: {:?}", guild.id);
-            let guild_members = guild.members.values();
+        if let Some(members) = ctx.guild().and_then(|guild| Some(guild.members.clone())) {
+            let guild_members = members.values();
             let role_members = guild_members
                 .filter(
                     // @everyone role_id (same as guild_id) does never get tips
-                    |m| m.roles.contains(&role.id) || &role.id == &RoleId(guild.id.0),
+                    |m| {
+                        m.roles.contains(&role.id)
+                            || role.id == RoleId::new(guild_id.unwrap().get())
+                    },
                 )
                 .map(|m| m.user.id)
                 .collect::<Vec<_>>();
@@ -76,13 +82,6 @@ async fn role(
             return Ok(());
         } else {
             trace!("not in a guild, send error");
-
-            ctx.send(|reply| {
-                reply.ephemeral(true).content(format!(
-                    "You need to be in a Discord server to use this command."
-                ))
-            })
-            .await?;
 
             return Ok(());
         }
@@ -145,43 +144,38 @@ async fn user(
                 match notification {
                     Notification::All | Notification::ChannelOnly => {
                         // send a message in the same channel:
-                        ctx.send(|reply| {
-                            reply.ephemeral(false).content(format!(
-                                "<@{}> just tipped <@{}> {tip_amount}!",
-                                &ctx.author().id,
-                                user.id
-                            ))
-                        })
+                        ctx.send(CreateReply::default().ephemeral(false).content(format!(
+                            "<@{}> just tipped <@{}> {tip_amount}!",
+                            &ctx.author().id,
+                            user.id
+                        )))
                         .await?;
                     }
                     Notification::DMOnly => {
                         // send a non-pinging message in the channel:
-                        ctx.send(|reply| {
-                            reply.ephemeral(false).content(format!(
-                                "<@{}> just tipped `{}` {tip_amount}!",
-                                &ctx.author().id,
-                                user.tag()
-                            ))
-                        })
+                        ctx.send(CreateReply::default().ephemeral(false).content(format!(
+                            "<@{}> just tipped `{}` {tip_amount}!",
+                            &ctx.author().id,
+                            user.tag()
+                        )))
                         .await?;
                         // send a notification in dm:
-                        user.dm(&ctx.http(), |message| {
-                            message.content(format!(
+                        user.dm(
+                            &ctx.http(),
+                            CreateMessage::new().content(format!(
                                 "You just got tipped {tip_amount} from <@{}>!",
                                 &ctx.author().id,
-                            ))
-                        })
+                            )),
+                        )
                         .await?;
                     }
                     Notification::Off => {
                         // send a non-pinging message in the channel:
-                        ctx.send(|reply| {
-                            reply.ephemeral(false).content(format!(
-                                "<@{}> just tipped `{}` {tip_amount}!",
-                                &ctx.author().id,
-                                user.tag()
-                            ))
-                        })
+                        ctx.send(CreateReply::default().ephemeral(false).content(format!(
+                            "<@{}> just tipped `{}` {tip_amount}!",
+                            &ctx.author().id,
+                            user.tag()
+                        )))
                         .await?;
                     }
                 }
@@ -189,13 +183,11 @@ async fn user(
             None => {
                 trace!("User has not set notification settings, defaulting to Channel");
 
-                ctx.send(|reply| {
-                    reply.ephemeral(false).content(format!(
-                        "<@{}> just tipped <@{}> {tip_amount}!",
-                        &ctx.author().id,
-                        user.id
-                    ))
-                })
+                ctx.send(CreateReply::default().ephemeral(false).content(format!(
+                    "<@{}> just tipped <@{}> {tip_amount}!",
+                    &ctx.author().id,
+                    user.id
+                )))
                 .await?;
             }
         }
@@ -246,15 +238,13 @@ pub async fn reactdrop(
         if let Ok(reaction_type) = ReactionType::try_from(emoji) {
             match &reaction_type {
                 ReactionType::Custom { id, .. } => {
-                    let emojis = ctx.guild().unwrap().emojis(ctx.http()).await?;
-                    if !emojis.iter().any(|e| e.id == id.0) {
+                    let emojis = ctx.guild_id().unwrap().emojis(&ctx.http()).await?;
+                    if !emojis.iter().any(|e| e.id == id.get()) {
                         trace!("emoji not in guild");
-                        ctx.send(|reply| {
-                            reply.ephemeral(true).content(
-                                "This emoji is not found in this Discord server, so it can't be \
-                                used. Please pick another one",
-                            )
-                        })
+                        ctx.send(CreateReply::default().ephemeral(true).content(
+                            "This emoji is not found in this Discord server, so it can't be \
+                                    used. Please pick another one",
+                        ))
                         .await?;
 
                         return Ok(());
@@ -266,12 +256,10 @@ pub async fn reactdrop(
                     let emoji = emojis::get(&unicode);
 
                     if emoji.is_none() {
-                        ctx.send(|reply| {
-                            reply.ephemeral(true).content(
-                                "This is not a valid emoji. \
-                                Please pick an emoji to start a Reactdrop",
-                            )
-                        })
+                        ctx.send(CreateReply::default().ephemeral(true).content(
+                            "This is not a valid emoji. \
+                                    Please pick an emoji to start a Reactdrop",
+                        ))
                         .await?;
 
                         return Ok(());
@@ -299,8 +287,8 @@ pub async fn reactdrop(
             let reply_handle = ctx
                 .say(format!(
                     ">>> **A reactdrop of {tip_amount} was started!**\n\n\
-React with the {} emoji to participate\n\n
-Time remaining: {} hour(s) and {} minute(s)",
+    React with the {} emoji to participate\n\n
+    Time remaining: {} hour(s) and {} minute(s)",
                     reaction_type.clone(),
                     time_in_seconds.num_seconds() / (60 * 60),
                     (time_in_seconds.num_seconds() / 60) % 60
@@ -375,13 +363,14 @@ pub async fn tip_multiple_users(
         for (user_id, notification) in notification_settings {
             match (user_id, notification) {
                 (_, Notification::All) | (_, Notification::DMOnly) => {
-                    let user = UserId(user_id as u64).to_user(&http).await?;
-                    user.dm(&http, |message| {
-                        message.content(format!(
+                    let user = UserId::new(user_id as u64).to_user(&http).await?;
+                    user.dm(
+                        &http,
+                        CreateMessage::new().content(format!(
                             "You just got tipped {div_tip_amount} from <@{}>!",
                             &author,
-                        ))
-                    })
+                        )),
+                    )
                     .await?;
                 }
                 _ => {
@@ -391,14 +380,15 @@ pub async fn tip_multiple_users(
         }
 
         channel_id
-            .send_message(http, |message| {
-                message.content(format!(
+            .send_message(
+                http,
+                CreateMessage::new().content(format!(
                     "<@{}> just tipped {} to {} users!",
                     &author,
                     amount,
                     &users.len()
-                ))
-            })
+                )),
+            )
             .await?;
     } else {
         error!("could not send tip to role");

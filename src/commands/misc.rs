@@ -1,6 +1,9 @@
-use std::time::Instant;
+use std::{fmt::Display, time::Instant};
 
-use poise::ChoiceParameter;
+use poise::{
+    serenity_prelude::{CreateEmbed, CreateEmbedFooter},
+    ChoiceParameter, CreateReply,
+};
 use tracing::instrument;
 use uuid::Uuid;
 
@@ -11,10 +14,10 @@ use crate::{util::database, Context, Error};
 #[poise::command(track_edits, slash_command, category = "Miscellaneous")]
 pub async fn info(ctx: Context<'_>) -> Result<(), Error> {
     let elapsed = Instant::now().duration_since(ctx.data()._bot_start_time);
-    ctx.send(|reply| {
-        reply
-            .embed(|embed| {
-                embed
+    ctx.send(
+        CreateReply::default()
+            .embed(
+                CreateEmbed::new()
                     .title("Verus bot info")
                     .field("Version", "1.0a", false)
                     .field(
@@ -32,10 +35,10 @@ pub async fn info(ctx: Context<'_>) -> Result<(), Error> {
                         "https://github.com/verus-discord-bot/bot",
                         false,
                     )
-                    .footer(|footer| footer.text("Made for Verus by jorian@"))
-            })
-            .ephemeral(true)
-    })
+                    .footer(CreateEmbedFooter::new("Made for Verus by jorian@")),
+            )
+            .ephemeral(true),
+    )
     .await?;
 
     Ok(())
@@ -69,10 +72,11 @@ Type `/help <command>` for more info on a command.";
 /// Links to the bot GitHub repo
 #[poise::command(discard_spare_arguments, slash_command, category = "Miscellaneous")]
 pub async fn source(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.send(|msg| {
-        msg.content("https://github.com/verus-discord-bot/bot")
-            .ephemeral(true)
-    })
+    ctx.send(
+        CreateReply::default()
+            .content("https://github.com/verus-discord-bot/bot")
+            .ephemeral(true),
+    )
     .await?;
 
     Ok(())
@@ -104,12 +108,10 @@ pub async fn notifications(ctx: Context<'_>, notifications: Notification) -> Res
     let pool = &ctx.data().database;
     database::update_notifications(&pool, &ctx.author().id, &notifications.to_string()).await?;
 
-    ctx.send(|reply| {
-        reply.ephemeral(true).content(format!(
-            "You successfully set notifications to: {}",
-            &notifications.to_string()
-        ))
-    })
+    ctx.send(CreateReply::default().ephemeral(true).content(format!(
+        "You successfully set notifications to: {}",
+        &notifications.to_string()
+    )))
     .await?;
 
     Ok(())
@@ -135,6 +137,17 @@ impl From<String> for Notification {
             "Channel only" => Self::ChannelOnly,
             "Off" => Self::Off,
             _ => Self::ChannelOnly, // This is the default setting.
+        }
+    }
+}
+
+impl Display for Notification {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Notification::All => write!(f, "All"),
+            Notification::DMOnly => write!(f, "DM only"),
+            Notification::ChannelOnly => write!(f, "Channel only"),
+            Notification::Off => write!(f, "Off"),
         }
     }
 }

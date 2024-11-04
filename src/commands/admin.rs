@@ -1,4 +1,7 @@
-use poise::serenity_prelude::UserId;
+use poise::{
+    serenity_prelude::{CreateEmbed, UserId},
+    CreateReply,
+};
 use sqlx::PgPool;
 use std::{sync::Arc, time::Duration};
 use tracing::{debug, error, instrument, trace};
@@ -15,9 +18,8 @@ use crate::{
 #[instrument(skip(ctx))]
 #[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn adminhelp(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.send(|builder| {
-        builder.ephemeral(true).content(
-            r#"```
+    ctx.send(CreateReply::default().ephemeral(true).content(
+        r#"```
 !status                         - (financial) status of the bot
 !blacklist <user_id>            - blacklists a user (no more tipping, deposits & withdraws)
 !rescanfromheight <blockheight> - rescan blockchain from given height
@@ -27,8 +29,7 @@ pub async fn adminhelp(ctx: Context<'_>) -> Result<(), Error> {
 !setwithdrawfee <sats>          - sets the fee a user is charged when withdrawing funds
 !maintenance <true/false>       - set maintenance mode (commands are not executed) 
 ```"#,
-        )
-    })
+    ))
     .await?;
 
     Ok(())
@@ -59,26 +60,31 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
     debug!("total_withdrawn: {total_withdrawn}");
     debug!("daemon_balance: {daemon_balance}");
 
-    ctx.send(|reply| {
-        reply.embed(|embed| {
-            embed
+    ctx.send(
+        CreateReply::default().embed(
+            CreateEmbed::new()
                 .title("Status report")
-                .field("bot in maintenance", maintenance, false)
-                .field("deposits enabled", deposits_enabled, false)
-                .field("withdrawals enabled", withdrawals_enabled, false)
-                .field("VRSC daemon balance", daemon_balance, false)
-                .field("Tipbot balance", total_balance, false)
-                .field("Total deposited", total_deposited, false)
-                .field("Total withdrawn", total_withdrawn, false)
+                .field("bot in maintenance", maintenance.to_string(), false)
+                .field("deposits enabled", deposits_enabled.to_string(), false)
+                .field(
+                    "withdrawals enabled",
+                    withdrawals_enabled.to_string(),
+                    false,
+                )
+                .field("VRSC daemon balance", daemon_balance.to_string(), false)
+                .field("Tipbot balance", total_balance.to_string(), false)
+                .field("Total deposited", total_deposited.to_string(), false)
+                .field("Total withdrawn", total_withdrawn.to_string(), false)
                 .field(
                     "Database deposits - withdraws",
                     total_deposited
                         .checked_sub(total_withdrawn)
-                        .unwrap_or(Amount::ZERO),
+                        .unwrap_or(Amount::ZERO)
+                        .to_string_in(vrsc::Denomination::Verus),
                     false,
                 )
-                .field("Total tipped", total_tipped, false)
-                .field("Largest tip", largest_tip, false)
+                .field("Total tipped", total_tipped.to_string(), false)
+                .field("Largest tip", largest_tip.to_string(), false)
                 .field(
                     "Bot fees _(minus network fees)_",
                     {
@@ -87,11 +93,12 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
                         } else {
                             Amount::ZERO
                         }
-                    },
+                    }
+                    .to_string_in(vrsc::Denomination::Verus),
                     false,
-                )
-        })
-    })
+                ),
+        ),
+    )
     .await?;
 
     Ok(())
@@ -159,15 +166,17 @@ pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
             if let Ok(mut blacklist) = ctx.data().blacklist.lock() {
                 blacklist.remove(&user_id);
             }
-            ctx.send(|reply| reply.content(format!("user {user_id} removed from blacklist")))
-                .await?;
+            ctx.send(
+                CreateReply::default().content(format!("user {user_id} removed from blacklist")),
+            )
+            .await?;
             trace!("{user_id} has been removed from blacklist");
         } else {
             database::set_blacklist_status(&pool, user_id, true).await?;
             if let Ok(mut blacklist) = ctx.data().blacklist.lock() {
                 blacklist.insert(user_id);
             }
-            ctx.send(|reply| reply.content(format!("user {user_id} blacklisted")))
+            ctx.send(CreateReply::default().content(format!("user {user_id} blacklisted")))
                 .await?;
 
             trace!("{user_id} has been added to blacklist");
@@ -190,7 +199,7 @@ pub async fn setwithdrawfee(ctx: Context<'_>, amount: u64) -> Result<(), Error> 
     *write = Amount::from_sat(amount);
 
     debug!("fee after changing: {:?}", withdrawal_fee);
-    ctx.send(|reply| reply.content(format!("Withdraw fee set to {} sats", amount)))
+    ctx.send(CreateReply::default().content(format!("Withdraw fee set to {} sats", amount)))
         .await?;
 
     Ok(())
@@ -208,7 +217,8 @@ pub async fn rescanfromheight(ctx: Context<'_>, height: u64) -> Result<(), Error
         tokio::time::sleep(Duration::from_secs(1)).await;
         ctx.data().tx_processor.process_long_queue().await?;
         ctx.data().tx_processor.process_short_queue().await?;
-        ctx.send(|reply| reply.content("Rescan done")).await?;
+        ctx.send(CreateReply::default().content("Rescan done"))
+            .await?;
     } else {
         trace!("rescan did not succeed")
     }
@@ -227,7 +237,7 @@ pub async fn withdrawenabled(ctx: Context<'_>, value: bool) -> Result<(), Error>
         *write = value;
     }
 
-    ctx.send(|reply| reply.content(format!("Withdraws enabled: {value}")))
+    ctx.send(CreateReply::default().content(format!("Withdraws enabled: {value}")))
         .await?;
 
     Ok(())
@@ -252,7 +262,7 @@ pub async fn depositenabled(ctx: Context<'_>, value: bool) -> Result<(), Error> 
         *write = value;
     }
 
-    ctx.send(|reply| reply.content(format!("Deposits enabled: {value}")))
+    ctx.send(CreateReply::default().content(format!("Deposits enabled: {value}")))
         .await?;
 
     Ok(())
@@ -302,8 +312,12 @@ pub async fn manuallyaddwithdraw(
     )
     .await?;
 
-    ctx.send(|reply| reply.ephemeral(true).content(format!("{txid} stored.")))
-        .await?;
+    ctx.send(
+        CreateReply::default()
+            .ephemeral(true)
+            .content(format!("{txid} stored.")),
+    )
+    .await?;
 
     Ok(())
 }
@@ -327,7 +341,7 @@ pub async fn maintenance(ctx: Context<'_>, value: bool) -> Result<(), Error> {
         *write = value;
     }
 
-    ctx.send(|reply| reply.content(format!("Maintenance mode set to {value}")))
+    ctx.send(CreateReply::default().content(format!("Maintenance mode set to {value}")))
         .await?;
 
     Ok(())

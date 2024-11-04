@@ -1,7 +1,8 @@
 use std::{fmt::Display, str::FromStr};
 
 use poise::serenity_prelude::{
-    ArgumentConvert, ChannelId, Context, Message, MessageId, ReactionType, UserId,
+    ArgumentConvert, ChannelId, Context, CreateMessage, EditMessage, Message, MessageId,
+    ReactionType, UserId,
 };
 use sqlx::{
     types::chrono::{self, DateTime, Utc},
@@ -82,7 +83,9 @@ pub async fn check_running_reactdrops(ctx: &Context, pool: &PgPool) -> Result<()
         let split = content.find("Time remaining: ").unwrap();
         let new_content = format!("{}Time remaining: {}", &content[..split], diff_fmt());
 
-        message.edit(&ctx, |edit| edit.content(new_content)).await?;
+        message
+            .edit(&ctx, EditMessage::new().content(new_content))
+            .await?;
 
         if reactdrop.finish_time <= now {
             let mut last_user = None;
@@ -140,12 +143,13 @@ pub async fn check_running_reactdrops(ctx: &Context, pool: &PgPool) -> Result<()
 
                     reactdrop
                         .channel_id
-                        .send_message(&ctx.http, |msg| {
-                            msg.content(format!(
+                        .send_message(
+                            &ctx.http,
+                            CreateMessage::new().content(format!(
                                 "<@{}> didn't have enough funds, reactdrop failed",
                                 &message.author.id,
-                            ))
-                        })
+                            )),
+                        )
                         .await?;
                 }
             }
@@ -161,8 +165,8 @@ pub async fn check_running_reactdrops(ctx: &Context, pool: &PgPool) -> Result<()
 
             database::update_reactdrop(
                 &pool,
-                reactdrop.channel_id.0 as i64,
-                reactdrop.message_id.0 as i64,
+                reactdrop.channel_id.get() as i64,
+                reactdrop.message_id.get() as i64,
                 ReactdropState::Processed,
             )
             .await?;

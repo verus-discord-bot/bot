@@ -3,6 +3,8 @@ use std::{cmp::Ordering, ops::Sub, str::FromStr, time::Duration};
 
 use fast_qr::convert::{image::ImageBuilder, Builder, Shape};
 use fast_qr::qr::QRBuilder;
+use poise::serenity_prelude::CreateEmbed;
+use poise::CreateReply;
 use sqlx::PgPool;
 use tracing::*;
 use uuid::Uuid;
@@ -51,11 +53,11 @@ pub async fn all(
     destination: String,
 ) -> Result<(), Error> {
     if *ctx.data().withdrawals_enabled.read().await == false {
-        ctx.send(|reply| {
-            reply
+        ctx.send(
+            CreateReply::default()
                 .ephemeral(true)
-                .content(format!("Withdrawals are temporarily disabled."))
-        })
+                .content(format!("Withdrawals are temporarily disabled.")),
+        )
         .await?;
 
         return Ok(());
@@ -73,11 +75,9 @@ pub async fn all(
 
     let client = &ctx.data().verus()?;
     if !destination_is_valid(&destination, &client) {
-        ctx.send(|reply| {
-            reply.ephemeral(true).content(format!(
-                "Error: The destination you entered cannot be used: {destination}"
-            ))
-        })
+        ctx.send(CreateReply::default().ephemeral(true).content(format!(
+            "Error: The destination you entered cannot be used: {destination}"
+        )))
         .await?;
 
         return Ok(());
@@ -120,31 +120,38 @@ pub async fn all(
 
                 let new_balance = database::get_balance_for_user(&pool, &ctx.author().id).await?;
 
-                ctx.send(|reply| {
-                    reply.ephemeral(true).embed(|embed| {
-                        let embed = embed
-                            .title("Withdraw")
-                            .field("Amount", withdrawal_amount, false)
-                            .field("Fees", tx_fee, false)
-                            .field(
-                                "Explorer",
-                                format!("[link](https://insight.verus.io/tx/{})", txid.to_string()),
-                                false,
-                            );
+                ctx.send(CreateReply::default().ephemeral(true).embed({
+                    let mut embed = CreateEmbed::new()
+                        .title("Withdraw")
+                        .field("Amount", withdrawal_amount.to_string(), false)
+                        .field("Fees", tx_fee.to_string(), false)
+                        .field(
+                            "Explorer",
+                            format!("[link](https://insight.verus.io/tx/{})", txid.to_string()),
+                            false,
+                        );
 
-                        if let Some(new_balance) = new_balance {
-                            embed.field("New balance", Amount::from_sat(new_balance), false);
-                        }
+                    if let Some(new_balance) = new_balance {
+                        embed = embed.field(
+                            "New balance",
+                            Amount::from_sat(new_balance).to_string(),
+                            false,
+                        );
+                    }
 
-                        embed
-                    })
-                })
+                    embed
+                }))
                 .await?;
             } else {
-                // at this point, the sendcurrency didn't finish. Maybe it went through, but we don't know.
-                // We should check this manually, so we'll let the user know to contact support and we'll store the op-id in the database.
-                let response = format!("Something went wrong trying to process your withdrawal. Please contact support with withdrawal ID: {}",
-                uuid.to_string());
+                // at this point, the sendcurrency didn't finish. Maybe it went through, but we
+                // don't know.
+                // We should check this manually, so we'll let the user know to contact support
+                // and we'll store the op-id in the database.
+                let response = format!(
+                    "Something went wrong trying to process your withdrawal. \
+                Please contact support with withdrawal ID: {}",
+                    uuid.to_string()
+                );
 
                 database::store_withdraw_transaction(
                     &pool,
@@ -156,26 +163,26 @@ pub async fn all(
                 )
                 .await?;
 
-                ctx.send(|reply| reply.ephemeral(true).content(&response))
+                ctx.send(CreateReply::default().ephemeral(true).content(&response))
                     .await?;
             }
 
             return Ok(());
         }
 
-        ctx.send(|reply| {
-            reply.ephemeral(true).content(format!(
-                "Your balance is insufficient to withdraw everything.\nMax available balance for withdraw: {}", withdrawal_amount.checked_sub(*tx_fee).unwrap_or(Amount::ZERO)
-            ))
-        })
+        ctx.send(CreateReply::default().ephemeral(true).content(format!(
+                "Your balance is insufficient to withdraw everything.\nMax available balance for \
+                withdraw: {}",
+                withdrawal_amount.checked_sub(*tx_fee).unwrap_or(Amount::ZERO)
+            )))
         .await?;
     } else {
         trace!("The user has no balance, abort");
-        ctx.send(|reply| {
-            reply
+        ctx.send(
+            CreateReply::default()
                 .ephemeral(true)
-                .content(format!("Your balance is insufficient to withdraw"))
-        })
+                .content(format!("Your balance is insufficient to withdraw")),
+        )
         .await?;
     }
 
@@ -188,15 +195,16 @@ pub async fn all(
 pub async fn amount(
     ctx: Context<'_>,
     #[description = "The amount you want to tip"] withdrawal_amount: f64,
-    #[description = "You can use any address starting with R* or i*, or use an existing identity (ends with @)."]
+    #[description = "You can use any address starting with R* or i*, or use an existing \
+    identity (ends with @)."]
     destination: String,
 ) -> Result<(), Error> {
     if *ctx.data().withdrawals_enabled.read().await == false {
-        ctx.send(|reply| {
-            reply
+        ctx.send(
+            CreateReply::default()
                 .ephemeral(true)
-                .content(format!("Withdrawals are temporarily disabled."))
-        })
+                .content(format!("Withdrawals are temporarily disabled.")),
+        )
         .await?;
 
         return Ok(());
@@ -214,26 +222,25 @@ pub async fn amount(
 
     let client = &ctx.data().verus()?;
     if !destination_is_valid(&destination, &client) {
-        ctx.send(|reply| {
-            reply.ephemeral(true).content(format!(
-                "Error: The destination you entered cannot be used: {destination}"
-            ))
-        })
+        ctx.send(CreateReply::default().ephemeral(true).content(format!(
+            "Error: The destination you entered cannot be used: {destination}"
+        )))
         .await?;
 
         return Ok(());
     }
 
     // if amount to withdraw <= 0.0
-    // the reason this has to be done this way is because Amount is an abstraction over floats (f64) and 2 floats with the same value are not equal
+    // the reason this has to be done this way is because Amount is an abstraction over floats (f64)
+    //  and 2 floats with the same value are not equal
     // according to some IEEE standard.
     let withdrawal_amount = Amount::from_vrsc(withdrawal_amount)?;
     if [Ordering::Less, Ordering::Equal].contains(&withdrawal_amount.cmp(&Amount::ZERO)) {
-        ctx.send(|reply| {
-            reply
+        ctx.send(
+            CreateReply::default()
                 .ephemeral(true)
-                .content("Error: Withdrawal amount should be more than 0.0")
-        })
+                .content("Error: Withdrawal amount should be more than 0.0"),
+        )
         .await?;
 
         return Ok(());
@@ -276,25 +283,27 @@ pub async fn amount(
 
             let new_balance = database::get_balance_for_user(&pool, &ctx.author().id).await?;
 
-            ctx.send(|reply| {
-                reply.ephemeral(true).embed(|embed| {
-                    let embed = embed
-                        .title("Withdraw")
-                        .field("Amount", withdrawal_amount, false)
-                        .field("Fees", tx_fee, false)
-                        .field(
-                            "Explorer",
-                            format!("[link](https://insight.verus.io/tx/{})", txid.to_string()),
-                            false,
-                        );
+            ctx.send(CreateReply::default().ephemeral(true).embed({
+                let mut embed = CreateEmbed::new()
+                    .title("Withdraw")
+                    .field("Amount", withdrawal_amount.to_string(), false)
+                    .field("Fees", tx_fee.to_string(), false)
+                    .field(
+                        "Explorer",
+                        format!("[link](https://insight.verus.io/tx/{})", txid.to_string()),
+                        false,
+                    );
 
-                    if let Some(new_balance) = new_balance {
-                        embed.field("New balance", Amount::from_sat(new_balance), false);
-                    }
+                if let Some(new_balance) = new_balance {
+                    embed = embed.field(
+                        "New balance",
+                        Amount::from_sat(new_balance).to_string(),
+                        false,
+                    );
+                }
 
-                    embed
-                })
-            })
+                embed
+            }))
             .await?;
         } else {
             // at this point, the sendcurrency didn't finish. Maybe it went through, but we don't know.
@@ -312,18 +321,17 @@ pub async fn amount(
             )
             .await?;
 
-            ctx.send(|reply| reply.ephemeral(true).content(&response))
+            ctx.send(CreateReply::default().ephemeral(true).content(&response))
                 .await?;
         }
 
         return Ok(());
     }
 
-    ctx.send(|reply| {
-        reply.ephemeral(true).content(format!(
+    ctx.send(CreateReply::default().ephemeral(true).content(format!(
             "Your balance is insufficient to withdraw {withdrawal_amount}.\nMax available balance for withdraw: {}", withdrawal_amount.checked_sub(tx_fee).unwrap_or(Amount::ZERO)
         ))
-    })
+    )
     .await?;
 
     Ok(())
@@ -339,11 +347,11 @@ pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
             .unwrap_or(0),
     );
 
-    ctx.send(|reply| {
-        reply
+    ctx.send(
+        CreateReply::default()
             .ephemeral(true)
-            .content(format!("Your balance is: {}", balance))
-    })
+            .content(format!("Your balance is: {}", balance)),
+    )
     .await?;
 
     Ok(())
@@ -380,27 +388,24 @@ async fn send_deposit_address_msg(ctx: Context<'_>, address: &Address) -> Result
     let filename = format!("{address}.png");
     let out = PathBuf::from_str(&format!("qr_address/{}", &filename)).unwrap();
 
-    ctx.send(|reply| {
-        let qr = QRBuilder::new(address.to_string()).build().unwrap();
+    let qr = QRBuilder::new(address.to_string()).build().unwrap();
 
-        let _img = ImageBuilder::default()
-            .shape(Shape::Circle)
-            .fit_width(400)
-            .module_color([49, 101, 212, 255])
-            .background_color([255, 255, 255, 0])
-            .to_file(&qr, out.as_os_str().to_str().unwrap());
-
-        reply
-            .embed(|embed| {
-                embed.image(format!("attachment://{filename}")).field(
-                    "Address",
-                    format!("{}", address.to_string()),
-                    false,
-                )
-            })
-            .attachment(poise::serenity_prelude::AttachmentType::Path(&out))
+    let _img = ImageBuilder::default()
+        .shape(Shape::Circle)
+        .fit_width(400)
+        .module_color([49, 101, 212, 255])
+        .background_color([255, 255, 255, 0])
+        .to_file(&qr, out.as_os_str().to_str().unwrap());
+    ctx.send(
+        CreateReply::default()
+            .embed(
+                CreateEmbed::new()
+                    .image(format!("attachment://{filename}"))
+                    .field("Address", format!("{}", address.to_string()), false),
+            )
             .ephemeral(true)
-    })
+            .attachment(poise::serenity_prelude::CreateAttachment::path(&out).await?),
+    )
     .await?;
 
     Ok(())
@@ -528,11 +533,11 @@ pub async fn get_and_check_balance(
             return Ok(Some(Amount::from_sat(balance)));
         } else {
             trace!("balance is insufficient");
-            ctx.send(|reply| {
-                reply
+            ctx.send(
+                CreateReply::default()
                     .ephemeral(true)
-                    .content(format!("Your balance is insufficient to tip that amount!"))
-            })
+                    .content(format!("Your balance is insufficient to tip that amount!")),
+            )
             .await?;
 
             return Ok(None);
@@ -541,11 +546,11 @@ pub async fn get_and_check_balance(
         trace!("tipper has no balance");
         warn!("user {} should have a balance!", ctx.author());
 
-        ctx.send(|reply| {
-            reply
+        ctx.send(
+            CreateReply::default()
                 .ephemeral(true)
-                .content(format!("Your balance is insufficient to tip that amount!"))
-        })
+                .content(format!("Your balance is insufficient to tip that amount!")),
+        )
         .await?;
 
         return Ok(None);

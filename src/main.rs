@@ -10,7 +10,10 @@ use crate::{
     wallet_listener::TransactionProcessor,
 };
 use commands::*;
-use poise::serenity_prelude::{self as serenity, ChannelId, UserId};
+use poise::{
+    serenity_prelude::{self as serenity, ChannelId, ClientBuilder, CreateMessage, UserId},
+    CreateReply,
+};
 use secrecy::ExposeSecret;
 use sqlx::PgPool;
 use std::{
@@ -55,7 +58,7 @@ async fn app() -> Result<(), Error> {
         .application
         .owners
         .iter()
-        .map(|x| UserId(x.parse::<u64>().unwrap()))
+        .map(|x| UserId::new(x.parse::<u64>().unwrap()))
         .collect::<HashSet<UserId>>()
         .clone();
     debug!("owners: {owners:?}");
@@ -103,11 +106,10 @@ async fn app() -> Result<(), Error> {
                 let maintenance_mode = { *ctx.data().tx_processor.maintenance.read().await };
 
                 if maintenance_mode && !owners.contains(&author) {
-                    ctx.send(|reply| {
-                        reply.content(
+                    ctx.send(CreateReply::default().content(
                             ":tools: The bot is in maintenance mode, we'll be right back :tools:",
                         ).ephemeral(true)
-                    })
+                    )
                     .await?;
 
                     return Ok(false);
@@ -118,9 +120,6 @@ async fn app() -> Result<(), Error> {
         }),
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("!".into()),
-            edit_tracker: Some(poise::EditTracker::for_timespan(
-                std::time::Duration::from_secs(60 * 60 * 24 * 2), // 48 hours
-            )),
             ..Default::default()
         },
         pre_command: |ctx| {
@@ -130,22 +129,13 @@ async fn app() -> Result<(), Error> {
                     .await
                     .expect("a discord_user to be added to the database");
 
-                let author = ctx.author().tag();
                 let channel_name = ctx
                     .channel_id()
                     .name(&ctx.serenity_context())
                     .await
-                    .unwrap_or_else(|| "<unknown>".to_owned());
-                match ctx {
-                    poise::Context::Prefix(ctx) => {
-                        info!("{} in {}: `{}`", author, channel_name, &ctx.msg.content);
-                    }
-                    poise::Context::Application(ctx) => {
-                        let command_name = &ctx.interaction.data().name;
+                    .unwrap_or_else(|_| "<unknown>".to_owned());
 
-                        info!("{} in {}: `/{}`", author, channel_name, command_name);
-                    }
-                }
+                tracing::info!(user = ?ctx.author().tag(), ?channel_name, invocation_string = ?ctx.invocation_string())
             })
         },
         on_error: |error| Box::pin(on_error(error)),
@@ -173,12 +163,13 @@ async fn app() -> Result<(), Error> {
 
     info!("starting client");
 
-    poise::Framework::builder()
-        .token(config.application.discord.expose_secret())
+    let config_clone = config.clone();
+    let token = config_clone.application.discord.clone();
+
+    let framework = poise::Framework::builder()
         .setup(move |ctx, bot, _framework| {
             let http = ctx.http.clone();
             let pool = database.clone();
-            let config_clone = config.clone();
             let deposits_enabled = Arc::new(RwLock::new(true));
             let deposits_enabled_clone = deposits_enabled.clone();
 
@@ -268,14 +259,19 @@ async fn app() -> Result<(), Error> {
             })
         })
         .options(options)
-        .intents(
-            serenity::GatewayIntents::non_privileged()
-                | serenity::GatewayIntents::GUILD_MEMBERS
-                | serenity::GatewayIntents::MESSAGE_CONTENT
-                | serenity::GatewayIntents::GUILD_PRESENCES,
-        )
-        .run()
-        .await?;
+        .build();
+
+    let mut client = ClientBuilder::new(
+        token.expose_secret(),
+        serenity::GatewayIntents::non_privileged()
+            | serenity::GatewayIntents::GUILD_MEMBERS
+            | serenity::GatewayIntents::MESSAGE_CONTENT
+            | serenity::GatewayIntents::GUILD_PRESENCES,
+    )
+    .framework(framework)
+    .await?;
+
+    client.start().await?;
 
     Ok(())
 }
@@ -284,15 +280,15 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
     info!("Encountered error: {:?}", error);
 
     match error {
-        poise::FrameworkError::Command { ctx, error } => {
+        poise::FrameworkError::Command { ctx, error, .. } => {
             let owners = &ctx.data().owners;
             let s = owners
                 .into_iter()
-                .map(|id| format!("<@{}>", id.0.to_string()))
+                .map(|id| format!("<@{}>", id.get().to_string()))
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            if let Err(e) = ChannelId(
+            if let Err(e) = ChannelId::new(
                 ctx.data()
                     .settings
                     .application
@@ -300,8 +296,9 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
                     .parse::<u64>()
                     .unwrap(),
             )
-            .send_message(ctx.http(), |m| {
-                m.content(format!(
+            .send_message(
+                ctx.http(),
+                CreateMessage::new().content(format!(
                     "
                 {s}, the following error occured:\n
                 - error message: {error}\n
@@ -311,8 +308,8 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
                     ctx.author().name,
                     ctx.invoked_command_name(),
                     ctx.invocation_string()
-                ))
-            })
+                )),
+            )
             .await
             {
                 error!("{}", e)
@@ -322,6 +319,7 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
             error: _,
             input,
             ctx,
+            ..
         } => {
             let s = format!(
                     "The argument you provided ({}) was incorrect. Press arrow up \u{2191} to change the arguments and press Enter when you're done.",

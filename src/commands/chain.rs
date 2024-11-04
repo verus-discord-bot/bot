@@ -4,7 +4,10 @@ use std::{
 };
 
 use chrono::{DateTime, Duration, Utc};
-use poise::serenity_prelude::Colour;
+use poise::{
+    serenity_prelude::{Colour, CreateEmbed, CreateEmbedFooter},
+    CreateReply,
+};
 use serde::Deserialize;
 use tracing::{debug, instrument};
 use uuid::Uuid;
@@ -26,26 +29,30 @@ pub async fn chaininfo(ctx: Context<'_>) -> Result<(), Error> {
         false => "Verus",
     };
 
-    ctx.send(|reply| {
-        reply
-            .embed(|embed| {
-                embed
+    ctx.send(
+        CreateReply::default()
+            .embed(
+                CreateEmbed::new()
                     .title(format!("{} info", testnet_name))
-                    .field("height", blockchain_info.blocks, false)
-                    .field("difficulty", blockchain_info.difficulty, false)
+                    .field("height", blockchain_info.blocks.to_string(), false)
+                    .field("difficulty", blockchain_info.difficulty.to_string(), false)
                     .field(
                         "amount staking",
-                        Amount::from_vrsc(mining_info.stakingsupply).unwrap(),
+                        Amount::from_vrsc(mining_info.stakingsupply)
+                            .unwrap()
+                            .to_string_in(vrsc::Denomination::Verus),
                         false,
                     )
                     .field(
                         "average block fees",
-                        Amount::from_vrsc(mining_info.averageblockfees).unwrap(),
+                        Amount::from_vrsc(mining_info.averageblockfees)
+                            .unwrap()
+                            .to_string_in(vrsc::Denomination::Verus),
                         false,
-                    )
-            })
-            .ephemeral(true)
-    })
+                    ),
+            )
+            .ephemeral(true),
+    )
     .await?;
 
     Ok(())
@@ -63,16 +70,14 @@ pub async fn peerinfo(ctx: Context<'_>) -> Result<(), Error> {
         .filter(|peer| peer.inbound == false)
         .collect::<Vec<_>>();
 
-    ctx.send(|reply| {
-        reply.ephemeral(true).content(format!(
+    ctx.send(CreateReply::default().ephemeral(true).content(format!(
             "Publicly available peers:```{}```",
             peer_info
                 .into_iter()
                 .map(|peer| peer.addr)
                 .collect::<Vec<_>>()
                 .join("\n"),
-        ))
-    })
+        )))
     .await?;
 
     Ok(())
@@ -122,9 +127,9 @@ pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
         .unwrap_or(0.0)
         .is_sign_positive();
 
-    ctx.send(|reply| {
-        reply.embed(|embed| {
-            embed
+    ctx.send(
+        CreateReply::default().embed(
+            CreateEmbed::new()
                 .title("VRSC price information")
                 .field("USD price", format!("$ {:.4} ", &usd_price), true)
                 .field("BTC price", format!("₿ {:.8} ", &btc_price), true)
@@ -133,7 +138,8 @@ pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
                     resp.quotes
                         .get("USD")
                         .and_then(|obj| Some(obj.percent_from_price_ath))
-                        .unwrap_or(0.0),
+                        .unwrap_or(0.0)
+                        .to_string(),
                     false,
                 )
                 .field("Volume 24h (USD)", format!("{:.8}", &usd_volume), false)
@@ -143,13 +149,12 @@ pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
                     true => Colour::DARK_GREEN,
                     false => Colour::RED,
                 })
-                .footer(|footer| {
-                    footer
-                        .text("Data from CoinPaprika")
-                        .icon_url("https://i.imgur.com/wwH60Uf.png")
-                })
-        })
-    })
+                .footer(
+                    CreateEmbedFooter::new("Data from CoinPaprika")
+                        .icon_url("https://i.imgur.com/wwH60Uf.png"),
+                ),
+        ),
+    )
     .await?;
 
     Ok(())
@@ -176,21 +181,21 @@ pub async fn currency(ctx: Context<'_>, name: String) -> Result<(), Error> {
             false,
         ));
 
-        ctx.send(|reply| {
-            reply.embed(|embed| {
-                embed
+        ctx.send(
+            CreateReply::default().embed(
+                CreateEmbed::new()
                     .title(format!("Currency: **{}**", currency.fullyqualifiedname))
                     .fields(fields)
-                    .color(deterministic_color(currency.fullyqualifiedname))
-            })
-        })
+                    .color(deterministic_color(currency.fullyqualifiedname)),
+            ),
+        )
         .await?;
     } else {
-        ctx.send(|reply| {
-            reply
+        ctx.send(
+            CreateReply::default()
                 .content("Invalid basket or basket not found")
-                .ephemeral(true)
-        })
+                .ephemeral(true),
+        )
         .await?;
     }
 
@@ -359,22 +364,22 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
                 ))
             }
 
-            ctx.send(|reply| {
-                reply.embed(|embed| {
-                    embed
+            ctx.send(
+                CreateReply::default().embed(
+                    CreateEmbed::new()
                         .title(format!("Basket: **{}**", currency.fullyqualifiedname))
                         .fields(fields)
-                        .color(deterministic_color(currency.fullyqualifiedname))
-                })
-            })
+                        .color(deterministic_color(currency.fullyqualifiedname)),
+                ),
+            )
             .await?;
         }
     } else {
-        ctx.send(|reply| {
-            reply
+        ctx.send(
+            CreateReply::default()
                 .content("Invalid basket or basket not found")
-                .ephemeral(true)
-        })
+                .ephemeral(true),
+        )
         .await?;
     }
 
@@ -444,9 +449,9 @@ pub async fn halving(ctx: Context<'_>) -> Result<(), Error> {
 
     let time_to_halving = time_until_block(blocks, next_halving);
 
-    ctx.send(|reply| {
-        reply.embed(|embed| {
-            embed
+    ctx.send(
+        CreateReply::default().embed(
+            CreateEmbed::new()
                 .title("Next Verus halving")
                 .field(
                     " ",
@@ -454,9 +459,9 @@ pub async fn halving(ctx: Context<'_>) -> Result<(), Error> {
                         .map_or(DateTime::<Utc>::default().to_rfc2822(), |f| f.to_rfc2822()),
                     false,
                 )
-                .color(Colour::GOLD)
-        })
-    })
+                .color(Colour::GOLD),
+        ),
+    )
     .await?;
 
     Ok(())
@@ -491,14 +496,14 @@ pub async fn time_of_block(ctx: Context<'_>, block: u64) -> Result<(), Error> {
         ))
     };
 
-    ctx.send(|reply| {
-        reply.embed(|embed| {
-            embed
+    ctx.send(
+        CreateReply::default().embed(
+            CreateEmbed::new()
                 .title(format!("Time of block {block}"))
                 .fields(fields)
-                .color(Colour::BLURPLE)
-        })
-    })
+                .color(Colour::BLURPLE),
+        ),
+    )
     .await?;
 
     Ok(())

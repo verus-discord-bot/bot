@@ -1,6 +1,6 @@
 use color_eyre::Report;
 use futures::StreamExt;
-use poise::serenity_prelude::{Http, UserId};
+use poise::serenity_prelude::{CreateMessage, Http, UserId};
 use sqlx::PgPool;
 use std::collections::VecDeque;
 use std::str::FromStr;
@@ -353,10 +353,11 @@ pub async fn process_txid(
 }
 
 async fn send_deposit_dm(http: Arc<Http>, user_id: UserId, amount: Amount) -> Result<(), Error> {
-    let user = http.get_user(user_id.0).await?;
-    user.direct_message(http, |message| {
-        message.content(format!("Your deposit of {} has been processed.", amount))
-    })
+    let user = http.get_user(user_id).await?;
+    user.direct_message(
+        http,
+        CreateMessage::new().content(format!("Your deposit of {} has been processed.", amount)),
+    )
     .await?;
 
     Ok(())

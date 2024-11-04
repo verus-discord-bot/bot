@@ -19,11 +19,11 @@ use vrsc_rpc::bitcoin::Txid;
 
 pub async fn insert_discord_user(pool: &PgPool, user_id: &UserId) -> Result<(), Error> {
     sqlx::query!(
-        "INSERT INTO discord_users(discord_id) 
+        "INSERT INTO discord_users(discord_id)
         VALUES ($1) 
         ON CONFLICT (discord_id) 
         DO NOTHING",
-        user_id.0 as i64
+        user_id.get() as i64
     )
     .execute(pool)
     .await?;
@@ -46,10 +46,10 @@ pub async fn store_tip_transactions(
     let tuples = user_ids.iter().map(|user| {
         (
             uuid.to_string(),
-            user.0 as i64,
+            user.get() as i64,
             kind,
             amount.as_sat() as i64,
-            counterparty.0 as i64,
+            counterparty.get() as i64,
         )
     });
 
@@ -73,7 +73,7 @@ pub async fn store_tip_transactions(
 pub async fn get_balance_for_user(pool: &PgPool, user_id: &UserId) -> Result<Option<u64>, Error> {
     if let Some(row) = sqlx::query!(
         "SELECT balance FROM balance_vrsc WHERE discord_id = $1",
-        user_id.0 as i64
+        user_id.get() as i64
     )
     .fetch_optional(pool)
     .await?
@@ -104,7 +104,7 @@ pub async fn process_a_tip(
 
     let tuples = to_users
         .iter()
-        .map(|user| (user.0 as i64, tip_amount.as_sat() as i64));
+        .map(|user| (user.get() as i64, tip_amount.as_sat() as i64));
 
     query_builder.push_values(tuples, |mut b, tuple| {
         b.push_bind(tuple.0).push_bind(tuple.1);
@@ -121,7 +121,7 @@ pub async fn process_a_tip(
         sqlx::query!(
             "UPDATE balance_vrsc SET balance = balance - $1 WHERE discord_id = $2",
             mul.as_sat() as i64,
-            from_user.0 as i64
+            from_user.get() as i64
         )
         .execute(&mut *tx)
         .await?;
@@ -152,7 +152,7 @@ pub async fn store_new_address_for_user(
         INSERT INTO addresses (discord_id, address)
         VALUES ($1, $2)
         ",
-        user_id.0 as i64,
+        user_id.get() as i64,
         &address.to_string()
     )
     .execute(pool)
@@ -167,7 +167,7 @@ pub async fn get_address_from_user(
 ) -> Result<Option<Address>, Error> {
     if let Some(row) = sqlx::query!(
         "SELECT discord_id, address FROM addresses WHERE discord_id = $1",
-        user_id.0 as i64
+        user_id.get() as i64
     )
     .fetch_optional(pool)
     .await?
@@ -189,7 +189,7 @@ pub async fn get_user_from_address(
     .fetch_optional(pool)
     .await?
     {
-        Ok(Some(UserId(row.discord_id as u64)))
+        Ok(Some(UserId::new(row.discord_id as u64)))
     } else {
         Ok(None)
     }
@@ -223,7 +223,7 @@ pub async fn increase_balance(
         VALUES ($1, $2)
         ON CONFLICT (discord_id)
         DO UPDATE SET balance = balance_vrsc.balance + $2",
-        user_id.0 as i64,
+        user_id.get() as i64,
         amount.as_sat() as i64
     )
     .execute(pool)
@@ -251,7 +251,7 @@ pub async fn decrease_balance(
         let result = sqlx::query!(
             "UPDATE balance_vrsc SET balance = balance - $1 WHERE discord_id = $2",
             to_decrease.as_sat() as i64,
-            user_id.0 as i64
+            user_id.get() as i64
         )
         .execute(pool)
         .await;
@@ -281,7 +281,7 @@ pub async fn store_deposit_transaction(
     sqlx::query!(
         "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, transaction_action) VALUES ($1, $2, $3, $4)",
         uuid.to_string(),
-        user_id.0 as i64,
+        user_id.get() as i64,
         tx_hash.to_string(),
         "deposit"
         )
@@ -307,7 +307,7 @@ pub async fn store_withdraw_transaction(
     sqlx::query!(
         "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, opid, transaction_action, fee) VALUES ($1, $2, $3, $4, $5, $6)",
         uuid.to_string(),
-        user_id.0 as i64,
+        user_id.get() as i64,
         tx_hash,
         opid,
         "withdraw",
@@ -354,7 +354,7 @@ pub async fn update_notifications(
     sqlx::query!(
         "UPDATE discord_users SET notifications = ($1) WHERE discord_id = ($2)",
         notification,
-        user_id.0 as i64
+        user_id.get() as i64
     )
     .execute(pool)
     .await?;
@@ -368,7 +368,7 @@ pub async fn get_notification_settings(
 ) -> Result<Vec<(i64, Notification)>, Error> {
     let users = user_ids
         .iter()
-        .map(|user| user.0 as i64)
+        .map(|user| user.get() as i64)
         .collect::<Vec<_>>();
     let rows = sqlx::query!(
         "SELECT discord_id, notifications FROM discord_users WHERE discord_id IN (SELECT * FROM UNNEST($1::bigint[]))",
@@ -387,7 +387,7 @@ pub async fn get_notification_settings(
 pub async fn get_blacklist_status(pool: &PgPool, user_id: UserId) -> Result<Option<bool>, Error> {
     if let Some(row) = sqlx::query!(
         "SELECT blacklisted FROM discord_users WHERE discord_id = $1",
-        user_id.0 as i64
+        user_id.get() as i64
     )
     .fetch_optional(pool)
     .await?
@@ -407,7 +407,7 @@ pub async fn set_blacklist_status(
     sqlx::query!(
         "UPDATE discord_users SET blacklisted = $1 WHERE discord_id = $2",
         blacklist,
-        user_id.0 as i64
+        user_id.get() as i64
     )
     .execute(pool)
     .await?;
