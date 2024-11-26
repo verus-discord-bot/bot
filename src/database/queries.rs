@@ -40,6 +40,7 @@ pub async fn store_tip_transactions(
     amount: &Amount,
     counterparty: UserId, // this is always a user
 ) -> Result<(), Error> {
+    // TODO make this a transaction
     let mut query_builder: QueryBuilder<Postgres> =
         QueryBuilder::new("INSERT INTO tips_vrsc(uuid, discord_id, kind, amount, counterparty) ");
 
@@ -97,6 +98,7 @@ pub async fn process_a_tip(
     to_users: &Vec<UserId>,
     tip_amount: &Amount,
 ) -> Result<(), Error> {
+    // TODO make this a transaction
     let mut tx = pool.begin().await?;
 
     let mut query_builder: QueryBuilder<Postgres> =
@@ -195,9 +197,10 @@ pub async fn get_user_from_address(
     }
 }
 
-pub async fn transaction_processed(pool: &PgPool, txid: &Txid) -> Result<bool, Error> {
+pub async fn transaction_processed(pool: &PgPool, currency_id: &Address, txid: &Txid) -> Result<bool, Error> {
     let transaction_query = sqlx::query!(
-        "SELECT * FROM transactions_vrsc WHERE transaction_id = $1 AND transaction_action = 'deposit'",
+        "SELECT * FROM transactions WHERE currency_id = $1 AND transaction_id = $2 AND transaction_action = 'deposit'",
+        currency_id.to_string(),
         &txid.to_string()
     )
     .fetch_optional(pool)
@@ -275,12 +278,14 @@ pub async fn decrease_balance(
 pub async fn store_deposit_transaction(
     pool: &PgPool,
     uuid: &Uuid,
+    currency_id: &Address,
     user_id: &UserId,
     tx_hash: &Txid,
 ) -> Result<(), Error> {
     sqlx::query!(
-        "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, transaction_action) VALUES ($1, $2, $3, $4)",
-        uuid.to_string(),
+        "INSERT INTO transactions (id, currency_id, discord_id, transaction_id, transaction_action) VALUES ($1, $2, $3, $4, $5)",
+        uuid,
+        currency_id.to_string(),
         user_id.get() as i64,
         tx_hash.to_string(),
         "deposit"
@@ -294,6 +299,7 @@ pub async fn store_deposit_transaction(
 pub async fn store_withdraw_transaction(
     pool: &PgPool,
     uuid: &Uuid,
+    currency_id: &Address,
     user_id: &UserId,
     tx_hash: Option<&Txid>,
     opid: &str,
@@ -305,8 +311,9 @@ pub async fn store_withdraw_transaction(
         String::from("")
     };
     sqlx::query!(
-        "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, opid, transaction_action, fee) VALUES ($1, $2, $3, $4, $5, $6)",
-        uuid.to_string(),
+        "INSERT INTO transactions (id, currency_id, discord_id, transaction_id, opid, transaction_action, fee) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        uuid,
+        currency_id.to_string(),
         user_id.get() as i64,
         tx_hash,
         opid,
@@ -419,7 +426,7 @@ pub async fn store_unprocessed_transaction(pool: &PgPool, txid: &Txid) -> Result
     sqlx::query!(
         "INSERT INTO unprocessed_transactions (txid, status) VALUES ($1, $2)",
         &txid.to_string(),
-        "unprocessed"
+        "unprocessed" // TODO make this proper enum
     )
     .execute(pool)
     .await?;
@@ -463,10 +470,13 @@ pub async fn get_total_balance(pool: &PgPool) -> Result<u64, Error> {
     Ok(0)
 }
 
-pub async fn get_total_tipped(pool: &PgPool) -> Result<u64, Error> {
-    let record = sqlx::query!("SELECT SUM(CAST(amount AS BIGINT)) FROM tips_vrsc")
-        .fetch_one(pool)
-        .await?;
+pub async fn get_total_tipped(pool: &PgPool, currency_id: &Address) -> Result<u64, Error> {
+    let record = sqlx::query!(
+        "SELECT SUM(CAST(amount AS BIGINT)) FROM tips WHERE currency_id = $1",
+        currency_id.to_string()
+    )
+    .fetch_one(pool)
+    .await?;
 
     if let Some(total) = record.sum {
         return Ok(total.to_u64().unwrap());
@@ -475,10 +485,13 @@ pub async fn get_total_tipped(pool: &PgPool) -> Result<u64, Error> {
     Ok(0)
 }
 
-pub async fn get_largest_tip(pool: &PgPool) -> Result<u64, Error> {
-    let record = sqlx::query!("SELECT MAX(amount) FROM tips_vrsc")
-        .fetch_one(pool)
-        .await?;
+pub async fn get_largest_tip(pool: &PgPool, currency_id: &Address) -> Result<u64, Error> {
+    let record = sqlx::query!(
+        "SELECT MAX(amount) FROM tips where currency_id = $1",
+        currency_id.to_string()
+    )
+    .fetch_one(pool)
+    .await?;
 
     if let Some(max) = record.max {
         return Ok(max.to_u64().unwrap());
@@ -487,9 +500,10 @@ pub async fn get_largest_tip(pool: &PgPool) -> Result<u64, Error> {
     Ok(0)
 }
 
-pub async fn get_all_txids(pool: &PgPool, transaction_action: &str) -> Result<Vec<Txid>, Error> {
+pub async fn get_all_txids(pool: &PgPool, currency_id: &Address, transaction_action: &str) -> Result<Vec<Txid>, Error> {
     let rows = sqlx::query!(
-        "SELECT transaction_id FROM transactions_vrsc WHERE transaction_action = $1",
+        "SELECT transaction_id FROM transactions WHERE currency_id = $1 AND transaction_action = $2",
+        currency_id.to_string(), 
         transaction_action
     )
     .fetch_all(pool)

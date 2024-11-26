@@ -11,7 +11,7 @@ use vrsc::Amount;
 
 use crate::{
     commands::{misc::Notification, user_blacklisted},
-    util::database::{self},
+    database::queries::{self},
     wallet::get_and_check_balance,
     Context, Error,
 };
@@ -122,11 +122,11 @@ async fn user(
     {
         trace!("tipper has enough balance");
 
-        database::process_a_tip(pool, &ctx.author().id, &vec![user.id], &tip_amount).await?;
+        queries::process_a_tip(pool, &ctx.author().id, &vec![user.id], &tip_amount).await?;
 
         // tips are only stored one way: counterparty is the sender of the tip.
         let tip_event_id = Uuid::new_v4();
-        database::store_tip_transactions(
+        queries::store_tip_transactions(
             pool,
             &tip_event_id,
             &vec![user.id],
@@ -136,7 +136,7 @@ async fn user(
         )
         .await?;
 
-        match database::get_notification_settings(&pool, &vec![user.id])
+        match queries::get_notification_settings(&pool, &vec![user.id])
             .await?
             .first()
         {
@@ -304,7 +304,7 @@ pub async fn reactdrop(
             let channel_id = ctx.channel_id();
             let message_id = msg.id;
 
-            database::insert_reactdrop(
+            queries::insert_reactdrop(
                 &ctx.data().database,
                 ctx.author().id.try_into()?,
                 reaction_type.to_string(),
@@ -353,12 +353,12 @@ pub async fn tip_multiple_users(
 
         let tip_event_id = Uuid::new_v4();
 
-        database::process_a_tip(pool, &author, &users, &div_tip_amount).await?;
+        queries::process_a_tip(pool, &author, &users, &div_tip_amount).await?;
 
-        database::store_tip_transactions(pool, &tip_event_id, users, kind, &div_tip_amount, author)
+        queries::store_tip_transactions(pool, &tip_event_id, users, kind, &div_tip_amount, author)
             .await?;
 
-        let notification_settings = database::get_notification_settings(pool, &users).await?;
+        let notification_settings = queries::get_notification_settings(pool, &users).await?;
 
         for (user_id, notification) in notification_settings {
             match (user_id, notification) {

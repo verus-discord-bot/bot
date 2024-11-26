@@ -11,7 +11,7 @@ use sqlx::{
 use tracing::{debug, error, info, trace};
 use vrsc::Amount;
 
-use crate::{commands, util::database, Error};
+use crate::{commands, database::queries, Error};
 
 #[derive(Debug)]
 pub enum ReactdropState {
@@ -50,7 +50,7 @@ pub struct Reactdrop {
 }
 
 pub async fn check_running_reactdrops(ctx: &Context, pool: &PgPool) -> Result<(), Error> {
-    let pending_reactdrops = database::get_pending_reactdrops(&pool).await?;
+    let pending_reactdrops = queries::get_pending_reactdrops(&pool).await?;
 
     let now = chrono::Utc::now();
     debug!(
@@ -163,7 +163,7 @@ pub async fn check_running_reactdrops(ctx: &Context, pool: &PgPool) -> Result<()
                 )
                 .await?;
 
-            database::update_reactdrop(
+            queries::update_reactdrop(
                 &pool,
                 reactdrop.channel_id.get() as i64,
                 reactdrop.message_id.get() as i64,

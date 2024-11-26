@@ -7,7 +7,7 @@ use poise::{
 use tracing::instrument;
 use uuid::Uuid;
 
-use crate::{util::database, Context, Error};
+use crate::{database::queries, Context, Error};
 
 /// Show information about this bot.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
@@ -106,7 +106,7 @@ pub async fn register(ctx: Context<'_>, #[flag] global: bool) -> Result<(), Erro
 #[poise::command(track_edits, slash_command, category = "Miscellaneous")]
 pub async fn notifications(ctx: Context<'_>, notifications: Notification) -> Result<(), Error> {
     let pool = &ctx.data().database;
-    database::update_notifications(&pool, &ctx.author().id, &notifications.to_string()).await?;
+    queries::update_notifications(&pool, &ctx.author().id, &notifications.to_string()).await?;
 
     ctx.send(CreateReply::default().ephemeral(true).content(format!(
         "You successfully set notifications to: {}",

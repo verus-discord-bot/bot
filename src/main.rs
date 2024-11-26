@@ -1,12 +1,11 @@
 pub mod commands;
 pub mod config;
+pub mod database;
 pub mod reactdrop;
-pub mod util;
 pub mod wallet_listener;
 
 use crate::{
     config::{get_configuration, Config},
-    util::database,
     wallet_listener::TransactionProcessor,
 };
 use commands::*;
@@ -125,7 +124,7 @@ async fn app() -> Result<(), Error> {
         pre_command: |ctx| {
             Box::pin(async move {
                 let pool = &ctx.data().database;
-                database::insert_discord_user(pool, &ctx.author().id)
+                database::queries::insert_discord_user(pool, &ctx.author().id)
                     .await
                     .expect("a discord_user to be added to the database");
 

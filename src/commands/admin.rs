@@ -3,14 +3,14 @@ use poise::{
     CreateReply,
 };
 use sqlx::PgPool;
-use std::{sync::Arc, time::Duration};
+use std::{str::FromStr, sync::Arc, time::Duration};
 use tracing::{debug, error, instrument, trace};
 use uuid::Uuid;
-use vrsc::Amount;
+use vrsc::{Address, Amount};
 use vrsc_rpc::{bitcoin::Txid, client::RpcApi};
 
 use crate::{
-    util::database,
+    database::queries,
     wallet_listener::{process_txid, TransactionProcessor},
     Context, Error,
 };
@@ -39,13 +39,14 @@ pub async fn adminhelp(ctx: Context<'_>) -> Result<(), Error> {
 #[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
     let pool = &ctx.data().database;
+    let vrsc_currency_id = Address::from_str("i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV").unwrap();
 
     let maintenance = *ctx.data().tx_processor.maintenance.read().await;
     let deposits_enabled = *ctx.data().tx_processor.deposits_enabled.read().await;
     let withdrawals_enabled = *ctx.data().withdrawals_enabled.read().await;
-    let total_balance = Amount::from_sat(database::get_total_balance(pool).await?);
-    let total_tipped = Amount::from_sat(database::get_total_tipped(pool).await?);
-    let largest_tip = Amount::from_sat(database::get_largest_tip(pool).await?);
+    let total_balance = Amount::from_sat(queries::get_total_balance(pool).await?);
+    let total_tipped = Amount::from_sat(queries::get_total_tipped(pool, &vrsc_currency_id).await?);
+    let largest_tip = Amount::from_sat(queries::get_largest_tip(pool, &vrsc_currency_id).await?);
     let total_deposited = totaldeposited(ctx).await?;
     let total_withdrawn = totalwithdrawn(ctx).await?;
 
@@ -109,18 +110,21 @@ async fn totaldeposited(ctx: Context<'_>) -> Result<Amount, Error> {
 
     let pool = &ctx.data().database;
     let client = ctx.data().verus()?;
+    let currency_id = Address::from_str("i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV").unwrap();
 
-    let deposit_transactions = database::get_all_txids(&pool, "deposit").await?;
+    let deposit_transactions = queries::get_all_txids(&pool, &currency_id, "deposit").await?;
 
     let mut sum = Amount::ZERO;
 
+    // TODO refactor this logic
+    // store deposit amount in database
     for txid in deposit_transactions {
         let raw_tx = client.get_raw_transaction_verbose(&txid)?;
 
         for vout in raw_tx.vout.iter() {
             if let Some(addresses) = &vout.script_pubkey.addresses {
                 for address in addresses {
-                    if let Some(user_id) = database::get_user_from_address(&pool, address).await? {
+                    if let Some(user_id) = queries::get_user_from_address(&pool, address).await? {
                         trace!("there is a user for this address: {user_id}",);
                         sum = sum.checked_add(vout.value_sat).unwrap();
                     }
@@ -139,11 +143,14 @@ pub async fn totalwithdrawn(ctx: Context<'_>) -> Result<Amount, Error> {
 
     let pool = &ctx.data().database;
     let client = ctx.data().verus()?;
+    let currency_id = Address::from_str("i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV").unwrap();
 
-    let withdraw_transactions = database::get_all_txids(&pool, "withdraw").await?;
+    let withdraw_transactions = queries::get_all_txids(&pool, &currency_id, "withdraw").await?;
 
     let mut sum = Amount::ZERO;
 
+    // TODO refactor this logic
+    // store withdraw amount in database
     for txid in withdraw_transactions {
         let raw_tx = client.get_raw_transaction_verbose(&txid)?;
         let vout = raw_tx.vout.first().unwrap();
@@ -160,9 +167,9 @@ pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
     debug!("no more fun for {user_id}");
     let pool = &ctx.data().database;
 
-    if let Some(status) = database::get_blacklist_status(&pool, user_id).await? {
+    if let Some(status) = queries::get_blacklist_status(&pool, user_id).await? {
         if status == true {
-            database::set_blacklist_status(&pool, user_id, false).await?;
+            queries::set_blacklist_status(&pool, user_id, false).await?;
             if let Ok(mut blacklist) = ctx.data().blacklist.lock() {
                 blacklist.remove(&user_id);
             }
@@ -172,7 +179,7 @@ pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
             .await?;
             trace!("{user_id} has been removed from blacklist");
         } else {
-            database::set_blacklist_status(&pool, user_id, true).await?;
+            queries::set_blacklist_status(&pool, user_id, true).await?;
             if let Ok(mut blacklist) = ctx.data().blacklist.lock() {
                 blacklist.insert(user_id);
             }
@@ -299,12 +306,14 @@ pub async fn manuallyaddwithdraw(
     trace!("manually add withdraw: {txid}");
     let pool = &ctx.data().database;
     let uuid = Uuid::new_v4();
+    let currency_id = Address::from_str("i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV").unwrap();
 
-    debug!("manually storing withdraw transaction: {uuid}: {user_id} - {txid} ({tx_fee})");
+    debug!("manually storing withdraw transaction: {uuid}: {user_id} - {txid} (fee: {tx_fee})");
 
-    database::store_withdraw_transaction(
+    queries::store_withdraw_transaction(
         pool,
         &uuid,
+        &currency_id,
         &user_id,
         Some(&txid),
         &format!("opid-{uuid}"),
@@ -351,7 +360,7 @@ async fn process_stored_txids(
     pool: &PgPool,
     tx_proc: Arc<TransactionProcessor>,
 ) -> Result<(), Error> {
-    let stored_txids = database::get_stored_txids(&pool).await?;
+    let stored_txids = queries::get_stored_txids(&pool).await?;
 
     for txid in stored_txids {
         trace!("processing {txid}");
@@ -362,7 +371,7 @@ async fn process_stored_txids(
         tx_proc.process_long_queue().await?;
         tx_proc.process_short_queue().await?;
 
-        database::set_stored_txid_to_processed(&pool, &txid).await?;
+        queries::set_stored_txid_to_processed(&pool, &txid).await?;
     }
 
     Ok(())

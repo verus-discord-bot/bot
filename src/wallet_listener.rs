@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, instrument, trace, warn};
 use uuid::Uuid;
-use vrsc::Amount;
+use vrsc::{Address, Amount};
 use vrsc_rpc::bitcoin::Txid;
 use vrsc_rpc::json::GetRawTransactionResultVerbose;
 use vrsc_rpc::{
@@ -17,7 +17,7 @@ use vrsc_rpc::{
 };
 
 use crate::config::Config;
-use crate::util::database::*;
+use crate::database::queries::*;
 use crate::Error;
 
 /// Listens for wallet transactions and processes them.
@@ -321,7 +321,9 @@ pub async fn process_txid(
     pool: &PgPool,
     raw_tx: &GetRawTransactionResultVerbose,
 ) -> Result<(), Error> {
-    if !transaction_processed(&pool, &raw_tx.txid).await? {
+    let currency_id = Address::from_str("i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV").unwrap();
+
+    if !transaction_processed(&pool, &currency_id, &raw_tx.txid).await? {
         for vout in raw_tx.vout.iter() {
             if let Some(addresses) = &vout.script_pubkey.addresses {
                 for address in addresses {
@@ -330,9 +332,14 @@ pub async fn process_txid(
                         if let Err(e) = increase_balance(&pool, &user_id, vout.value_sat).await {
                             error!("something went wrong while increasing a user's balance\nuser: {user_id} txid: {} vout: {} \nerror: {:?}", &raw_tx.txid, vout.n, e)
                         } else {
-                            if let Err(e) =
-                                store_deposit_transaction(&pool, &uuid, &user_id, &raw_tx.txid)
-                                    .await
+                            if let Err(e) = store_deposit_transaction(
+                                &pool,
+                                &uuid,
+                                &currency_id,
+                                &user_id,
+                                &raw_tx.txid,
+                            )
+                            .await
                             {
                                 error!("something went wrong while storing a transaction to the database: {:?}", e)
                             } else {
