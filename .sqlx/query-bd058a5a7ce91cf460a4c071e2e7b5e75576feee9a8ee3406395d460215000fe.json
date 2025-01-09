@@ -42,6 +42,11 @@
         "ordinal": 7,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "amount",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
@@ -57,7 +62,8 @@
       false,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
   "hash": "bd058a5a7ce91cf460a4c071e2e7b5e75576feee9a8ee3406395d460215000fe"
