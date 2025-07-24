@@ -26,3 +26,4 @@ async fn user_blacklisted(ctx: Context<'_>, user_id: UserId) -> Result<bool, Err
 
     Ok(false)
 }
+

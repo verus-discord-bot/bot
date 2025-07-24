@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 use std::{cmp::Ordering, ops::Sub, str::FromStr, time::Duration};
 
-use fast_qr::convert::{image::ImageBuilder, Builder, Shape};
+use fast_qr::convert::{Builder, Shape, image::ImageBuilder};
 use fast_qr::qr::QRBuilder;
-use poise::serenity_prelude::CreateEmbed;
 use poise::CreateReply;
+use poise::serenity_prelude::CreateEmbed;
 use sqlx::PgPool;
 use tracing::*;
 use uuid::Uuid;
@@ -15,7 +15,7 @@ use vrsc_rpc::{
 };
 
 use crate::commands::user_blacklisted;
-use crate::{util::database, Context, Error};
+use crate::{Context, Error, util::database};
 
 /// Withdraw funds from the tipbot wallet.
 ///
@@ -92,13 +92,16 @@ pub async fn all(
         let withdrawal_amount = balance_amount.sub(*tx_fee); // no need to check for underflow, tx_fee is always low.
 
         if withdrawal_amount > Amount::ZERO {
-            debug!("withdrawal_amount: {withdrawal_amount}, tx_fee: {tx_fee} must together be balance_amount: {balance_amount}");
+            debug!(
+                "withdrawal_amount: {withdrawal_amount}, tx_fee: {tx_fee} must together be balance_amount: {balance_amount}"
+            );
 
             let currency = match ctx.data().settings.application.testnet {
                 true => Some("vrsctest"),
                 false => None,
             };
-            let sco = SendCurrencyOutput::new(currency, &withdrawal_amount, &destination);
+            let sco =
+                SendCurrencyOutput::new(currency, &withdrawal_amount, &destination, None, None);
             let opid = client.send_currency("*", vec![sco], None, None)?;
             debug!("sendcurrency opid: {:?}", &opid);
 
@@ -114,7 +117,9 @@ pub async fn all(
                 )
                 .await?;
 
-                trace!("transaction {txid} stored in db, now decrease balance with ({withdrawal_amount} + {tx_fee})");
+                trace!(
+                    "transaction {txid} stored in db, now decrease balance with ({withdrawal_amount} + {tx_fee})"
+                );
                 database::decrease_balance(&pool, &ctx.author().id, &withdrawal_amount, &tx_fee)
                     .await?;
 
@@ -261,7 +266,7 @@ pub async fn amount(
             true => Some("vrsctest"),
             false => None,
         };
-        let sco = SendCurrencyOutput::new(currency, &withdrawal_amount, &destination);
+        let sco = SendCurrencyOutput::new(currency, &withdrawal_amount, &destination, None, None);
         let opid = client.send_currency("*", vec![sco], None, None)?;
         debug!("sendcurrency opid: {:?}", &opid);
 
@@ -308,8 +313,10 @@ pub async fn amount(
         } else {
             // at this point, the sendcurrency didn't finish. Maybe it went through, but we don't know.
             // We should check this manually, so we'll let the user know to contact support and we'll store the op-id in the database.
-            let response = format!("Something went wrong trying to process your withdrawal. Please contact support with withdrawal ID: {}",
-                uuid.to_string());
+            let response = format!(
+                "Something went wrong trying to process your withdrawal. Please contact support with withdrawal ID: {}",
+                uuid.to_string()
+            );
 
             database::store_withdraw_transaction(
                 &pool,
