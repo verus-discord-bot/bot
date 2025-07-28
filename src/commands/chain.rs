@@ -20,9 +20,10 @@ use vrsc_rpc::{
 
 use crate::{Context, Error};
 
-#[poise::command(prefix_command, category = "Miscellaneous")]
+/// The price of VRSC / tBTC.vETH in the NATI:owl: basket
+#[poise::command(slash_command, category = "Miscellaneous")]
 pub async fn vrscbtc(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.defer_ephemeral().await?;
+    ctx.defer().await?;
     let verus_client = ctx.data().verus()?;
 
     let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
@@ -33,7 +34,6 @@ pub async fn vrscbtc(ctx: Context<'_>) -> Result<(), Error> {
     ctx.send(
         CreateReply::default()
             .embed(CreateEmbed::new().image(format!("attachment://{filename}")))
-            .ephemeral(true)
             .attachment(poise::serenity_prelude::CreateAttachment::path(&out_file).await?),
     )
     .await?;
@@ -41,9 +41,10 @@ pub async fn vrscbtc(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-#[poise::command(prefix_command, category = "Miscellaneous")]
+/// The price of VRSC / vETH in the NATI:owl: basket
+#[poise::command(slash_command, category = "Miscellaneous")]
 pub async fn vrsceth(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.defer_ephemeral().await?;
+    ctx.defer().await?;
     let verus_client = ctx.data().verus()?;
 
     let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
@@ -54,7 +55,6 @@ pub async fn vrsceth(ctx: Context<'_>) -> Result<(), Error> {
     ctx.send(
         CreateReply::default()
             .embed(CreateEmbed::new().image(format!("attachment://{filename}")))
-            .ephemeral(true)
             .attachment(poise::serenity_prelude::CreateAttachment::path(&out_file).await?),
     )
     .await?;
