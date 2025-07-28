@@ -1,26 +1,27 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "verusbot"
 version = "0.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chrono = { version = "0.4.38", features = ["rkyv"] }
-color-eyre = "0.6.2"
-config = { version = "0.14.1", default-features = false, features = ["toml"] }
+chrono = { version = "0.4.41", features = ["rkyv"] }
+color-eyre = "0.6.5"
+config = { version = "0.15.13", default-features = false, features = ["toml"] }
 poise = { features = ["cache"], version = "0.6.1" }
-emojis = "0.6.4"
-fancy-regex = "0.14.0"
-fast_qr = { version = "0.12.6", features = ["image"] }
+emojis = "0.7.0"
+fancy-regex = "0.15.0"
+fast_qr = { version = "0.13.1", features = ["image"] }
 futures = "0.3.31"
 num-traits = "0.2.15"
-reqwest = { version = "0.12.9", features = ["json"] }
+plotters = "0.3.7"
+reqwest = { version = "0.12.22", features = ["json"] }
 secrecy = { version = "0.10", features = ["serde"] }
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0.219", features = ["derive"] }
 serde-aux = "4.2.0"
-serde_json = "1.0"
-tokio = { version = "1.41.0", features = ["macros", "rt-multi-thread", "net"] }
+serde_json = "1.0.141"
+tokio = { version = "1.46.1", features = ["macros", "rt-multi-thread", "net"] }
 thousands = "0.2.0"
 tmq = { version = "0.5.0" }
 tracing = "0.1.37"
@@ -30,9 +31,9 @@ tracing-subscriber = { version = "0.3.17", features = [
     "json",
 ] }
 tracing-appender = "0.2.2"
-uuid = { version = "1.11.0", features = ["v4"] }
+uuid = { version = "1.17.0", features = ["v4"] }
 vrsc = "0.0.1"
-vrsc-rpc = { git = "https://github.com/jorian/rust-vrsc-rpc", rev = "4c19eb0c" }
+vrsc-rpc = { git = "https://github.com/jorian/rust-vrsc-rpc" }
 
 [dependencies.sqlx]
 default-features = false
@@ -45,4 +46,4 @@ features = [
     "chrono",
     "runtime-tokio-rustls",
 ]
-version = "0.8.2"
+version = "0.8.6"

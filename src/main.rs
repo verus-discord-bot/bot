@@ -5,14 +5,14 @@ pub mod util;
 pub mod wallet_listener;
 
 use crate::{
-    config::{get_configuration, Config},
+    config::{Config, get_configuration},
     util::database,
     wallet_listener::TransactionProcessor,
 };
 use commands::*;
 use poise::{
-    serenity_prelude::{self as serenity, ChannelId, ClientBuilder, CreateMessage, UserId},
     CreateReply,
+    serenity_prelude::{self as serenity, ChannelId, ClientBuilder, CreateMessage, UserId},
 };
 use secrecy::ExposeSecret;
 use sqlx::PgPool;
@@ -22,12 +22,12 @@ use std::{
     time::Duration,
 };
 use tokio::{sync::RwLock, time::interval};
-use tracing::{debug, error, info, instrument, warn, Level};
+use tracing::{Level, debug, error, info, instrument, warn};
 use tracing_subscriber::{
+    EnvFilter,
     fmt::{self, writer::MakeWriterExt},
     layer::SubscriberExt,
     util::SubscriberInitExt,
-    EnvFilter,
 };
 use vrsc::{Address, Amount};
 use vrsc_rpc::client::{Client as VerusClient, RpcApi};
@@ -81,6 +81,9 @@ async fn app() -> Result<(), Error> {
             misc::source(),
             misc::register(),
             misc::notifications(),
+            // chain::chart(),
+            chain::vrscbtc(),
+            chain::vrsceth(),
             chain::chaininfo(),
             chain::peerinfo(),
             chain::price(),
@@ -322,9 +325,9 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
             ..
         } => {
             let s = format!(
-                    "The argument you provided ({}) was incorrect. Press arrow up \u{2191} to change the arguments and press Enter when you're done.",
-                     input.unwrap()
-                );
+                "The argument you provided ({}) was incorrect. Press arrow up \u{2191} to change the arguments and press Enter when you're done.",
+                input.unwrap()
+            );
             if let Err(e) = ctx.say(s).await {
                 warn!("{}", e)
             }
@@ -378,13 +381,6 @@ impl Data {
 }
 
 fn log_setup() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var(
-            "RUST_LOG",
-            "verusbot=info,vrsc-rpc=info,poise=info,serenity=info",
-        )
-    }
-
     let filter_layer = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new("info"))
         .unwrap();

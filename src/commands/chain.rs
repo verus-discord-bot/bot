@@ -1,20 +1,277 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{HashMap, hash_map::DefaultHasher},
     hash::Hasher,
 };
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Datelike, Duration, Utc};
+use plotters::prelude::*;
 use poise::{
-    serenity_prelude::{Colour, CreateEmbed, CreateEmbedFooter},
     CreateReply,
+    serenity_prelude::{Colour, CreateEmbed, CreateEmbedFooter},
 };
 use serde::Deserialize;
 use tracing::{debug, instrument};
 use uuid::Uuid;
 use vrsc::Amount;
-use vrsc_rpc::{client::RpcApi, json::GetCurrencyStateResult};
+use vrsc_rpc::{
+    client::{Client, RpcApi},
+    json::GetCurrencyStateResult,
+};
 
 use crate::{Context, Error};
+
+#[poise::command(prefix_command, category = "Miscellaneous")]
+pub async fn vrscbtc(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.defer_ephemeral().await?;
+    let verus_client = ctx.data().verus()?;
+
+    let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
+    let out_file = format!("plotters-doc-data/{filename}");
+
+    get_chart(&verus_client, "VRSC", "tBTC.vETH", 1440, &out_file)?;
+
+    ctx.send(
+        CreateReply::default()
+            .embed(CreateEmbed::new().image(format!("attachment://{filename}")))
+            .ephemeral(true)
+            .attachment(poise::serenity_prelude::CreateAttachment::path(&out_file).await?),
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[poise::command(prefix_command, category = "Miscellaneous")]
+pub async fn vrsceth(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.defer_ephemeral().await?;
+    let verus_client = ctx.data().verus()?;
+
+    let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
+    let out_file = format!("plotters-doc-data/{filename}");
+
+    get_chart(&verus_client, "VRSC", "vETH", 1440, &out_file)?;
+
+    ctx.send(
+        CreateReply::default()
+            .embed(CreateEmbed::new().image(format!("attachment://{filename}")))
+            .ephemeral(true)
+            .attachment(poise::serenity_prelude::CreateAttachment::path(&out_file).await?),
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// Show information about Verus blockchain.
+#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
+#[poise::command(track_edits, slash_command, category = "Miscellaneous")]
+pub async fn chart(ctx: Context<'_>, base: String, rel: String, step: u64) -> Result<(), Error> {
+    // let step = 1440 * 20;
+    ctx.defer_ephemeral().await?;
+    let verus_client = ctx.data().verus()?;
+
+    let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
+    let out_file = format!("plotters-doc-data/{filename}");
+
+    get_chart(&verus_client, &base, &rel, step, &out_file)?;
+
+    ctx.send(
+        CreateReply::default()
+            .embed(CreateEmbed::new().image(format!("attachment://{filename}")))
+            .ephemeral(true)
+            .attachment(poise::serenity_prelude::CreateAttachment::path(&out_file).await?),
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Candle {
+    blocktime: u64,
+    open: f32,
+    high: f32,
+    low: f32,
+    close: f32,
+}
+
+fn get_chart(
+    verus_client: &Client,
+    base: &str,
+    rel: &str,
+    step: u64,
+    out_file: &str,
+) -> Result<(), Error> {
+    let data = get_data(
+        verus_client,
+        "iH37kRsdfoHtHK5TottP1Yfq8hBSHz9btw",
+        base,
+        rel,
+        step,
+        "VRSC",
+    )?;
+
+    // let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
+    // let out_file = format!("plotters-doc-data/{filename}");
+
+    {
+        let root = BitMapBackend::new(out_file, (1000, 600)).into_drawing_area();
+        root.fill(&BLACK)?;
+
+        // The data retrieved from the Verus daemon might contain gaps because of no trading
+        // in that period. We need to backfill that gap with the last known data so that the
+        // candlesticks are still populated for that height and shown (small) on the graph.
+        // let mut i = data.iter().peekable();
+        // let mut backfilled_data = vec![];
+
+        // while let Some(curr) = i.next()
+        //     && let Some(next) = i.peek()
+        // {
+        //     backfilled_data.push(*curr);
+
+        //     if (next.height - curr.height) / step > 1 {
+        //         println!(
+        //             "there's a gap: current: {}, next: {}, steps missed: {}",
+        //             curr.height,
+        //             next.height,
+        //             (next.height - curr.height) / step
+        //         );
+
+        //         for j in 1..((next.height - curr.height) / step) {
+        //             backfilled_data.push(Candle {
+        //                 height: curr.height + (step * j),
+        //                 blocktime: curr.blocktime + (step * j * 60),
+        //                 date_time: curr
+        //                     .date_time
+        //                     .checked_add_signed(TimeDelta::hours((step * j * 60) as i64))
+        //                     .unwrap(),
+        //                 open: curr.close,
+        //                 high: curr.close,
+        //                 low: curr.close,
+        //                 close: curr.close,
+        //             });
+        //         }
+        //     }
+        // }
+
+        // let data = backfilled_data;
+
+        let from = data.first().unwrap().blocktime;
+        let lowest = data
+            .iter()
+            .map(|t| t.low)
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+
+        let highest = data
+            .iter()
+            .map(|t| t.high)
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+
+        debug!(lowest, highest);
+
+        let to = data.last().unwrap().blocktime;
+
+        let mut chart = ChartBuilder::on(&root)
+            .x_label_area_size(48)
+            .y_label_area_size(175)
+            .margin_right(40)
+            .caption(
+                format!("{base} / {rel}"),
+                ("sans-serif", 50.0).into_font().color(&WHITE),
+            )
+            .build_cartesian_2d(
+                from..to,
+                // add 2 percent margin
+                (lowest - (lowest * 0.02))..highest + (highest * 0.02),
+            )?;
+
+        chart
+            .configure_mesh()
+            .bold_line_style(WHITE.mix(0.2))
+            .label_style(
+                FontDesc::new(FontFamily::SansSerif, 33.0, FontStyle::Normal).color(&WHITE),
+            )
+            .y_label_formatter(&|x| format!("{:.8}", x))
+            .x_label_formatter(&|x| {
+                let dt = DateTime::from_timestamp(*x as i64, 0).unwrap();
+
+                tracing::debug!(date = ?dt.to_rfc2822());
+
+                format!("{}-{}", dt.day(), dt.month())
+            })
+            .draw()?;
+
+        chart.draw_series(data.iter().map(|x| {
+            CandleStick::new(
+                x.blocktime,
+                x.open,
+                x.high,
+                x.low,
+                x.close,
+                GREEN.filled(),
+                RED.filled(),
+                12,
+            )
+        }))?;
+
+        // To avoid the IO failure being ignored silently, we manually call the present function
+        root.present()?;
+    }
+
+    Ok(())
+}
+
+fn get_data(
+    client: &Client,
+    currency_name: &str,
+    base: &str,
+    rel: &str,
+    step: u64,
+    denominated_currency: &str,
+) -> Result<Vec<Candle>, Error> {
+    let height = client.get_blockchain_info().unwrap().blocks;
+
+    let currency_state = client.get_currency_state(
+        currency_name,
+        Some(&format!("{},{},{step}", height - (step * 50), height)),
+        Some(denominated_currency),
+    )?;
+
+    let mut res = vec![];
+    let mut previous_row = None;
+
+    for cs in currency_state.into_iter() {
+        if let GetCurrencyStateResult::Data(ref data) = cs {
+            let blocktime = client.get_block_by_height(data.height, 2)?.time;
+            if let Some(cd) = data.conversiondata.clone() {
+                if let Some(new_row) = cd.volumepairs.into_iter().find_map(|vp| {
+                    if vp.currency == rel && vp.convertto == base {
+                        return Some(Candle {
+                            blocktime,
+                            open: vp.open.as_vrsc() as f32,
+                            high: vp.high.as_vrsc() as f32,
+                            low: vp.low.as_vrsc() as f32,
+                            close: vp.close.as_vrsc() as f32,
+                        });
+                    }
+
+                    None
+                }) {
+                    res.push(new_row.clone());
+                    previous_row = Some(new_row);
+                } else {
+                    if let Some(row) = previous_row {
+                        res.push(row);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(res)
+}
 
 /// Show information about Verus blockchain.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
@@ -177,7 +434,10 @@ pub async fn currency(ctx: Context<'_>, name: String) -> Result<(), Error> {
         ));
         fields.push((
             "Supply",
-            currency.bestcurrencystate.supply.as_vrsc().to_string(),
+            currency
+                .bestcurrencystate
+                .map_or(0.0, |cs| cs.supply.as_vrsc())
+                .to_string(),
             false,
         ));
 
@@ -213,174 +473,182 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
     let verus_client = ctx.data().verus()?;
 
     if let Ok(currency) = verus_client.get_currency(basket_name) {
-        if let Some(reserves) = currency.bestcurrencystate.reservecurrencies.as_ref() {
-            // the order of the ordered_reserve is to first always try to show currency
-            // prices expressed in DAI, if that does not exist, show it in tBTC, and
-            // if all else fails, show it in VRSC because that always is a currency.
-            let mut main_reserve = None;
-            for ordered_reserve in [
-                "iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM", // DAI.vETH
-                "iS8TfRPfVpKo5FVfSUzfHBQxo9KuzpnqLU", // tBTC.vETH
-                "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV", // VRSC (is always a reserve)
-            ] {
-                main_reserve = reserves
+        if let Some(cs) = currency.bestcurrencystate.clone().as_ref() {
+            if let Some(reserves) = cs.reservecurrencies.as_ref() {
+                // the order of the ordered_reserve is to first always try to show currency
+                // prices expressed in DAI, if that does not exist, show it in tBTC, and
+                // if all else fails, show it in VRSC because that always is a currency.
+                let mut main_reserve = None;
+                for ordered_reserve in [
+                    "iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM", // DAI.vETH
+                    "iS8TfRPfVpKo5FVfSUzfHBQxo9KuzpnqLU", // tBTC.vETH
+                    "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV", // VRSC (is always a reserve)
+                ] {
+                    main_reserve = reserves
+                        .iter()
+                        .find(|rc| rc.currencyid.to_string().as_str() == ordered_reserve);
+
+                    if main_reserve.is_some() {
+                        break;
+                    }
+                }
+
+                let main_reserve = main_reserve.unwrap();
+                let main_reserve_name = currency
+                    .currencynames
+                    .as_ref()
+                    .unwrap()
+                    .0
+                    .get(&main_reserve.currencyid)
+                    .unwrap()
+                    .clone();
+
+                let mut basket_reserves = reserves
                     .iter()
-                    .find(|rc| rc.currencyid.to_string().as_str() == ordered_reserve);
+                    .filter_map(|rc| {
+                        let name = currency
+                            .currencynames
+                            .as_ref()
+                            .unwrap()
+                            .0
+                            .get(&rc.currencyid)
+                            .unwrap()
+                            .clone();
+                        let rc_reserves = rc.reserves.as_vrsc();
+                        // TODO `.checked_div()` needed
+                        let price = if rc_reserves == 0.0 {
+                            0.0
+                        } else {
+                            (main_reserve.reserves.as_vrsc() / rc_reserves)
+                                / (main_reserve.weight / rc.weight)
+                        };
 
-                if main_reserve.is_some() {
-                    break;
-                }
-            }
-
-            let main_reserve = main_reserve.unwrap();
-            let main_reserve_name = currency
-                .currencynames
-                .as_ref()
-                .unwrap()
-                .0
-                .get(&main_reserve.currencyid)
-                .unwrap()
-                .clone();
-
-            let mut basket_reserves = reserves
-                .iter()
-                .filter_map(|rc| {
-                    let name = currency
-                        .currencynames
-                        .as_ref()
-                        .unwrap()
-                        .0
-                        .get(&rc.currencyid)
-                        .unwrap()
-                        .clone();
-                    let rc_reserves = rc.reserves.as_vrsc();
-                    // TODO `.checked_div()` needed
-                    let price = if rc_reserves == 0.0 {
-                        0.0
-                    } else {
-                        (main_reserve.reserves.as_vrsc() / rc_reserves)
-                            / (main_reserve.weight / rc.weight)
-                    };
-
-                    Some(Reserve {
-                        name,
-                        amount: rc_reserves,
-                        price,
+                        Some(Reserve {
+                            name,
+                            amount: rc_reserves,
+                            price,
+                        })
                     })
-                })
-                .collect::<Vec<Reserve>>();
+                    .collect::<Vec<Reserve>>();
 
-            let precision: usize = match &*main_reserve_name {
-                "DAI.vETH" => 2,
-                _ => 8,
-            };
+                let precision: usize = match &*main_reserve_name {
+                    "DAI.vETH" => 2,
+                    _ => 8,
+                };
 
-            let mut fields = vec![];
+                let mut fields = vec![];
 
-            let reserves_string = reserve_table_str(&mut basket_reserves, precision);
-            debug!("{reserves_string:?}");
+                let reserves_string = reserve_table_str(&mut basket_reserves, precision);
+                debug!("{reserves_string:?}");
 
-            fields.push((
-                format!("Reserves _(price in {main_reserve_name})_"),
-                reserves_string,
-                false,
-            ));
-
-            fields.push((
-                "Total value of liquidity".to_string(),
-                format!(
-                    "{} {main_reserve_name}",
-                    format!(
-                        "{:.precision$}",
-                        main_reserve.reserves.as_vrsc() / main_reserve.weight
-                    )
-                ),
-                false,
-            ));
-
-            let blockheight = verus_client.get_blockchain_info()?.blocks;
-
-            if let Ok(currencystate_res) = verus_client.get_currency_state(
-                basket_name,
-                Some(&format!("{},{},{}", blockheight - 1440, blockheight, 1440)),
-                Some(&main_reserve_name),
-            ) {
-                if let Some(GetCurrencyStateResult::TotalVolume { totalvolume }) =
-                    currencystate_res.last()
-                {
-                    fields.push((
-                        "Volume (24h)".to_string(),
-                        format!(
-                            "{} {main_reserve_name}",
-                            format!("{:.precision$}", *totalvolume)
-                        ),
-                        false,
-                    ));
-                }
-            };
-
-            fields.push((
-                "Supply".to_string(),
-                format!(
-                    "{}",
-                    format!(
-                        "{:.precision$}",
-                        currency.bestcurrencystate.supply.as_vrsc()
-                    )
-                ),
-                true,
-            ));
-
-            fields.push((
-                "Price".to_string(),
-                format!(
-                    "{} {main_reserve_name}",
-                    format!(
-                        "{:.precision$}",
-                        (main_reserve.reserves.as_vrsc() / main_reserve.weight)
-                            / currency.bestcurrencystate.supply.as_vrsc()
-                    )
-                ),
-                true,
-            ));
-
-            fields.push(("\u{200b}".to_string(), "\u{200b}".to_string(), true));
-
-            // if in preconversion mode:
-            let current_height = verus_client.get_blockchain_info()?.blocks;
-            let start_block = currency.startblock;
-
-            if let Some(future_time) = time_until_block(current_height, start_block) {
                 fields.push((
-                    "\n\n\n:rotating_light:  PRECONVERSION MODE".to_string(),
-                    " ".to_string(),
+                    format!("Reserves _(price in {main_reserve_name})_"),
+                    reserves_string,
                     false,
                 ));
 
                 fields.push((
-                    "Preconversion ends at approximately".to_string(),
-                    future_time.to_rfc2822(),
+                    "Total value of liquidity".to_string(),
+                    format!(
+                        "{} {main_reserve_name}",
+                        format!(
+                            "{:.precision$}",
+                            main_reserve.reserves.as_vrsc() / main_reserve.weight
+                        )
+                    ),
                     false,
-                ))
-            }
+                ));
 
+                let blockheight = verus_client.get_blockchain_info()?.blocks;
+
+                if let Ok(currencystate_res) = verus_client.get_currency_state(
+                    basket_name,
+                    Some(&format!("{},{},{}", blockheight - 1440, blockheight, 1440)),
+                    Some(&main_reserve_name),
+                ) {
+                    if let Some(GetCurrencyStateResult::TotalVolume { totalvolume }) =
+                        currencystate_res.last()
+                    {
+                        fields.push((
+                            "Volume (24h)".to_string(),
+                            format!(
+                                "{} {main_reserve_name}",
+                                format!("{:.precision$}", *totalvolume)
+                            ),
+                            false,
+                        ));
+                    }
+                };
+
+                fields.push((
+                    "Supply".to_string(),
+                    format!(
+                        "{}",
+                        format!(
+                            "{:.precision$}",
+                            currency
+                                .bestcurrencystate
+                                .as_ref()
+                                .map_or(0.0, |cs| cs.supply.as_vrsc())
+                        )
+                    ),
+                    true,
+                ));
+
+                fields.push((
+                    "Price".to_string(),
+                    format!(
+                        "{} {main_reserve_name}",
+                        format!(
+                            "{:.precision$}",
+                            (main_reserve.reserves.as_vrsc() / main_reserve.weight)
+                                / currency
+                                    .bestcurrencystate
+                                    .as_ref()
+                                    .map_or(0.0, |cs| cs.supply.as_vrsc())
+                        )
+                    ),
+                    true,
+                ));
+
+                fields.push(("\u{200b}".to_string(), "\u{200b}".to_string(), true));
+
+                // if in preconversion mode:
+                let current_height = verus_client.get_blockchain_info()?.blocks;
+                let start_block = currency.startblock;
+
+                if let Some(future_time) = time_until_block(current_height, start_block) {
+                    fields.push((
+                        "\n\n\n:rotating_light:  PRECONVERSION MODE".to_string(),
+                        " ".to_string(),
+                        false,
+                    ));
+
+                    fields.push((
+                        "Preconversion ends at approximately".to_string(),
+                        future_time.to_rfc2822(),
+                        false,
+                    ))
+                }
+
+                ctx.send(
+                    CreateReply::default().embed(
+                        CreateEmbed::new()
+                            .title(format!("Basket: **{}**", currency.fullyqualifiedname))
+                            .fields(fields)
+                            .color(deterministic_color(currency.fullyqualifiedname)),
+                    ),
+                )
+                .await?;
+            }
+        } else {
             ctx.send(
-                CreateReply::default().embed(
-                    CreateEmbed::new()
-                        .title(format!("Basket: **{}**", currency.fullyqualifiedname))
-                        .fields(fields)
-                        .color(deterministic_color(currency.fullyqualifiedname)),
-                ),
+                CreateReply::default()
+                    .content("Invalid basket or basket not found")
+                    .ephemeral(true),
             )
             .await?;
         }
-    } else {
-        ctx.send(
-            CreateReply::default()
-                .content("Invalid basket or basket not found")
-                .ephemeral(true),
-        )
-        .await?;
     }
 
     Ok(())
