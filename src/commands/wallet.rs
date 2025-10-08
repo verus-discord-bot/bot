@@ -1,10 +1,9 @@
-use std::path::PathBuf;
 use std::{cmp::Ordering, ops::Sub, str::FromStr, time::Duration};
 
 use fast_qr::convert::{Builder, Shape, image::ImageBuilder};
 use fast_qr::qr::QRBuilder;
 use poise::CreateReply;
-use poise::serenity_prelude::CreateEmbed;
+use poise::serenity_prelude::{CreateAttachment, CreateEmbed};
 use sqlx::PgPool;
 use tracing::*;
 use uuid::Uuid;
@@ -392,26 +391,29 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 async fn send_deposit_address_msg(ctx: Context<'_>, address: &Address) -> Result<(), Error> {
-    let filename = format!("{address}.png");
-    let out = PathBuf::from_str(&format!("qr_address/{}", &filename)).unwrap();
+    let qr = QRBuilder::new(address.to_string())
+        .build()
+        .map_err(|e| format!("QR builder error: {:?}", e))?;
 
-    let qr = QRBuilder::new(address.to_string()).build().unwrap();
-
-    let _img = ImageBuilder::default()
-        .shape(Shape::Circle)
+    let img_bytes = ImageBuilder::default()
+        .shape(Shape::RoundedSquare)
         .fit_width(400)
         .module_color([49, 101, 212, 255])
         .background_color([255, 255, 255, 0])
-        .to_file(&qr, out.as_os_str().to_str().unwrap());
+        .to_bytes(&qr)
+        .map_err(|e| format!("Image build error: {}", e))?;
+
+    let filename = format!("{address}.png");
+    let embed = CreateEmbed::default()
+        .image(format!("attachment://{filename}"))
+        .field("Address", format!("{}", address.to_string()), false);
+    let attachment = CreateAttachment::bytes(img_bytes, &filename);
+
     ctx.send(
         CreateReply::default()
-            .embed(
-                CreateEmbed::new()
-                    .image(format!("attachment://{filename}"))
-                    .field("Address", format!("{}", address.to_string()), false),
-            )
+            .embed(embed)
             .ephemeral(true)
-            .attachment(poise::serenity_prelude::CreateAttachment::path(&out).await?),
+            .attachment(attachment),
     )
     .await?;
 
