@@ -21,7 +21,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::{pin, sync::RwLock, time::interval};
+use tokio::{pin, sync::RwLock};
 use tokio_graceful_shutdown::{IntoSubsystem, SubsystemBuilder, SubsystemHandle, Toplevel};
 use tracing::{Level, debug, error, info, instrument, warn};
 use tracing_subscriber::{
@@ -41,7 +41,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     log_setup()?;
 
     let config = get_configuration()?;
-    let bot = Bot(app(config).await?);
+    let database = PgPool::connect_lazy(&config.database.connection_string())?;
+    sqlx::migrate!("./migrations").run(&database).await?;
+
+    let bot = Bot {
+        client: app(config, database.clone()).await?,
+        db: database,
+    };
 
     Toplevel::new(async |s: &mut SubsystemHandle| {
         s.start(SubsystemBuilder::new("bot", bot.into_subsystem()));
@@ -54,14 +60,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-struct Bot(serenity::Client);
+struct Bot {
+    client: serenity::Client,
+    db: PgPool,
+}
 
 impl IntoSubsystem<Box<dyn std::error::Error + Send + Sync>> for Bot {
     async fn run(
         self,
         subsys: &mut SubsystemHandle,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let client = self.0;
+        let client = self.client;
+        let http = client.http.clone();
+
+        let reactdrop_service = reactdrop::Subsystem {
+            http,
+            pool: self.db.clone(),
+        };
+
+        subsys.start(SubsystemBuilder::new(
+            "ReactdropService",
+            reactdrop_service.into_subsystem(),
+        ));
+
         pin!(client);
 
         while !subsys.is_shutdown_requested() {
@@ -70,7 +91,7 @@ impl IntoSubsystem<Box<dyn std::error::Error + Send + Sync>> for Bot {
                     if let Err(e) = res {
                         error!("{e:?}");
                     }
-                }
+                },
                 _ = subsys.on_shutdown_requested() => {
                     break;
                 }
@@ -82,11 +103,7 @@ impl IntoSubsystem<Box<dyn std::error::Error + Send + Sync>> for Bot {
 }
 
 #[instrument(err)]
-async fn app(config: Config) -> Result<serenity::Client, Error> {
-    let pg_url = &config.database.connection_string();
-    let database = PgPool::connect_lazy(pg_url)?;
-    sqlx::migrate!("./migrations").run(&database).await?;
-
+async fn app(config: Config, database: PgPool) -> Result<serenity::Client, Error> {
     let owners = config
         .application
         .owners
@@ -210,25 +227,6 @@ async fn app(config: Config) -> Result<serenity::Client, Error> {
             let deposits_enabled_clone = deposits_enabled.clone();
 
             Box::pin(async move {
-                tokio::spawn({
-                    let ctx = ctx.clone();
-                    let pool = pool.clone();
-
-                    info!("starting reactdrop loop");
-
-                    async move {
-                        let mut interval = interval(Duration::from_secs(20));
-
-                        loop {
-                            interval.tick().await;
-
-                            if let Err(e) = reactdrop::check_running_reactdrops(&ctx, &pool).await {
-                                error!("{:?}", e);
-                            }
-                        }
-                    }
-                });
-
                 let tx_proc = Arc::new(TransactionProcessor::new(
                     http.clone(),
                     pool.clone(),
