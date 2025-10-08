@@ -3,8 +3,12 @@ use std::{
     hash::Hasher,
 };
 
+use charming::{
+    ImageRenderer,
+    component::Axis,
+    element::{AxisLabel, AxisTick},
+};
 use chrono::{DateTime, Datelike, Duration, Utc};
-use plotters::prelude::*;
 use poise::{
     CreateReply,
     serenity_prelude::{Colour, CreateEmbed, CreateEmbedFooter},
@@ -29,7 +33,16 @@ pub async fn vrscbtc(ctx: Context<'_>) -> Result<(), Error> {
     let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
     let out_file = format!("plotters-doc-data/{filename}");
 
-    get_chart(&verus_client, "VRSC", "tBTC.vETH", 1440, &out_file)?;
+    let data = get_data(
+        &verus_client,
+        "iH37kRsdfoHtHK5TottP1Yfq8hBSHz9btw",
+        "VRSC",
+        "tBTC.vETH",
+        720,
+        "VRSC",
+    )?;
+
+    get_charming_chart(&out_file, data)?;
 
     ctx.send(
         CreateReply::default()
@@ -50,7 +63,17 @@ pub async fn vrsceth(ctx: Context<'_>) -> Result<(), Error> {
     let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
     let out_file = format!("plotters-doc-data/{filename}");
 
-    get_chart(&verus_client, "VRSC", "vETH", 1440, &out_file)?;
+    let data = get_data(
+        &verus_client,
+        "iH37kRsdfoHtHK5TottP1Yfq8hBSHz9btw",
+        "VRSC",
+        "vETH",
+        720,
+        "VRSC",
+    )?;
+
+    get_charming_chart(&out_file, data)?;
+    // get_chart(&verus_client, "VRSC", "vETH", 720, &out_file)?;
 
     ctx.send(
         CreateReply::default()
@@ -62,6 +85,7 @@ pub async fn vrsceth(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
+/*
 /// Show information about Verus blockchain.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(track_edits, slash_command, category = "Miscellaneous")]
@@ -73,7 +97,15 @@ pub async fn chart(ctx: Context<'_>, base: String, rel: String, step: u64) -> Re
     let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
     let out_file = format!("plotters-doc-data/{filename}");
 
-    get_chart(&verus_client, &base, &rel, step, &out_file)?;
+    let data = get_data(
+        &verus_client,
+        "iH37kRsdfoHtHK5TottP1Yfq8hBSHz9btw",
+        base,
+        rel,
+        720,
+        "VRSC",
+    )?;
+    get_charming_chart(&verus_client, &base, &rel, step, &out_file)?;
 
     ctx.send(
         CreateReply::default()
@@ -85,6 +117,7 @@ pub async fn chart(ctx: Context<'_>, base: String, rel: String, step: u64) -> Re
 
     Ok(())
 }
+*/
 
 #[derive(Debug, Clone, Copy)]
 struct Candle {
@@ -95,6 +128,49 @@ struct Candle {
     close: f32,
 }
 
+fn get_charming_chart(path: &str, data: Vec<Candle>) -> Result<(), Error> {
+    let ohlc = data
+        .iter()
+        .map(|candle| vec![candle.close, candle.open, candle.low, candle.high])
+        .collect::<Vec<_>>();
+
+    let lowest = ohlc
+        .iter()
+        .flatten()
+        .map(|p| *p)
+        .reduce(f32::min)
+        .unwrap_or_default();
+
+    let chart = charming::Chart::new()
+        .x_axis(
+            Axis::new()
+                .data(
+                    data.iter()
+                        .map(|candle| {
+                            let dt = DateTime::from_timestamp(candle.blocktime as i64, 0).unwrap();
+
+                            format!("{}-{}", dt.day(), dt.month())
+                        })
+                        .collect::<Vec<_>>(),
+                )
+                .axis_label(AxisLabel::new().font_size(20))
+                .axis_tick(AxisTick::new().split_number(15.0)),
+        )
+        .y_axis(
+            Axis::new()
+                .start_value(lowest)
+                .axis_label(AxisLabel::new().font_size(20)),
+        )
+        .series(charming::series::Candlestick::new().data(ohlc));
+
+    ImageRenderer::new(1000, 600)
+        .theme(charming::theme::Theme::Dark)
+        .save_format(charming::ImageFormat::Png, &chart, path)?;
+
+    Ok(())
+}
+
+/*
 fn get_chart(
     verus_client: &Client,
     base: &str,
@@ -173,6 +249,8 @@ fn get_chart(
 
         let to = data.last().unwrap().blocktime;
 
+        tracing::trace!("create chart");
+
         let mut chart = ChartBuilder::on(&root)
             .x_label_area_size(48)
             .y_label_area_size(175)
@@ -222,6 +300,7 @@ fn get_chart(
 
     Ok(())
 }
+*/
 
 fn get_data(
     client: &Client,
@@ -233,11 +312,10 @@ fn get_data(
 ) -> Result<Vec<Candle>, Error> {
     let height = client.get_blockchain_info().unwrap().blocks;
 
-    let currency_state = client.get_currency_state(
-        currency_name,
-        Some(&format!("{},{},{step}", height - (step * 50), height)),
-        Some(denominated_currency),
-    )?;
+    let period = format!("{},{},{step}", height - (step * 50), height);
+    tracing::debug!(period);
+    let currency_state =
+        client.get_currency_state(currency_name, Some(&period), Some(denominated_currency))?;
 
     let mut res = vec![];
     let mut previous_row = None;
