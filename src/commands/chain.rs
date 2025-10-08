@@ -5,13 +5,13 @@ use std::{
 
 use charming::{
     ImageRenderer,
-    component::Axis,
-    element::{AxisLabel, AxisTick},
+    component::{Axis, Grid},
+    element::{AxisLabel, AxisTick, JsFunction},
 };
 use chrono::{DateTime, Datelike, Duration, Utc};
 use poise::{
     CreateReply,
-    serenity_prelude::{Colour, CreateEmbed, CreateEmbedFooter},
+    serenity_prelude::{Colour, CreateAttachment, CreateEmbed, CreateEmbedFooter},
 };
 use serde::Deserialize;
 use tracing::{debug, instrument};
@@ -31,9 +31,8 @@ pub async fn vrscbtc(ctx: Context<'_>) -> Result<(), Error> {
     let verus_client = ctx.data().verus()?;
 
     let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
-    let out_file = format!("plotters-doc-data/{filename}");
 
-    let data = get_data(
+    let conversion_data = get_conversion_data(
         &verus_client,
         "iH37kRsdfoHtHK5TottP1Yfq8hBSHz9btw",
         "VRSC",
@@ -42,12 +41,13 @@ pub async fn vrscbtc(ctx: Context<'_>) -> Result<(), Error> {
         "VRSC",
     )?;
 
-    get_charming_chart(&out_file, data)?;
+    let img_bytes = get_charming_chart_bytes(conversion_data)?;
+    let attachment = CreateAttachment::bytes(img_bytes, &filename);
 
     ctx.send(
         CreateReply::default()
             .embed(CreateEmbed::new().image(format!("attachment://{filename}")))
-            .attachment(poise::serenity_prelude::CreateAttachment::path(&out_file).await?),
+            .attachment(attachment),
     )
     .await?;
 
@@ -61,9 +61,7 @@ pub async fn vrsceth(ctx: Context<'_>) -> Result<(), Error> {
     let verus_client = ctx.data().verus()?;
 
     let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
-    let out_file = format!("plotters-doc-data/{filename}");
-
-    let data = get_data(
+    let conversion_data = get_conversion_data(
         &verus_client,
         "iH37kRsdfoHtHK5TottP1Yfq8hBSHz9btw",
         "VRSC",
@@ -72,13 +70,13 @@ pub async fn vrsceth(ctx: Context<'_>) -> Result<(), Error> {
         "VRSC",
     )?;
 
-    get_charming_chart(&out_file, data)?;
-    // get_chart(&verus_client, "VRSC", "vETH", 720, &out_file)?;
+    let img_bytes = get_charming_chart_bytes(conversion_data)?;
+    let attachment = CreateAttachment::bytes(img_bytes, &filename);
 
     ctx.send(
         CreateReply::default()
             .embed(CreateEmbed::new().image(format!("attachment://{filename}")))
-            .attachment(poise::serenity_prelude::CreateAttachment::path(&out_file).await?),
+            .attachment(attachment),
     )
     .await?;
 
@@ -128,7 +126,8 @@ struct Candle {
     close: f32,
 }
 
-fn get_charming_chart(path: &str, data: Vec<Candle>) -> Result<(), Error> {
+fn get_charming_chart_bytes(data: Vec<Candle>) -> Result<Vec<u8>, Error> {
+    // charting lib needs it as 'close, open, low, high'
     let ohlc = data
         .iter()
         .map(|candle| vec![candle.close, candle.open, candle.low, candle.high])
@@ -142,6 +141,7 @@ fn get_charming_chart(path: &str, data: Vec<Candle>) -> Result<(), Error> {
         .unwrap_or_default();
 
     let chart = charming::Chart::new()
+        .grid(Grid::new().left("90px").contain_label(true))
         .x_axis(
             Axis::new()
                 .data(
@@ -159,15 +159,22 @@ fn get_charming_chart(path: &str, data: Vec<Candle>) -> Result<(), Error> {
         .y_axis(
             Axis::new()
                 .start_value(lowest)
-                .axis_label(AxisLabel::new().font_size(20)),
+                .axis_label(
+                    AxisLabel::new()
+                        .font_size(20)
+                        .formatter(JsFunction::new_with_args(
+                            "value",
+                            "return Number(value).toFixed(8);",
+                        )),
+                ),
         )
         .series(charming::series::Candlestick::new().data(ohlc));
 
-    ImageRenderer::new(1000, 600)
+    let bytes = ImageRenderer::new(1000, 600)
         .theme(charming::theme::Theme::Dark)
-        .save_format(charming::ImageFormat::Png, &chart, path)?;
+        .render_format(charming::ImageFormat::Png, &chart)?;
 
-    Ok(())
+    Ok(bytes)
 }
 
 /*
@@ -302,7 +309,7 @@ fn get_chart(
 }
 */
 
-fn get_data(
+fn get_conversion_data(
     client: &Client,
     currency_name: &str,
     base: &str,
