@@ -5,13 +5,13 @@ use poise::serenity_prelude::{
     ReactionType, UserId,
 };
 use sqlx::{
-    types::chrono::{self, DateTime, Utc},
     PgPool,
+    types::chrono::{self, DateTime, Utc},
 };
 use tracing::{debug, error, info, trace};
 use vrsc::Amount;
 
-use crate::{commands, util::database, Error};
+use crate::{Error, commands, util::database};
 
 #[derive(Debug)]
 pub enum ReactdropState {
@@ -53,7 +53,7 @@ pub async fn check_running_reactdrops(ctx: &Context, pool: &PgPool) -> Result<()
     let pending_reactdrops = database::get_pending_reactdrops(&pool).await?;
 
     let now = chrono::Utc::now();
-    debug!(
+    trace!(
         "number of pending reactdrops.{} at.{}",
         pending_reactdrops.len(),
         now

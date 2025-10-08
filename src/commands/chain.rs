@@ -83,40 +83,6 @@ pub async fn vrsceth(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/*
-/// Show information about Verus blockchain.
-#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
-#[poise::command(track_edits, slash_command, category = "Miscellaneous")]
-pub async fn chart(ctx: Context<'_>, base: String, rel: String, step: u64) -> Result<(), Error> {
-    // let step = 1440 * 20;
-    ctx.defer_ephemeral().await?;
-    let verus_client = ctx.data().verus()?;
-
-    let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
-    let out_file = format!("plotters-doc-data/{filename}");
-
-    let data = get_data(
-        &verus_client,
-        "iH37kRsdfoHtHK5TottP1Yfq8hBSHz9btw",
-        base,
-        rel,
-        720,
-        "VRSC",
-    )?;
-    get_charming_chart(&verus_client, &base, &rel, step, &out_file)?;
-
-    ctx.send(
-        CreateReply::default()
-            .embed(CreateEmbed::new().image(format!("attachment://{filename}")))
-            .ephemeral(true)
-            .attachment(poise::serenity_prelude::CreateAttachment::path(&out_file).await?),
-    )
-    .await?;
-
-    Ok(())
-}
-*/
-
 #[derive(Debug, Clone, Copy)]
 struct Candle {
     blocktime: u64,
@@ -177,138 +143,6 @@ fn get_charming_chart_bytes(data: Vec<Candle>) -> Result<Vec<u8>, Error> {
     Ok(bytes)
 }
 
-/*
-fn get_chart(
-    verus_client: &Client,
-    base: &str,
-    rel: &str,
-    step: u64,
-    out_file: &str,
-) -> Result<(), Error> {
-    let data = get_data(
-        verus_client,
-        "iH37kRsdfoHtHK5TottP1Yfq8hBSHz9btw",
-        base,
-        rel,
-        step,
-        "VRSC",
-    )?;
-
-    // let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
-    // let out_file = format!("plotters-doc-data/{filename}");
-
-    {
-        let root = BitMapBackend::new(out_file, (1000, 600)).into_drawing_area();
-        root.fill(&BLACK)?;
-
-        // The data retrieved from the Verus daemon might contain gaps because of no trading
-        // in that period. We need to backfill that gap with the last known data so that the
-        // candlesticks are still populated for that height and shown (small) on the graph.
-        // let mut i = data.iter().peekable();
-        // let mut backfilled_data = vec![];
-
-        // while let Some(curr) = i.next()
-        //     && let Some(next) = i.peek()
-        // {
-        //     backfilled_data.push(*curr);
-
-        //     if (next.height - curr.height) / step > 1 {
-        //         println!(
-        //             "there's a gap: current: {}, next: {}, steps missed: {}",
-        //             curr.height,
-        //             next.height,
-        //             (next.height - curr.height) / step
-        //         );
-
-        //         for j in 1..((next.height - curr.height) / step) {
-        //             backfilled_data.push(Candle {
-        //                 height: curr.height + (step * j),
-        //                 blocktime: curr.blocktime + (step * j * 60),
-        //                 date_time: curr
-        //                     .date_time
-        //                     .checked_add_signed(TimeDelta::hours((step * j * 60) as i64))
-        //                     .unwrap(),
-        //                 open: curr.close,
-        //                 high: curr.close,
-        //                 low: curr.close,
-        //                 close: curr.close,
-        //             });
-        //         }
-        //     }
-        // }
-
-        // let data = backfilled_data;
-
-        let from = data.first().unwrap().blocktime;
-        let lowest = data
-            .iter()
-            .map(|t| t.low)
-            .min_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap();
-
-        let highest = data
-            .iter()
-            .map(|t| t.high)
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap();
-
-        debug!(lowest, highest);
-
-        let to = data.last().unwrap().blocktime;
-
-        tracing::trace!("create chart");
-
-        let mut chart = ChartBuilder::on(&root)
-            .x_label_area_size(48)
-            .y_label_area_size(175)
-            .margin_right(40)
-            .caption(
-                format!("{base} / {rel}"),
-                ("sans-serif", 50.0).into_font().color(&WHITE),
-            )
-            .build_cartesian_2d(
-                from..to,
-                // add 2 percent margin
-                (lowest - (lowest * 0.02))..highest + (highest * 0.02),
-            )?;
-
-        chart
-            .configure_mesh()
-            .bold_line_style(WHITE.mix(0.2))
-            .label_style(
-                FontDesc::new(FontFamily::SansSerif, 33.0, FontStyle::Normal).color(&WHITE),
-            )
-            .y_label_formatter(&|x| format!("{:.8}", x))
-            .x_label_formatter(&|x| {
-                let dt = DateTime::from_timestamp(*x as i64, 0).unwrap();
-
-                tracing::debug!(date = ?dt.to_rfc2822());
-
-                format!("{}-{}", dt.day(), dt.month())
-            })
-            .draw()?;
-
-        chart.draw_series(data.iter().map(|x| {
-            CandleStick::new(
-                x.blocktime,
-                x.open,
-                x.high,
-                x.low,
-                x.close,
-                GREEN.filled(),
-                RED.filled(),
-                12,
-            )
-        }))?;
-
-        // To avoid the IO failure being ignored silently, we manually call the present function
-        root.present()?;
-    }
-
-    Ok(())
-}
-*/
-
 fn get_conversion_data(
     client: &Client,
     currency_name: &str,
@@ -320,7 +154,7 @@ fn get_conversion_data(
     let height = client.get_blockchain_info().unwrap().blocks;
 
     let period = format!("{},{},{step}", height - (step * 50), height);
-    tracing::debug!(period);
+
     let currency_state =
         client.get_currency_state(currency_name, Some(&period), Some(denominated_currency))?;
 
