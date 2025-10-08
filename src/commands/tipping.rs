@@ -1,19 +1,19 @@
 use ::chrono::Duration;
 use poise::{
-    serenity_prelude::{self, CacheHttp, ChannelId, CreateMessage, ReactionType, RoleId, UserId},
     CreateReply,
+    serenity_prelude::{self, CacheHttp, ChannelId, CreateMessage, ReactionType, RoleId, UserId},
 };
 
-use sqlx::{types::chrono, PgPool};
+use sqlx::{Postgres, Transaction, types::chrono};
 use tracing::*;
 use uuid::Uuid;
 use vrsc::Amount;
 
 use crate::{
-    commands::{misc::Notification, user_blacklisted},
-    util::database::{self},
-    wallet::get_and_check_balance,
     Context, Error,
+    commands::{misc::Notification, user_blacklisted},
+    database,
+    wallet::get_and_check_balance,
 };
 
 /// Tip a user or a role
@@ -41,6 +41,8 @@ async fn role(
     #[min = 0.5]
     tip_amount: f64,
 ) -> Result<(), Error> {
+    let mut tx = ctx.data().database.begin().await?;
+
     if user_blacklisted(ctx, ctx.author().id).await? {
         return Ok(());
     }
@@ -69,7 +71,7 @@ async fn role(
                 .collect::<Vec<_>>();
 
             tip_multiple_users(
-                &ctx.data().database,
+                &mut tx,
                 ctx.author().id,
                 ctx.http(),
                 &ctx.channel_id(),
@@ -78,6 +80,8 @@ async fn role(
                 "role",
             )
             .await?;
+
+            tx.commit().await?;
 
             return Ok(());
         } else {
@@ -114,20 +118,19 @@ async fn user(
     // check if the tipper has enough balance
     // update both balances in 1 go
 
-    let pool = &ctx.data().database;
-
     if get_and_check_balance(&ctx, tip_amount, Amount::ZERO)
         .await?
         .is_some()
     {
         trace!("tipper has enough balance");
 
-        database::process_a_tip(pool, &ctx.author().id, &vec![user.id], &tip_amount).await?;
+        let mut tx = ctx.data().database.begin().await?;
+        database::process_a_tip(&mut tx, &ctx.author().id, &vec![user.id], &tip_amount).await?;
 
         // tips are only stored one way: counterparty is the sender of the tip.
         let tip_event_id = Uuid::new_v4();
         database::store_tip_transactions(
-            pool,
+            &mut *tx,
             &tip_event_id,
             &vec![user.id],
             "direct",
@@ -136,7 +139,7 @@ async fn user(
         )
         .await?;
 
-        match database::get_notification_settings(&pool, &vec![user.id])
+        match database::get_notification_settings(&mut *tx, &vec![user.id])
             .await?
             .first()
         {
@@ -304,8 +307,10 @@ pub async fn reactdrop(
             let channel_id = ctx.channel_id();
             let message_id = msg.id;
 
+            let mut conn = ctx.data().database.acquire().await?;
+
             database::insert_reactdrop(
-                &ctx.data().database,
+                &mut *conn,
                 ctx.author().id.try_into()?,
                 reaction_type.to_string(),
                 Amount::from_vrsc(amount).unwrap().as_sat() as i64,
@@ -327,7 +332,7 @@ pub async fn reactdrop(
 // which is the time Discord drops the context, giving
 // us an invalid webhook token when trying to send a message using that context.
 pub async fn tip_multiple_users(
-    pool: &PgPool,
+    mut tx: &mut Transaction<'_, Postgres>,
     author: UserId,
     http: impl CacheHttp + std::convert::AsRef<poise::serenity_prelude::Http>,
     channel_id: &ChannelId,
@@ -353,12 +358,19 @@ pub async fn tip_multiple_users(
 
         let tip_event_id = Uuid::new_v4();
 
-        database::process_a_tip(pool, &author, &users, &div_tip_amount).await?;
+        database::process_a_tip(&mut *tx, &author, &users, &div_tip_amount).await?;
 
-        database::store_tip_transactions(pool, &tip_event_id, users, kind, &div_tip_amount, author)
-            .await?;
+        database::store_tip_transactions(
+            &mut tx,
+            &tip_event_id,
+            users,
+            kind,
+            &div_tip_amount,
+            author,
+        )
+        .await?;
 
-        let notification_settings = database::get_notification_settings(pool, &users).await?;
+        let notification_settings = database::get_notification_settings(&mut tx, &users).await?;
 
         for (user_id, notification) in notification_settings {
             match (user_id, notification) {

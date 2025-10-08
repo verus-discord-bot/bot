@@ -1,7 +1,7 @@
 use color_eyre::Report;
 use futures::StreamExt;
 use poise::serenity_prelude::{CreateMessage, Http, UserId};
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 use std::collections::VecDeque;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -12,13 +12,13 @@ use vrsc::Amount;
 use vrsc_rpc::bitcoin::Txid;
 use vrsc_rpc::json::GetRawTransactionResultVerbose;
 use vrsc_rpc::{
-    client::{Client, RpcApi},
     Auth,
+    client::{Client, RpcApi},
 };
 
-use crate::config::Config;
-use crate::util::database::*;
 use crate::Error;
+use crate::config::Config;
+use crate::database::*;
 
 /// Listens for wallet transactions and processes them.
 ///
@@ -83,11 +83,13 @@ impl TransactionProcessor {
                     let txid = Txid::from_str(&tx_hash_str)?;
                     let raw_tx = verus_client.get_raw_transaction_verbose(&txid)?;
 
+                    let mut conn = self.pool.acquire().await?;
+
                     for vout in raw_tx.vout.iter() {
                         if let Some(addresses) = &vout.script_pubkey.addresses {
                             for address in addresses {
                                 if let Some(user_id) =
-                                    get_user_from_address(&self.pool, address).await?
+                                    get_user_from_address(&mut conn, address).await?
                                 {
                                     trace!(?user_id, "there is a user for this address");
 
@@ -159,10 +161,12 @@ impl TransactionProcessor {
         trace!("getting raw_transaction {txid}");
         let raw_tx = client.get_raw_transaction_verbose(&txid)?;
 
+        let mut conn = self.pool.acquire().await?;
+
         for vout in raw_tx.vout.iter() {
             if let Some(addresses) = &vout.script_pubkey.addresses {
                 for address in addresses {
-                    if let Some(user_id) = get_user_from_address(&self.pool, address).await? {
+                    if let Some(user_id) = get_user_from_address(&mut conn, address).await? {
                         trace!("there is a user for this address: {user_id}",);
                         let mut write = self.queue_small_txns.write().await;
                         let mut long_write = self.queue_large_txns.write().await;
@@ -199,7 +203,6 @@ impl TransactionProcessor {
 
         let mut write = self.queue_small_txns.write().await;
         let http = Arc::clone(&self.http);
-        let pool = self.pool.clone();
         let queue_size = write.len();
         debug!("{queue_size} transactions in short queue");
 
@@ -219,6 +222,8 @@ impl TransactionProcessor {
 
                 let raw_tx = client.get_raw_transaction_verbose(&front.0)?;
 
+                let mut conn = self.pool.acquire().await?;
+
                 if let Some(confs) = raw_tx.confirmations {
                     let min_confs = self.config.application.min_deposit_confirmations_small;
 
@@ -227,7 +232,7 @@ impl TransactionProcessor {
                         break;
                     } else {
                         trace!("tx has at least {} confs: {}", min_confs, front.0);
-                        if let Err(e) = process_txid(Arc::clone(&http), &pool, &raw_tx).await {
+                        if let Err(e) = process_txid(Arc::clone(&http), &mut conn, &raw_tx).await {
                             error!(
                                 "something went wrong while handling a new wallet tx: {:?}\n{:?}",
                                 e, &front
@@ -260,11 +265,11 @@ impl TransactionProcessor {
         }
         let mut write = self.queue_large_txns.write().await;
         let http = Arc::clone(&self.http);
-        let pool = self.pool.clone();
         let queue_size = write.len();
         debug!("{queue_size} transactions in long queue");
 
         loop {
+            let mut conn = self.pool.acquire().await?;
             if let Some(front) = write.front() {
                 trace!("read {front:?} from front");
 
@@ -288,7 +293,7 @@ impl TransactionProcessor {
                         break;
                     } else {
                         trace!("tx has at least {} confs: {}", min_confs, front.0);
-                        if let Err(e) = process_txid(Arc::clone(&http), &pool, &raw_tx).await {
+                        if let Err(e) = process_txid(Arc::clone(&http), &mut conn, &raw_tx).await {
                             error!(
                                 "something went wrong while handling a new wallet tx: {:?}\n{:?}",
                                 e, &front
@@ -318,23 +323,30 @@ impl TransactionProcessor {
 // a dm is sent to the user afterwards
 pub async fn process_txid(
     http: Arc<Http>,
-    pool: &PgPool,
+    mut conn: &mut PgConnection,
     raw_tx: &GetRawTransactionResultVerbose,
 ) -> Result<(), Error> {
-    if !transaction_processed(&pool, &raw_tx.txid).await? {
+    if !transaction_processed(&mut conn, &raw_tx.txid).await? {
         for vout in raw_tx.vout.iter() {
             if let Some(addresses) = &vout.script_pubkey.addresses {
                 for address in addresses {
-                    if let Some(user_id) = get_user_from_address(&pool, address).await? {
+                    if let Some(user_id) = get_user_from_address(&mut conn, address).await? {
                         let uuid = Uuid::new_v4();
-                        if let Err(e) = increase_balance(&pool, &user_id, vout.value_sat).await {
-                            error!("something went wrong while increasing a user's balance\nuser: {user_id} txid: {} vout: {} \nerror: {:?}", &raw_tx.txid, vout.n, e)
+                        if let Err(e) = increase_balance(&mut conn, &user_id, vout.value_sat).await
+                        {
+                            error!(
+                                "something went wrong while increasing a user's balance\nuser: {user_id} txid: {} vout: {} \nerror: {:?}",
+                                &raw_tx.txid, vout.n, e
+                            )
                         } else {
                             if let Err(e) =
-                                store_deposit_transaction(&pool, &uuid, &user_id, &raw_tx.txid)
+                                store_deposit_transaction(&mut conn, &uuid, &user_id, &raw_tx.txid)
                                     .await
                             {
-                                error!("something went wrong while storing a transaction to the database: {:?}", e)
+                                error!(
+                                    "something went wrong while storing a transaction to the database: {:?}",
+                                    e
+                                )
                             } else {
                                 send_deposit_dm(http.clone(), user_id, vout.value).await?;
                             }

@@ -4,7 +4,7 @@ use fast_qr::convert::{Builder, Shape, image::ImageBuilder};
 use fast_qr::qr::QRBuilder;
 use poise::CreateReply;
 use poise::serenity_prelude::{CreateAttachment, CreateEmbed};
-use sqlx::PgPool;
+use sqlx::{Postgres, Transaction};
 use tracing::*;
 use uuid::Uuid;
 use vrsc::{Address, Amount};
@@ -14,7 +14,7 @@ use vrsc_rpc::{
 };
 
 use crate::commands::user_blacklisted;
-use crate::{Context, Error, util::database};
+use crate::{Context, Error, database};
 
 /// Withdraw funds from the tipbot wallet.
 ///
@@ -82,11 +82,11 @@ pub async fn all(
         return Ok(());
     }
 
-    let pool = &ctx.data().database;
+    let mut tx = ctx.data().database.begin().await?;
     let uuid = Uuid::new_v4();
     let tx_fee = &ctx.data().withdrawal_fee.read().await.clone();
 
-    if let Some(balance) = database::get_balance_for_user(&pool, &ctx.author().id).await? {
+    if let Some(balance) = database::get_balance_for_user(&mut *tx, &ctx.author().id).await? {
         let balance_amount = Amount::from_sat(balance);
         let withdrawal_amount = balance_amount.sub(*tx_fee); // no need to check for underflow, tx_fee is always low.
 
@@ -104,10 +104,10 @@ pub async fn all(
             let opid = client.send_currency("*", vec![sco], None, None)?;
             debug!("sendcurrency opid: {:?}", &opid);
 
-            if let Some(txid) = wait_for_sendcurrency_finish(&pool, &client, &opid).await? {
+            if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, &client, &opid).await? {
                 // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
                 database::store_withdraw_transaction(
-                    &pool,
+                    &mut *tx,
                     &uuid,
                     &ctx.author().id,
                     Some(&txid),
@@ -119,10 +119,13 @@ pub async fn all(
                 trace!(
                     "transaction {txid} stored in db, now decrease balance with ({withdrawal_amount} + {tx_fee})"
                 );
-                database::decrease_balance(&pool, &ctx.author().id, &withdrawal_amount, &tx_fee)
+                database::decrease_balance(&mut *tx, &ctx.author().id, &withdrawal_amount, &tx_fee)
                     .await?;
 
-                let new_balance = database::get_balance_for_user(&pool, &ctx.author().id).await?;
+                let new_balance =
+                    database::get_balance_for_user(&mut *tx, &ctx.author().id).await?;
+
+                tx.commit().await?;
 
                 ctx.send(CreateReply::default().ephemeral(true).embed({
                     let mut embed = CreateEmbed::new()
@@ -158,7 +161,7 @@ pub async fn all(
                 );
 
                 database::store_withdraw_transaction(
-                    &pool,
+                    &mut *tx,
                     &uuid,
                     &ctx.author().id,
                     None,
@@ -167,6 +170,7 @@ pub async fn all(
                 )
                 .await?;
 
+                tx.commit().await?;
                 ctx.send(CreateReply::default().ephemeral(true).content(&response))
                     .await?;
             }
@@ -250,7 +254,7 @@ pub async fn amount(
         return Ok(());
     }
 
-    let pool = &ctx.data().database;
+    let mut tx = ctx.data().database.begin().await?;
     let uuid = Uuid::new_v4();
     let tx_fee = ctx.data().withdrawal_fee.read().await.clone();
 
@@ -269,10 +273,10 @@ pub async fn amount(
         let opid = client.send_currency("*", vec![sco], None, None)?;
         debug!("sendcurrency opid: {:?}", &opid);
 
-        if let Some(txid) = wait_for_sendcurrency_finish(&pool, &client, &opid).await? {
+        if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, &client, &opid).await? {
             // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
             database::store_withdraw_transaction(
-                &pool,
+                &mut *tx,
                 &uuid,
                 &ctx.author().id,
                 Some(&txid),
@@ -282,10 +286,10 @@ pub async fn amount(
             .await?;
 
             trace!("transaction stored, now decrease balance");
-            database::decrease_balance(&pool, &ctx.author().id, &withdrawal_amount, &tx_fee)
+            database::decrease_balance(&mut *tx, &ctx.author().id, &withdrawal_amount, &tx_fee)
                 .await?;
 
-            let new_balance = database::get_balance_for_user(&pool, &ctx.author().id).await?;
+            let new_balance = database::get_balance_for_user(&mut *tx, &ctx.author().id).await?;
 
             ctx.send(CreateReply::default().ephemeral(true).embed({
                 let mut embed = CreateEmbed::new()
@@ -313,12 +317,13 @@ pub async fn amount(
             // at this point, the sendcurrency didn't finish. Maybe it went through, but we don't know.
             // We should check this manually, so we'll let the user know to contact support and we'll store the op-id in the database.
             let response = format!(
-                "Something went wrong trying to process your withdrawal. Please contact support with withdrawal ID: {}",
+                "Something went wrong trying to process your withdrawal.
+                Please contact support with withdrawal ID: {}",
                 uuid.to_string()
             );
 
             database::store_withdraw_transaction(
-                &pool,
+                &mut *tx,
                 &uuid,
                 &ctx.author().id,
                 None,
@@ -331,13 +336,18 @@ pub async fn amount(
                 .await?;
         }
 
+        tx.commit().await?;
+
         return Ok(());
     }
 
     ctx.send(CreateReply::default().ephemeral(true).content(format!(
-            "Your balance is insufficient to withdraw {withdrawal_amount}.\nMax available balance for withdraw: {}", withdrawal_amount.checked_sub(tx_fee).unwrap_or(Amount::ZERO)
-        ))
-    )
+            "Your balance is insufficient to withdraw {withdrawal_amount}.\n
+            Max available balance for withdraw: {}",
+            withdrawal_amount
+                .checked_sub(tx_fee)
+                .unwrap_or(Amount::ZERO)
+        )))
     .await?;
 
     Ok(())
@@ -347,8 +357,10 @@ pub async fn amount(
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Wallet")]
 pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
+    let mut conn = ctx.data().database.acquire().await?;
+
     let balance = Amount::from_sat(
-        database::get_balance_for_user(&ctx.data().database, &ctx.author().id)
+        database::get_balance_for_user(&mut conn, &ctx.author().id)
             .await?
             .unwrap_or(0),
     );
@@ -367,25 +379,27 @@ pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(slash_command, category = "Wallet")]
 pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
+    let mut tx = ctx.data().database.begin().await?;
     debug!(
         "user {} ({}) demands a deposit address",
         ctx.author().name,
         ctx.author().id
     );
-    let pool = &ctx.data().database;
 
-    if let Some(address) = database::get_address_from_user(&pool, &ctx.author().id).await? {
+    if let Some(address) = database::get_address_from_user(&mut *tx, &ctx.author().id).await? {
         send_deposit_address_msg(ctx, &address).await?;
     } else {
         // the database doesn't have an address, let's create one:
         let client = &ctx.data().verus().unwrap();
         let address = client.get_new_address().unwrap();
-        crate::util::database::store_new_address_for_user(&pool, &ctx.author().id, &address)
+        crate::database::store_new_address_for_user(&mut *tx, &ctx.author().id, &address)
             .await
             .expect("an address from the verus daemon");
 
         send_deposit_address_msg(ctx, &address).await?;
     }
+
+    tx.commit().await?;
 
     Ok(())
 }
@@ -420,11 +434,12 @@ async fn send_deposit_address_msg(ctx: Context<'_>, address: &Address) -> Result
     Ok(())
 }
 
-// Sendcurrency works with op-ids because it can work with zk-transactions. Therefore the txid of a transactions is not always known directly after sending.
+// Sendcurrency works with op-ids because it can work with zk-transactions. Therefore the txid of
+// a transaction is not always known directly after sending.
 // This function waits a bit and gets the txid once the operation_status RPC gives one.
 // if it doesn't give one, the user is notified and the op-id is stored in the database.
 async fn wait_for_sendcurrency_finish(
-    pool: &PgPool,
+    tx: &mut Transaction<'_, Postgres>,
     client: &Client,
     opid: &str,
 ) -> Result<Option<Txid>, Error> {
@@ -453,7 +468,7 @@ async fn wait_for_sendcurrency_finish(
                 );
 
                 database::store_opid(
-                    &pool,
+                    &mut *tx,
                     &opid,
                     &opstatus.status,
                     opstatus.creation_time as i64,
@@ -468,7 +483,7 @@ async fn wait_for_sendcurrency_finish(
                 error!("execution failed with status: {}", opstatus.status);
 
                 database::store_opid(
-                    &pool,
+                    &mut *tx,
                     &opid,
                     &opstatus.status,
                     opstatus.creation_time as i64,
@@ -528,9 +543,9 @@ pub async fn get_and_check_balance(
     amount_to_check: Amount,
     tx_fee: Amount,
 ) -> Result<Option<Amount>, Error> {
-    let pool = &ctx.data().database;
+    let mut conn = ctx.data().database.acquire().await?;
 
-    if let Some(balance) = database::get_balance_for_user(&pool, &ctx.author().id).await? {
+    if let Some(balance) = database::get_balance_for_user(&mut conn, &ctx.author().id).await? {
         trace!("tipper has balance");
 
         if balance_is_enough(

@@ -1,23 +1,23 @@
 use std::str::FromStr;
 
 use crate::{
+    Error,
     commands::misc::Notification,
     reactdrop::{Reactdrop, ReactdropState},
-    Error,
 };
 use color_eyre::eyre::Report;
 use num_traits::cast::ToPrimitive;
 use poise::serenity_prelude::UserId;
 use sqlx::{
+    PgConnection, Postgres, QueryBuilder, Transaction,
     types::chrono::{DateTime, Utc},
-    PgPool, Postgres, QueryBuilder,
 };
 use tracing::*;
 use uuid::Uuid;
 use vrsc::{Address, Amount};
 use vrsc_rpc::bitcoin::Txid;
 
-pub async fn insert_discord_user(pool: &PgPool, user_id: &UserId) -> Result<(), Error> {
+pub async fn insert_discord_user(conn: &mut PgConnection, user_id: &UserId) -> Result<(), Error> {
     sqlx::query!(
         "INSERT INTO discord_users(discord_id)
         VALUES ($1) 
@@ -25,7 +25,7 @@ pub async fn insert_discord_user(pool: &PgPool, user_id: &UserId) -> Result<(), 
         DO NOTHING",
         user_id.get() as i64
     )
-    .execute(pool)
+    .execute(conn)
     .await?;
 
     Ok(())
@@ -33,7 +33,7 @@ pub async fn insert_discord_user(pool: &PgPool, user_id: &UserId) -> Result<(), 
 
 // to store multiple tip transactions at once. Usually when a group tip needs to be processed.
 pub async fn store_tip_transactions(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     uuid: &Uuid,
     user_ids: &Vec<UserId>,
     kind: &str,
@@ -61,7 +61,7 @@ pub async fn store_tip_transactions(
             .push_bind(tuple.4);
     });
 
-    query_builder.build().execute(pool).await?;
+    query_builder.build().execute(conn).await?;
 
     Ok(())
 }
@@ -70,12 +70,15 @@ pub async fn store_tip_transactions(
 /// If there is no row for this user, None will be returned.
 ///
 /// The database has a constraint that balances can not go below 0.
-pub async fn get_balance_for_user(pool: &PgPool, user_id: &UserId) -> Result<Option<u64>, Error> {
+pub async fn get_balance_for_user(
+    conn: &mut PgConnection,
+    user_id: &UserId,
+) -> Result<Option<u64>, Error> {
     if let Some(row) = sqlx::query!(
         "SELECT balance FROM balance_vrsc WHERE discord_id = $1",
         user_id.get() as i64
     )
-    .fetch_optional(pool)
+    .fetch_optional(conn)
     .await?
     {
         let balance = row.balance;
@@ -92,13 +95,11 @@ pub async fn get_balance_for_user(pool: &PgPool, user_id: &UserId) -> Result<Opt
 // This function both increases the balances for the tip receivers and decreases the balance of the tipper.
 // If one of these 2 actions fail, the database is not updated.
 pub async fn process_a_tip(
-    pool: &PgPool,
+    tx: &mut Transaction<'_, Postgres>,
     from_user: &UserId,
     to_users: &Vec<UserId>,
     tip_amount: &Amount,
 ) -> Result<(), Error> {
-    let mut tx = pool.begin().await?;
-
     let mut query_builder: QueryBuilder<Postgres> =
         QueryBuilder::new("INSERT INTO balance_vrsc (discord_id, balance) ");
 
@@ -113,7 +114,7 @@ pub async fn process_a_tip(
     query_builder
         .push(" ON CONFLICT (discord_id) DO UPDATE SET balance = balance_vrsc.balance + $2");
 
-    query_builder.build().execute(&mut *tx).await?;
+    query_builder.build().execute(&mut **tx).await?;
 
     debug!("updated balances");
 
@@ -123,23 +124,18 @@ pub async fn process_a_tip(
             mul.as_sat() as i64,
             from_user.get() as i64
         )
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
-
-        tx.commit().await?;
 
         debug!("decreased balances");
         return Ok(());
     }
 
-    error!("something went wrong while processing a tip to multiple users");
-    tx.rollback().await?;
-
     Ok(())
 }
 
 pub async fn store_new_address_for_user(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     user_id: &UserId,
     address: &Address,
 ) -> Result<(), Error> {
@@ -155,21 +151,21 @@ pub async fn store_new_address_for_user(
         user_id.get() as i64,
         &address.to_string()
     )
-    .execute(pool)
+    .execute(conn)
     .await?;
 
     Ok(())
 }
 
 pub async fn get_address_from_user(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     user_id: &UserId,
 ) -> Result<Option<Address>, Error> {
     if let Some(row) = sqlx::query!(
         "SELECT discord_id, address FROM addresses WHERE discord_id = $1",
         user_id.get() as i64
     )
-    .fetch_optional(pool)
+    .fetch_optional(conn)
     .await?
     {
         Ok(Some(Address::from_str(&row.address)?))
@@ -179,14 +175,14 @@ pub async fn get_address_from_user(
 }
 
 pub async fn get_user_from_address(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     address: &Address,
 ) -> Result<Option<UserId>, Report> {
     if let Some(row) = sqlx::query!(
         "SELECT discord_id FROM addresses WHERE address = $1",
         &address.to_string()
     )
-    .fetch_optional(pool)
+    .fetch_optional(conn)
     .await?
     {
         Ok(Some(UserId::new(row.discord_id as u64)))
@@ -195,12 +191,12 @@ pub async fn get_user_from_address(
     }
 }
 
-pub async fn transaction_processed(pool: &PgPool, txid: &Txid) -> Result<bool, Error> {
+pub async fn transaction_processed(conn: &mut PgConnection, txid: &Txid) -> Result<bool, Error> {
     let transaction_query = sqlx::query!(
         "SELECT * FROM transactions_vrsc WHERE transaction_id = $1 AND transaction_action = 'deposit'",
         &txid.to_string()
     )
-    .fetch_optional(pool)
+    .fetch_optional(conn)
     .await?;
 
     match transaction_query {
@@ -210,7 +206,7 @@ pub async fn transaction_processed(pool: &PgPool, txid: &Txid) -> Result<bool, E
 }
 
 pub async fn increase_balance(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     user_id: &UserId,
     amount: Amount,
 ) -> Result<(), Error> {
@@ -226,7 +222,7 @@ pub async fn increase_balance(
         user_id.get() as i64,
         amount.as_sat() as i64
     )
-    .execute(pool)
+    .execute(conn)
     .await;
 
     match result {
@@ -238,7 +234,7 @@ pub async fn increase_balance(
 }
 
 pub async fn decrease_balance(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     user_id: &UserId,
     amount: &Amount,
     tx_fee: &Amount,
@@ -253,7 +249,7 @@ pub async fn decrease_balance(
             to_decrease.as_sat() as i64,
             user_id.get() as i64
         )
-        .execute(pool)
+        .execute(conn)
         .await;
 
         match result {
@@ -273,7 +269,7 @@ pub async fn decrease_balance(
 }
 
 pub async fn store_deposit_transaction(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     uuid: &Uuid,
     user_id: &UserId,
     tx_hash: &Txid,
@@ -285,14 +281,14 @@ pub async fn store_deposit_transaction(
         tx_hash.to_string(),
         "deposit"
         )
-        .execute(pool)
+        .execute(conn)
         .await?;
 
     Ok(())
 }
 
 pub async fn store_withdraw_transaction(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     uuid: &Uuid,
     user_id: &UserId,
     tx_hash: Option<&Txid>,
@@ -313,14 +309,14 @@ pub async fn store_withdraw_transaction(
         "withdraw",
         tx_fee.as_sat() as i64
         )
-        .execute(pool)
+        .execute(conn)
         .await?;
 
     Ok(())
 }
 
 pub async fn store_opid(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     opid: &str,
     status: &str,
     creation_time: i64,
@@ -339,14 +335,14 @@ pub async fn store_opid(
         (amount * 100_000_000.0) as i64,
         currency.to_string()
         )
-        .execute(pool)
+        .execute(conn)
         .await?;
 
     Ok(())
 }
 
 pub async fn update_notifications(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     user_id: &UserId,
     notification: &str,
 ) -> Result<(), Error> {
@@ -356,14 +352,14 @@ pub async fn update_notifications(
         notification,
         user_id.get() as i64
     )
-    .execute(pool)
+    .execute(conn)
     .await?;
 
     Ok(())
 }
 
 pub async fn get_notification_settings(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     user_ids: &Vec<UserId>,
 ) -> Result<Vec<(i64, Notification)>, Error> {
     let users = user_ids
@@ -374,7 +370,7 @@ pub async fn get_notification_settings(
         "SELECT discord_id, notifications FROM discord_users WHERE discord_id IN (SELECT * FROM UNNEST($1::bigint[]))",
         &users
     )
-    .fetch_all(pool)
+    .fetch_all(conn)
     .await?;
 
     Ok(rows
@@ -384,12 +380,15 @@ pub async fn get_notification_settings(
         .collect())
 }
 
-pub async fn get_blacklist_status(pool: &PgPool, user_id: UserId) -> Result<Option<bool>, Error> {
+pub async fn get_blacklist_status(
+    conn: &mut PgConnection,
+    user_id: UserId,
+) -> Result<Option<bool>, Error> {
     if let Some(row) = sqlx::query!(
         "SELECT blacklisted FROM discord_users WHERE discord_id = $1",
         user_id.get() as i64
     )
-    .fetch_optional(pool)
+    .fetch_optional(conn)
     .await?
     {
         return Ok(row.blacklisted);
@@ -400,7 +399,7 @@ pub async fn get_blacklist_status(pool: &PgPool, user_id: UserId) -> Result<Opti
 
 // TODO user might not exist?
 pub async fn set_blacklist_status(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     user_id: UserId,
     blacklist: bool,
 ) -> Result<(), Error> {
@@ -409,28 +408,31 @@ pub async fn set_blacklist_status(
         blacklist,
         user_id.get() as i64
     )
-    .execute(pool)
+    .execute(conn)
     .await?;
 
     Ok(())
 }
 
-pub async fn store_unprocessed_transaction(pool: &PgPool, txid: &Txid) -> Result<(), Error> {
+pub async fn store_unprocessed_transaction(
+    conn: &mut PgConnection,
+    txid: &Txid,
+) -> Result<(), Error> {
     sqlx::query!(
         "INSERT INTO unprocessed_transactions (txid, status) VALUES ($1, $2)",
         &txid.to_string(),
         "unprocessed"
     )
-    .execute(pool)
+    .execute(conn)
     .await?;
 
     Ok(())
 }
 
-pub async fn get_stored_txids(pool: &PgPool) -> Result<Vec<Txid>, Error> {
+pub async fn get_stored_txids(conn: &mut PgConnection) -> Result<Vec<Txid>, Error> {
     let rows =
         sqlx::query!("SELECT txid FROM unprocessed_transactions WHERE status = 'unprocessed'")
-            .fetch_all(pool)
+            .fetch_all(conn)
             .await?;
 
     return Ok(rows
@@ -439,21 +441,24 @@ pub async fn get_stored_txids(pool: &PgPool) -> Result<Vec<Txid>, Error> {
         .collect::<Vec<_>>());
 }
 
-pub async fn set_stored_txid_to_processed(pool: &PgPool, txid: &Txid) -> Result<(), Error> {
+pub async fn set_stored_txid_to_processed(
+    conn: &mut PgConnection,
+    txid: &Txid,
+) -> Result<(), Error> {
     sqlx::query!(
         "UPDATE unprocessed_transactions SET status = 'processed' WHERE txid = $1",
         &txid.to_string(),
     )
-    .execute(pool)
+    .execute(conn)
     .await?;
 
     Ok(())
 }
 
 // sums all the balances currently in the database and returns them
-pub async fn get_total_balance(pool: &PgPool) -> Result<u64, Error> {
+pub async fn get_total_balance(conn: &mut PgConnection) -> Result<u64, Error> {
     let record = sqlx::query!("SELECT SUM(CAST(balance AS BIGINT)) FROM balance_vrsc")
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await?;
 
     if let Some(balance) = record.sum {
@@ -463,9 +468,9 @@ pub async fn get_total_balance(pool: &PgPool) -> Result<u64, Error> {
     Ok(0)
 }
 
-pub async fn get_total_tipped(pool: &PgPool) -> Result<u64, Error> {
+pub async fn get_total_tipped(conn: &mut PgConnection) -> Result<u64, Error> {
     let record = sqlx::query!("SELECT SUM(CAST(amount AS BIGINT)) FROM tips_vrsc")
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await?;
 
     if let Some(total) = record.sum {
@@ -475,9 +480,9 @@ pub async fn get_total_tipped(pool: &PgPool) -> Result<u64, Error> {
     Ok(0)
 }
 
-pub async fn get_largest_tip(pool: &PgPool) -> Result<u64, Error> {
+pub async fn get_largest_tip(conn: &mut PgConnection) -> Result<u64, Error> {
     let record = sqlx::query!("SELECT MAX(amount) FROM tips_vrsc")
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await?;
 
     if let Some(max) = record.max {
@@ -487,12 +492,15 @@ pub async fn get_largest_tip(pool: &PgPool) -> Result<u64, Error> {
     Ok(0)
 }
 
-pub async fn get_all_txids(pool: &PgPool, transaction_action: &str) -> Result<Vec<Txid>, Error> {
+pub async fn get_all_txids(
+    conn: &mut PgConnection,
+    transaction_action: &str,
+) -> Result<Vec<Txid>, Error> {
     let rows = sqlx::query!(
         "SELECT transaction_id FROM transactions_vrsc WHERE transaction_action = $1",
         transaction_action
     )
-    .fetch_all(pool)
+    .fetch_all(conn)
     .await?;
 
     return Ok(rows
@@ -502,7 +510,7 @@ pub async fn get_all_txids(pool: &PgPool, transaction_action: &str) -> Result<Ve
 }
 
 pub async fn insert_reactdrop(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     author: i64,
     emoji: String,
     amount: i64,
@@ -522,20 +530,20 @@ pub async fn insert_reactdrop(
         emoji,
         amount,
     )
-    .execute(pool)
+    .execute(conn)
     .await?;
 
     Ok(())
 }
 
 /// Returns pending reactdrops, or an emtpy Vec if no pending reactdrops present
-pub async fn get_pending_reactdrops(pool: &PgPool) -> Result<Vec<Reactdrop>, Error> {
+pub async fn get_pending_reactdrops(conn: &mut PgConnection) -> Result<Vec<Reactdrop>, Error> {
     let rows = sqlx::query!(
         "SELECT * \
 FROM reactdrops \
 WHERE status = 'pending'"
     )
-    .fetch_all(pool)
+    .fetch_all(conn)
     .await?;
 
     let vec: Vec<Reactdrop> = rows
@@ -555,7 +563,7 @@ WHERE status = 'pending'"
 }
 
 pub async fn update_reactdrop(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     channel_id: i64,
     message_id: i64,
     status: ReactdropState,
@@ -566,7 +574,7 @@ pub async fn update_reactdrop(
         message_id,
         status.to_string()
     )
-    .execute(pool)
+    .execute(conn)
     .await?;
 
     Ok(())
