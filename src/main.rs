@@ -21,7 +21,8 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::{sync::RwLock, time::interval};
+use tokio::{pin, sync::RwLock, time::interval};
+use tokio_graceful_shutdown::{IntoSubsystem, SubsystemBuilder, SubsystemHandle, Toplevel};
 use tracing::{Level, debug, error, info, instrument, warn};
 use tracing_subscriber::{
     EnvFilter,
@@ -39,17 +40,49 @@ type Context<'a> = poise::Context<'a, Data, Error>;
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     log_setup()?;
 
-    if let Err(e) = app().await {
-        error!("{}", e);
-        return Err(e);
-    }
+    let config = get_configuration()?;
+    let bot = Bot(app(config).await?);
+
+    Toplevel::new(async |s: &mut SubsystemHandle| {
+        s.start(SubsystemBuilder::new("bot", bot.into_subsystem()));
+    })
+    .catch_signals()
+    .handle_shutdown_requests(Duration::from_secs(30))
+    .await
+    .unwrap();
 
     Ok(())
 }
 
+struct Bot(serenity::Client);
+
+impl IntoSubsystem<Box<dyn std::error::Error + Send + Sync>> for Bot {
+    async fn run(
+        self,
+        subsys: &mut SubsystemHandle,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let client = self.0;
+        pin!(client);
+
+        while !subsys.is_shutdown_requested() {
+            tokio::select! {
+                res = client.start() => {
+                    if let Err(e) = res {
+                        error!("{e:?}");
+                    }
+                }
+                _ = subsys.on_shutdown_requested() => {
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[instrument(err)]
-async fn app() -> Result<(), Error> {
-    let config = get_configuration()?;
+async fn app(config: Config) -> Result<serenity::Client, Error> {
     let pg_url = &config.database.connection_string();
     let database = PgPool::connect_lazy(pg_url)?;
     sqlx::migrate!("./migrations").run(&database).await?;
@@ -159,7 +192,7 @@ async fn app() -> Result<(), Error> {
     if client.as_ref().is_err() || client.as_ref().unwrap().ping().is_err() {
         error!("Verus daemon not ready, abort");
 
-        return Ok(());
+        return Err("Verus client not ready".into());
     }
 
     let client = client?;
@@ -264,7 +297,7 @@ async fn app() -> Result<(), Error> {
         .options(options)
         .build();
 
-    let mut client = ClientBuilder::new(
+    let client = ClientBuilder::new(
         token.expose_secret(),
         serenity::GatewayIntents::non_privileged()
             | serenity::GatewayIntents::GUILD_MEMBERS
@@ -274,9 +307,7 @@ async fn app() -> Result<(), Error> {
     .framework(framework)
     .await?;
 
-    client.start().await?;
-
-    Ok(())
+    Ok(client)
 }
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
