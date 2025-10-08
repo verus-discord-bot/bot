@@ -13,7 +13,6 @@ RUN cargo build --release --bin verusbot
 
 FROM debian:bullseye-slim AS runtime
 WORKDIR /verusbot
-RUN mkdir -p qr_address
 COPY config config
 COPY --from=builder /verusbot/target/release/verusbot /usr/local/bin
 ENTRYPOINT ["/usr/local/bin/verusbot"]

@@ -5,13 +5,13 @@ use std::{
 
 use charming::{
     ImageRenderer,
-    component::Axis,
-    element::{AxisLabel, AxisTick},
+    component::{Axis, Grid},
+    element::{AxisLabel, AxisTick, JsFunction},
 };
 use chrono::{DateTime, Datelike, Duration, Utc};
 use poise::{
     CreateReply,
-    serenity_prelude::{Colour, CreateEmbed, CreateEmbedFooter},
+    serenity_prelude::{Colour, CreateAttachment, CreateEmbed, CreateEmbedFooter},
 };
 use serde::Deserialize;
 use tracing::{debug, instrument};
@@ -31,9 +31,8 @@ pub async fn vrscbtc(ctx: Context<'_>) -> Result<(), Error> {
     let verus_client = ctx.data().verus()?;
 
     let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
-    let out_file = format!("plotters-doc-data/{filename}");
 
-    let data = get_data(
+    let conversion_data = get_conversion_data(
         &verus_client,
         "iH37kRsdfoHtHK5TottP1Yfq8hBSHz9btw",
         "VRSC",
@@ -42,12 +41,13 @@ pub async fn vrscbtc(ctx: Context<'_>) -> Result<(), Error> {
         "VRSC",
     )?;
 
-    get_charming_chart(&out_file, data)?;
+    let img_bytes = get_charming_chart_bytes(conversion_data)?;
+    let attachment = CreateAttachment::bytes(img_bytes, &filename);
 
     ctx.send(
         CreateReply::default()
             .embed(CreateEmbed::new().image(format!("attachment://{filename}")))
-            .attachment(poise::serenity_prelude::CreateAttachment::path(&out_file).await?),
+            .attachment(attachment),
     )
     .await?;
 
@@ -61,9 +61,7 @@ pub async fn vrsceth(ctx: Context<'_>) -> Result<(), Error> {
     let verus_client = ctx.data().verus()?;
 
     let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
-    let out_file = format!("plotters-doc-data/{filename}");
-
-    let data = get_data(
+    let conversion_data = get_conversion_data(
         &verus_client,
         "iH37kRsdfoHtHK5TottP1Yfq8hBSHz9btw",
         "VRSC",
@@ -72,52 +70,18 @@ pub async fn vrsceth(ctx: Context<'_>) -> Result<(), Error> {
         "VRSC",
     )?;
 
-    get_charming_chart(&out_file, data)?;
-    // get_chart(&verus_client, "VRSC", "vETH", 720, &out_file)?;
+    let img_bytes = get_charming_chart_bytes(conversion_data)?;
+    let attachment = CreateAttachment::bytes(img_bytes, &filename);
 
     ctx.send(
         CreateReply::default()
             .embed(CreateEmbed::new().image(format!("attachment://{filename}")))
-            .attachment(poise::serenity_prelude::CreateAttachment::path(&out_file).await?),
+            .attachment(attachment),
     )
     .await?;
 
     Ok(())
 }
-
-/*
-/// Show information about Verus blockchain.
-#[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
-#[poise::command(track_edits, slash_command, category = "Miscellaneous")]
-pub async fn chart(ctx: Context<'_>, base: String, rel: String, step: u64) -> Result<(), Error> {
-    // let step = 1440 * 20;
-    ctx.defer_ephemeral().await?;
-    let verus_client = ctx.data().verus()?;
-
-    let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
-    let out_file = format!("plotters-doc-data/{filename}");
-
-    let data = get_data(
-        &verus_client,
-        "iH37kRsdfoHtHK5TottP1Yfq8hBSHz9btw",
-        base,
-        rel,
-        720,
-        "VRSC",
-    )?;
-    get_charming_chart(&verus_client, &base, &rel, step, &out_file)?;
-
-    ctx.send(
-        CreateReply::default()
-            .embed(CreateEmbed::new().image(format!("attachment://{filename}")))
-            .ephemeral(true)
-            .attachment(poise::serenity_prelude::CreateAttachment::path(&out_file).await?),
-    )
-    .await?;
-
-    Ok(())
-}
-*/
 
 #[derive(Debug, Clone, Copy)]
 struct Candle {
@@ -128,7 +92,8 @@ struct Candle {
     close: f32,
 }
 
-fn get_charming_chart(path: &str, data: Vec<Candle>) -> Result<(), Error> {
+fn get_charming_chart_bytes(data: Vec<Candle>) -> Result<Vec<u8>, Error> {
+    // charting lib needs it as 'close, open, low, high'
     let ohlc = data
         .iter()
         .map(|candle| vec![candle.close, candle.open, candle.low, candle.high])
@@ -142,6 +107,7 @@ fn get_charming_chart(path: &str, data: Vec<Candle>) -> Result<(), Error> {
         .unwrap_or_default();
 
     let chart = charming::Chart::new()
+        .grid(Grid::new().left("90px").contain_label(true))
         .x_axis(
             Axis::new()
                 .data(
@@ -159,150 +125,25 @@ fn get_charming_chart(path: &str, data: Vec<Candle>) -> Result<(), Error> {
         .y_axis(
             Axis::new()
                 .start_value(lowest)
-                .axis_label(AxisLabel::new().font_size(20)),
+                .axis_label(
+                    AxisLabel::new()
+                        .font_size(20)
+                        .formatter(JsFunction::new_with_args(
+                            "value",
+                            "return Number(value).toFixed(8);",
+                        )),
+                ),
         )
         .series(charming::series::Candlestick::new().data(ohlc));
 
-    ImageRenderer::new(1000, 600)
+    let bytes = ImageRenderer::new(1000, 600)
         .theme(charming::theme::Theme::Dark)
-        .save_format(charming::ImageFormat::Png, &chart, path)?;
+        .render_format(charming::ImageFormat::Png, &chart)?;
 
-    Ok(())
+    Ok(bytes)
 }
 
-/*
-fn get_chart(
-    verus_client: &Client,
-    base: &str,
-    rel: &str,
-    step: u64,
-    out_file: &str,
-) -> Result<(), Error> {
-    let data = get_data(
-        verus_client,
-        "iH37kRsdfoHtHK5TottP1Yfq8hBSHz9btw",
-        base,
-        rel,
-        step,
-        "VRSC",
-    )?;
-
-    // let filename = format!("chart-{}.png", chrono::Utc::now().timestamp_micros());
-    // let out_file = format!("plotters-doc-data/{filename}");
-
-    {
-        let root = BitMapBackend::new(out_file, (1000, 600)).into_drawing_area();
-        root.fill(&BLACK)?;
-
-        // The data retrieved from the Verus daemon might contain gaps because of no trading
-        // in that period. We need to backfill that gap with the last known data so that the
-        // candlesticks are still populated for that height and shown (small) on the graph.
-        // let mut i = data.iter().peekable();
-        // let mut backfilled_data = vec![];
-
-        // while let Some(curr) = i.next()
-        //     && let Some(next) = i.peek()
-        // {
-        //     backfilled_data.push(*curr);
-
-        //     if (next.height - curr.height) / step > 1 {
-        //         println!(
-        //             "there's a gap: current: {}, next: {}, steps missed: {}",
-        //             curr.height,
-        //             next.height,
-        //             (next.height - curr.height) / step
-        //         );
-
-        //         for j in 1..((next.height - curr.height) / step) {
-        //             backfilled_data.push(Candle {
-        //                 height: curr.height + (step * j),
-        //                 blocktime: curr.blocktime + (step * j * 60),
-        //                 date_time: curr
-        //                     .date_time
-        //                     .checked_add_signed(TimeDelta::hours((step * j * 60) as i64))
-        //                     .unwrap(),
-        //                 open: curr.close,
-        //                 high: curr.close,
-        //                 low: curr.close,
-        //                 close: curr.close,
-        //             });
-        //         }
-        //     }
-        // }
-
-        // let data = backfilled_data;
-
-        let from = data.first().unwrap().blocktime;
-        let lowest = data
-            .iter()
-            .map(|t| t.low)
-            .min_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap();
-
-        let highest = data
-            .iter()
-            .map(|t| t.high)
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap();
-
-        debug!(lowest, highest);
-
-        let to = data.last().unwrap().blocktime;
-
-        tracing::trace!("create chart");
-
-        let mut chart = ChartBuilder::on(&root)
-            .x_label_area_size(48)
-            .y_label_area_size(175)
-            .margin_right(40)
-            .caption(
-                format!("{base} / {rel}"),
-                ("sans-serif", 50.0).into_font().color(&WHITE),
-            )
-            .build_cartesian_2d(
-                from..to,
-                // add 2 percent margin
-                (lowest - (lowest * 0.02))..highest + (highest * 0.02),
-            )?;
-
-        chart
-            .configure_mesh()
-            .bold_line_style(WHITE.mix(0.2))
-            .label_style(
-                FontDesc::new(FontFamily::SansSerif, 33.0, FontStyle::Normal).color(&WHITE),
-            )
-            .y_label_formatter(&|x| format!("{:.8}", x))
-            .x_label_formatter(&|x| {
-                let dt = DateTime::from_timestamp(*x as i64, 0).unwrap();
-
-                tracing::debug!(date = ?dt.to_rfc2822());
-
-                format!("{}-{}", dt.day(), dt.month())
-            })
-            .draw()?;
-
-        chart.draw_series(data.iter().map(|x| {
-            CandleStick::new(
-                x.blocktime,
-                x.open,
-                x.high,
-                x.low,
-                x.close,
-                GREEN.filled(),
-                RED.filled(),
-                12,
-            )
-        }))?;
-
-        // To avoid the IO failure being ignored silently, we manually call the present function
-        root.present()?;
-    }
-
-    Ok(())
-}
-*/
-
-fn get_data(
+fn get_conversion_data(
     client: &Client,
     currency_name: &str,
     base: &str,
@@ -313,7 +154,7 @@ fn get_data(
     let height = client.get_blockchain_info().unwrap().blocks;
 
     let period = format!("{},{},{step}", height - (step * 50), height);
-    tracing::debug!(period);
+
     let currency_state =
         client.get_currency_state(currency_name, Some(&period), Some(denominated_currency))?;
 
