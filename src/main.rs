@@ -21,7 +21,8 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::{sync::RwLock, time::interval};
+use tokio::{pin, sync::RwLock};
+use tokio_graceful_shutdown::{IntoSubsystem, SubsystemBuilder, SubsystemHandle, Toplevel};
 use tracing::{Level, debug, error, info, instrument, warn};
 use tracing_subscriber::{
     EnvFilter,
@@ -39,21 +40,70 @@ type Context<'a> = poise::Context<'a, Data, Error>;
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     log_setup()?;
 
-    if let Err(e) = app().await {
-        error!("{}", e);
-        return Err(e);
-    }
+    let config = get_configuration()?;
+    let database = PgPool::connect_lazy(&config.database.connection_string())?;
+    sqlx::migrate!("./migrations").run(&database).await?;
+
+    let bot = Bot {
+        client: app(config, database.clone()).await?,
+        db: database,
+    };
+
+    Toplevel::new(async |s: &mut SubsystemHandle| {
+        s.start(SubsystemBuilder::new("bot", bot.into_subsystem()));
+    })
+    .catch_signals()
+    .handle_shutdown_requests(Duration::from_secs(30))
+    .await
+    .unwrap();
 
     Ok(())
 }
 
-#[instrument(err)]
-async fn app() -> Result<(), Error> {
-    let config = get_configuration()?;
-    let pg_url = &config.database.connection_string();
-    let database = PgPool::connect_lazy(pg_url)?;
-    sqlx::migrate!("./migrations").run(&database).await?;
+struct Bot {
+    client: serenity::Client,
+    db: PgPool,
+}
 
+impl IntoSubsystem<Box<dyn std::error::Error + Send + Sync>> for Bot {
+    async fn run(
+        self,
+        subsys: &mut SubsystemHandle,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let client = self.client;
+        let http = client.http.clone();
+
+        let reactdrop_service = reactdrop::Subsystem {
+            http,
+            pool: self.db.clone(),
+        };
+
+        subsys.start(SubsystemBuilder::new(
+            "ReactdropService",
+            reactdrop_service.into_subsystem(),
+        ));
+
+        pin!(client);
+
+        while !subsys.is_shutdown_requested() {
+            tokio::select! {
+                res = client.start() => {
+                    if let Err(e) = res {
+                        error!("{e:?}");
+                    }
+                },
+                _ = subsys.on_shutdown_requested() => {
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[instrument(err)]
+async fn app(config: Config, database: PgPool) -> Result<serenity::Client, Error> {
     let owners = config
         .application
         .owners
@@ -159,7 +209,7 @@ async fn app() -> Result<(), Error> {
     if client.as_ref().is_err() || client.as_ref().unwrap().ping().is_err() {
         error!("Verus daemon not ready, abort");
 
-        return Ok(());
+        return Err("Verus client not ready".into());
     }
 
     let client = client?;
@@ -177,25 +227,6 @@ async fn app() -> Result<(), Error> {
             let deposits_enabled_clone = deposits_enabled.clone();
 
             Box::pin(async move {
-                tokio::spawn({
-                    let ctx = ctx.clone();
-                    let pool = pool.clone();
-
-                    info!("starting reactdrop loop");
-
-                    async move {
-                        let mut interval = interval(Duration::from_secs(20));
-
-                        loop {
-                            interval.tick().await;
-
-                            if let Err(e) = reactdrop::check_running_reactdrops(&ctx, &pool).await {
-                                error!("{:?}", e);
-                            }
-                        }
-                    }
-                });
-
                 let tx_proc = Arc::new(TransactionProcessor::new(
                     http.clone(),
                     pool.clone(),
@@ -264,7 +295,7 @@ async fn app() -> Result<(), Error> {
         .options(options)
         .build();
 
-    let mut client = ClientBuilder::new(
+    let client = ClientBuilder::new(
         token.expose_secret(),
         serenity::GatewayIntents::non_privileged()
             | serenity::GatewayIntents::GUILD_MEMBERS
@@ -274,9 +305,7 @@ async fn app() -> Result<(), Error> {
     .framework(framework)
     .await?;
 
-    client.start().await?;
-
-    Ok(())
+    Ok(client)
 }
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
