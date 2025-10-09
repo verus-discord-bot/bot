@@ -77,7 +77,7 @@ async fn role(
                 ctx.author().id,
                 ctx.http(),
                 &ctx.channel_id(),
-                &role_members,
+                role_members,
                 &tip_amount,
                 "role",
             )
@@ -129,9 +129,9 @@ async fn user(
         let mut tx = ctx.data().database.begin().await?;
         database::process_a_tip(
             &mut tx,
-            &ctx.author().id,
+            ctx.author().id,
             &vec![user.id],
-            &tip_amount,
+            tip_amount,
             &Address::from_str(VRSC_CURRENCY_ID)?,
         )
         .await?;
@@ -143,7 +143,7 @@ async fn user(
             &tip_event_id,
             &vec![user.id],
             "direct",
-            &tip_amount,
+            tip_amount,
             ctx.author().id,
             &Address::from_str(VRSC_CURRENCY_ID)?,
         )
@@ -349,7 +349,7 @@ pub async fn tip_multiple_users(
     author: UserId,
     http: impl CacheHttp,
     channel_id: &ChannelId,
-    users: &Vec<UserId>,
+    users: Vec<UserId>,
     amount: &Amount,
     kind: &str,
 ) -> Result<(), Error> {
@@ -377,9 +377,9 @@ pub async fn tip_multiple_users(
 
         database::process_a_tip(
             &mut *tx,
-            &author,
+            author,
             &users,
-            &div_tip_amount,
+            div_tip_amount,
             &Address::from_str(VRSC_CURRENCY_ID)?,
         )
         .await?;
@@ -387,9 +387,9 @@ pub async fn tip_multiple_users(
         database::store_tip_transactions(
             &mut tx,
             &tip_event_id,
-            users,
+            &users,
             kind,
-            &div_tip_amount,
+            div_tip_amount,
             author,
             &Address::from_str(VRSC_CURRENCY_ID)?,
         )

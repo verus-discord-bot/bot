@@ -9,7 +9,7 @@ use color_eyre::eyre::Report;
 use num_traits::cast::ToPrimitive;
 use poise::serenity_prelude::UserId;
 use sqlx::{
-    PgConnection, Postgres, QueryBuilder, Transaction,
+    PgConnection, Postgres, Transaction,
     types::chrono::{DateTime, Utc},
 };
 use tracing::*;
@@ -32,55 +32,30 @@ pub async fn insert_discord_user(conn: &mut PgConnection, user_id: &UserId) -> R
 }
 
 // to store multiple tip transactions at once. Usually when a group tip needs to be processed.
+// Because it all ends up as a transaction, it's fine to have multiple INSERT statements.
 pub async fn store_tip_transactions(
     conn: &mut PgConnection,
     uuid: &Uuid,
-    user_ids: &Vec<UserId>,
+    tippees: &Vec<UserId>,
     kind: &str,
-    amount: &Amount,
-    counterparty: UserId, // this is always a user
+    amount: Amount,
+    tipper: UserId, // this is always a user
     currency_id: &Address,
 ) -> Result<(), Error> {
-    // for tippee in tippees {
-    //     sqlx::query!(
-    //         "INSERT INTO tips (id, currency_id, discord_id, kind, amount, counterparty)
-    //         VALUES ($1, $2, $3, $4, $5, $6)",
-    //         id,
-    //         currency_id.to_string(),
-    //         tippee.get() as i64,
-    //         kind,
-    //         amount.as_sat() as i64,
-    //         tipper.get() as i64,
-    //     )
-    //     .execute(&mut *tx)
-    //     .await?;
-    // }
-
-    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
-        "INSERT INTO tips(uuid, discord_id, kind, amount, counterparty, currency_id) ",
-    );
-
-    let tuples = user_ids.iter().map(|user| {
-        (
+    for tippee in tippees {
+        sqlx::query!(
+            "INSERT INTO tips (uuid, currency_id, discord_id, kind, amount, counterparty)
+            VALUES ($1, $2, $3, $4, $5, $6)",
             uuid.to_string(),
-            user.get() as i64,
+            currency_id.to_string(),
+            tippee.get() as i64,
             kind,
             amount.as_sat() as i64,
-            counterparty.get() as i64,
-            currency_id.to_string(),
+            tipper.get() as i64,
         )
-    });
-
-    query_builder.push_values(tuples, |mut b, tuple| {
-        b.push_bind(tuple.0)
-            .push_bind(tuple.1)
-            .push_bind(tuple.2)
-            .push_bind(tuple.3)
-            .push_bind(tuple.4)
-            .push_bind(tuple.5);
-    });
-
-    query_builder.build().execute(conn).await?;
+        .execute(&mut *conn)
+        .await?;
+    }
 
     Ok(())
 }
@@ -94,7 +69,7 @@ pub async fn get_balance_for_user(
     user_id: &UserId,
     currency_id: &Address,
 ) -> Result<Option<u64>, Error> {
-    if let Some(row) = sqlx::query!(
+    let amount = sqlx::query!(
         "SELECT balance 
         FROM balances 
         WHERE discord_id = $1 AND
@@ -104,14 +79,9 @@ pub async fn get_balance_for_user(
     )
     .fetch_optional(conn)
     .await?
-    {
-        let balance = row.balance;
-        debug!("i64 balance: {balance}");
+    .map(|row| row.balance as u64);
 
-        Ok(Some(balance as u64))
-    } else {
-        Ok(None)
-    }
+    Ok(amount)
 }
 
 // process a tip from 1 user to 1 or more users.
@@ -120,45 +90,40 @@ pub async fn get_balance_for_user(
 // If one of these 2 actions fail, the database is not updated.
 pub async fn process_a_tip(
     tx: &mut Transaction<'_, Postgres>,
-    from_user: &UserId,
-    to_users: &Vec<UserId>,
-    tip_amount: &Amount,
+    tipper: UserId,
+    tippees: &Vec<UserId>,
+    amount: Amount,
     currency_id: &Address,
 ) -> Result<(), Error> {
-    let mut query_builder: QueryBuilder<Postgres> =
-        QueryBuilder::new("INSERT INTO balances (discord_id, balance, currency_id) ");
-
-    let tuples = to_users.iter().map(|user| {
-        (
-            user.get() as i64,
-            tip_amount.as_sat() as i64,
-            currency_id.to_string(),
-        )
-    });
-
-    query_builder.push_values(tuples, |mut b, tuple| {
-        b.push_bind(tuple.0).push_bind(tuple.1).push_bind(tuple.2);
-    });
-
-    query_builder.push(
-        " ON CONFLICT (discord_id, currency_id) DO UPDATE SET balance = balances.balance + excluded.balance",
-    );
-
-    query_builder.build().execute(&mut **tx).await?;
-
-    debug!("updated balances");
-
-    if let Some(mul) = tip_amount.checked_mul(to_users.len() as u64) {
+    for tippee in tippees {
         sqlx::query!(
-            "UPDATE balances SET balance = balance - $1 WHERE discord_id = $2 AND currency_id = $3",
+            "INSERT INTO balances (currency_id, discord_id, balance)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (currency_id, discord_id)
+            DO UPDATE
+            SET balance = balances.balance + excluded.balance",
+            currency_id.to_string(),
+            tippee.get() as i64,
+            amount.as_sat() as i64
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    if let Some(mul) = amount.checked_mul(tippees.len() as u64) {
+        sqlx::query!(
+            "UPDATE balances 
+            SET balance = balance - $1
+            WHERE discord_id = $2 AND 
+            currency_id = $3",
             mul.as_sat() as i64,
-            from_user.get() as i64,
+            tipper.get() as i64,
             currency_id.to_string()
         )
         .execute(&mut **tx)
         .await?;
 
-        debug!("decreased balances");
+        trace!("decreased balances");
         return Ok(());
     }
 
