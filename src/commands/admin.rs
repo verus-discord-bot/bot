@@ -1,8 +1,8 @@
 use poise::{
-    serenity_prelude::{CreateEmbed, UserId},
     CreateReply,
+    serenity_prelude::{CreateEmbed, UserId},
 };
-use sqlx::PgPool;
+use sqlx::{Postgres, Transaction};
 use std::{sync::Arc, time::Duration};
 use tracing::{debug, error, instrument, trace};
 use uuid::Uuid;
@@ -10,9 +10,8 @@ use vrsc::Amount;
 use vrsc_rpc::{bitcoin::Txid, client::RpcApi};
 
 use crate::{
-    util::database,
-    wallet_listener::{process_txid, TransactionProcessor},
-    Context, Error,
+    Context, Error, database,
+    wallet_listener::{TransactionProcessor, process_txid},
 };
 
 #[instrument(skip(ctx))]
@@ -38,14 +37,14 @@ pub async fn adminhelp(ctx: Context<'_>) -> Result<(), Error> {
 #[instrument(skip(ctx))]
 #[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
-    let pool = &ctx.data().database;
+    let mut conn = ctx.data().database.acquire().await?;
 
     let maintenance = *ctx.data().tx_processor.maintenance.read().await;
     let deposits_enabled = *ctx.data().tx_processor.deposits_enabled.read().await;
     let withdrawals_enabled = *ctx.data().withdrawals_enabled.read().await;
-    let total_balance = Amount::from_sat(database::get_total_balance(pool).await?);
-    let total_tipped = Amount::from_sat(database::get_total_tipped(pool).await?);
-    let largest_tip = Amount::from_sat(database::get_largest_tip(pool).await?);
+    let total_balance = Amount::from_sat(database::get_total_balance(&mut conn).await?);
+    let total_tipped = Amount::from_sat(database::get_total_tipped(&mut conn).await?);
+    let largest_tip = Amount::from_sat(database::get_largest_tip(&mut conn).await?);
     let total_deposited = totaldeposited(ctx).await?;
     let total_withdrawn = totalwithdrawn(ctx).await?;
 
@@ -107,10 +106,10 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
 async fn totaldeposited(ctx: Context<'_>) -> Result<Amount, Error> {
     ctx.defer().await?;
 
-    let pool = &ctx.data().database;
+    let mut conn = ctx.data().database.acquire().await?;
     let client = ctx.data().verus()?;
 
-    let deposit_transactions = database::get_all_txids(&pool, "deposit").await?;
+    let deposit_transactions = database::get_all_txids(&mut conn, "deposit").await?;
 
     let mut sum = Amount::ZERO;
 
@@ -120,7 +119,9 @@ async fn totaldeposited(ctx: Context<'_>) -> Result<Amount, Error> {
         for vout in raw_tx.vout.iter() {
             if let Some(addresses) = &vout.script_pubkey.addresses {
                 for address in addresses {
-                    if let Some(user_id) = database::get_user_from_address(&pool, address).await? {
+                    if let Some(user_id) =
+                        database::get_user_from_address(&mut conn, address).await?
+                    {
                         trace!("there is a user for this address: {user_id}",);
                         sum = sum.checked_add(vout.value_sat).unwrap();
                     }
@@ -137,10 +138,10 @@ async fn totaldeposited(ctx: Context<'_>) -> Result<Amount, Error> {
 pub async fn totalwithdrawn(ctx: Context<'_>) -> Result<Amount, Error> {
     ctx.defer().await?;
 
-    let pool = &ctx.data().database;
+    let mut conn = ctx.data().database.acquire().await?;
     let client = ctx.data().verus()?;
 
-    let withdraw_transactions = database::get_all_txids(&pool, "withdraw").await?;
+    let withdraw_transactions = database::get_all_txids(&mut *conn, "withdraw").await?;
 
     let mut sum = Amount::ZERO;
 
@@ -158,11 +159,11 @@ pub async fn totalwithdrawn(ctx: Context<'_>) -> Result<Amount, Error> {
 #[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
     debug!("no more fun for {user_id}");
-    let pool = &ctx.data().database;
+    let mut tx = ctx.data().database.begin().await?;
 
-    if let Some(status) = database::get_blacklist_status(&pool, user_id).await? {
+    if let Some(status) = database::get_blacklist_status(&mut tx, user_id).await? {
         if status == true {
-            database::set_blacklist_status(&pool, user_id, false).await?;
+            database::set_blacklist_status(&mut tx, user_id, false).await?;
             if let Ok(mut blacklist) = ctx.data().blacklist.lock() {
                 blacklist.remove(&user_id);
             }
@@ -172,15 +173,18 @@ pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
             .await?;
             trace!("{user_id} has been removed from blacklist");
         } else {
-            database::set_blacklist_status(&pool, user_id, true).await?;
+            database::set_blacklist_status(&mut tx, user_id, true).await?;
             if let Ok(mut blacklist) = ctx.data().blacklist.lock() {
                 blacklist.insert(user_id);
             }
+
             ctx.send(CreateReply::default().content(format!("user {user_id} blacklisted")))
                 .await?;
 
             trace!("{user_id} has been added to blacklist");
         }
+
+        tx.commit().await?;
     } else {
         error!("user not in database");
     }
@@ -249,16 +253,17 @@ pub async fn depositenabled(ctx: Context<'_>, value: bool) -> Result<(), Error> 
     trace!("set deposits enabled to {value}");
 
     {
+        let mut tx = ctx.data().database.begin().await?;
         let deposits_enabled = &ctx.data().deposits_enabled;
         let mut write = deposits_enabled.write().await;
         if *write == true && value == false {
             trace!("need to process possible unprocessed transactions");
 
-            let pool = &ctx.data().database;
             let tx_proc = Arc::clone(&ctx.data().tx_processor);
 
-            process_stored_txids(pool, tx_proc).await?
+            process_stored_txids(&mut tx, tx_proc).await?
         }
+        tx.commit().await?;
         *write = value;
     }
 
@@ -274,12 +279,13 @@ pub async fn depositenabled(ctx: Context<'_>, value: bool) -> Result<(), Error> 
 pub async fn checktxid(ctx: Context<'_>, txid: Txid) -> Result<(), Error> {
     trace!("manually check {txid}");
     let http = ctx.serenity_context().http.clone();
-    let pool = ctx.data().database.clone();
+    let mut tx = ctx.data().database.begin().await?;
 
     let client = &ctx.data().verus()?;
 
     if let Ok(raw_tx) = client.get_raw_transaction_verbose(&txid) {
-        process_txid(http, &pool, &raw_tx).await?;
+        process_txid(http, &mut *tx, &raw_tx).await?;
+        tx.commit().await?;
     }
 
     Ok(())
@@ -297,13 +303,13 @@ pub async fn manuallyaddwithdraw(
     tx_fee: u64,
 ) -> Result<(), Error> {
     trace!("manually add withdraw: {txid}");
-    let pool = &ctx.data().database;
+    let mut tx = ctx.data().database.begin().await?;
     let uuid = Uuid::new_v4();
 
     debug!("manually storing withdraw transaction: {uuid}: {user_id} - {txid} ({tx_fee})");
 
     database::store_withdraw_transaction(
-        pool,
+        &mut *tx,
         &uuid,
         &user_id,
         Some(&txid),
@@ -311,6 +317,8 @@ pub async fn manuallyaddwithdraw(
         &Amount::from_sat(tx_fee),
     )
     .await?;
+
+    tx.commit().await?;
 
     ctx.send(
         CreateReply::default()
@@ -329,15 +337,16 @@ pub async fn maintenance(ctx: Context<'_>, value: bool) -> Result<(), Error> {
     trace!("setting maintenance mode to {value}");
 
     {
+        let mut tx = ctx.data().database.begin().await?;
         let mut write = ctx.data().tx_processor.maintenance.write().await;
         if *write == true && value == false {
             trace!("need to process possible unprocessed transactions");
 
-            let pool = &ctx.data().database;
             let tx_proc = Arc::clone(&ctx.data().tx_processor);
 
-            process_stored_txids(pool, tx_proc).await?
+            process_stored_txids(&mut tx, tx_proc).await?
         }
+        tx.commit().await?;
         *write = value;
     }
 
@@ -348,10 +357,10 @@ pub async fn maintenance(ctx: Context<'_>, value: bool) -> Result<(), Error> {
 }
 
 async fn process_stored_txids(
-    pool: &PgPool,
+    tx: &mut Transaction<'_, Postgres>,
     tx_proc: Arc<TransactionProcessor>,
 ) -> Result<(), Error> {
-    let stored_txids = database::get_stored_txids(&pool).await?;
+    let stored_txids = database::get_stored_txids(&mut *tx).await?;
 
     for txid in stored_txids {
         trace!("processing {txid}");
@@ -362,7 +371,7 @@ async fn process_stored_txids(
         tx_proc.process_long_queue().await?;
         tx_proc.process_short_queue().await?;
 
-        database::set_stored_txid_to_processed(&pool, &txid).await?;
+        database::set_stored_txid_to_processed(&mut *tx, &txid).await?;
     }
 
     Ok(())

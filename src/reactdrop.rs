@@ -13,7 +13,7 @@ use tokio_graceful_shutdown::{IntoSubsystem, SubsystemHandle};
 use tracing::{debug, error, info, trace};
 use vrsc::Amount;
 
-use crate::{Error, commands, util::database};
+use crate::{Error, commands, database};
 
 #[derive(Debug)]
 pub enum ReactdropState {
@@ -58,7 +58,8 @@ pub struct Subsystem {
 
 impl Subsystem {
     pub async fn check_running_reactdrops(&self) -> Result<(), Error> {
-        let pending_reactdrops = database::get_pending_reactdrops(&self.pool).await?;
+        let mut tx = self.pool.begin().await?;
+        let pending_reactdrops = database::get_pending_reactdrops(&mut *tx).await?;
 
         if pending_reactdrops.is_empty() {
             return Ok(());
@@ -141,7 +142,7 @@ impl Subsystem {
                     trace!("tipping {} users in reactdrop", reaction_users.len());
 
                     if let Err(e) = commands::tipping::tip_multiple_users(
-                        &self.pool,
+                        &mut tx,
                         reactdrop.author,
                         &self.http,
                         &reactdrop.channel_id,
@@ -176,7 +177,7 @@ impl Subsystem {
                     .await?;
 
                 database::update_reactdrop(
-                    &self.pool,
+                    &mut *tx,
                     reactdrop.channel_id.get() as i64,
                     reactdrop.message_id.get() as i64,
                     ReactdropState::Processed,
@@ -186,6 +187,8 @@ impl Subsystem {
                 info!("processed reactdrop: {reactdrop:#?}");
             }
         }
+
+        tx.commit().await?;
 
         Ok(())
     }

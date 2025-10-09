@@ -1,12 +1,12 @@
 pub mod commands;
 pub mod config;
+pub(crate) mod database;
 pub mod reactdrop;
 pub mod util;
 pub mod wallet_listener;
 
 use crate::{
     config::{Config, get_configuration},
-    util::database,
     wallet_listener::TransactionProcessor,
 };
 use commands::*;
@@ -177,8 +177,8 @@ async fn app(config: Config, database: PgPool) -> Result<serenity::Client, Error
         },
         pre_command: |ctx| {
             Box::pin(async move {
-                let pool = &ctx.data().database;
-                database::insert_discord_user(pool, &ctx.author().id)
+                let mut tx = ctx.data().database.begin().await.unwrap();
+                database::insert_discord_user(&mut *tx, &ctx.author().id)
                     .await
                     .expect("a discord_user to be added to the database");
 

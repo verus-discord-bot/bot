@@ -1,13 +1,13 @@
 use std::{fmt::Display, time::Instant};
 
 use poise::{
-    serenity_prelude::{CreateEmbed, CreateEmbedFooter},
     ChoiceParameter, CreateReply,
+    serenity_prelude::{CreateEmbed, CreateEmbedFooter},
 };
 use tracing::instrument;
 use uuid::Uuid;
 
-use crate::{util::database, Context, Error};
+use crate::{Context, Error, database};
 
 /// Show information about this bot.
 #[instrument(skip(ctx), fields(request_id = %Uuid::new_v4() ))]
@@ -105,8 +105,8 @@ pub async fn register(ctx: Context<'_>, #[flag] global: bool) -> Result<(), Erro
 #[instrument(skip(ctx, notifications), fields(request_id = %Uuid::new_v4() ))]
 #[poise::command(track_edits, slash_command, category = "Miscellaneous")]
 pub async fn notifications(ctx: Context<'_>, notifications: Notification) -> Result<(), Error> {
-    let pool = &ctx.data().database;
-    database::update_notifications(&pool, &ctx.author().id, &notifications.to_string()).await?;
+    let mut conn = ctx.data().database.acquire().await?;
+    database::update_notifications(&mut conn, &ctx.author().id, &notifications.to_string()).await?;
 
     ctx.send(CreateReply::default().ephemeral(true).content(format!(
         "You successfully set notifications to: {}",
