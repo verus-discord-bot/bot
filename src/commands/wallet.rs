@@ -411,19 +411,24 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
         ctx.author().id
     );
 
-    let address = match database::get_address_from_user(&mut *tx, &ctx.author().id).await? {
-        Some(address) => address,
-        None => {
-            let client = &ctx.data().verus().unwrap();
-            let address = client.get_new_address().unwrap();
-            crate::database::store_new_address_for_user(&mut *tx, &ctx.author().id, &address)
-                .await?;
+    if let Some(address) = database::get_address_from_user(
+        &mut *tx,
+        &ctx.author().id,
+        &Address::from_str(VRSC_CURRENCY_ID)?,
+    )
+    .await?
+    {
+        send_deposit_address_msg(ctx, &address).await?;
+    } else {
+        // the database doesn't have an address, let's create one:
+        let client = &ctx.data().verus().unwrap();
+        let address = client.get_new_address().unwrap();
+        crate::database::store_new_address_for_user(&mut *tx, &ctx.author().id, &address)
+            .await
+            .expect("an address from the verus daemon");
 
-            address
-        }
-    };
-
-    send_deposit_address_msg(ctx, &address).await?;
+        send_deposit_address_msg(ctx, &address).await?;
+    }
 
     tx.commit().await?;
 

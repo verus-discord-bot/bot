@@ -1,4 +1,3 @@
-use color_eyre::Report;
 use futures::StreamExt;
 use poise::serenity_prelude::{CreateMessage, Http, UserId};
 use sqlx::{PgConnection, PgPool};
@@ -61,7 +60,7 @@ impl TransactionProcessor {
         }
     }
 
-    pub async fn listen_wallet_notifications(&self, verus_client: &Client) -> Result<(), Report> {
+    pub async fn listen_wallet_notifications(&self, verus_client: &Client) -> Result<(), Error> {
         let mut socket = tmq::subscribe(&tmq::Context::new())
             .connect(&format!(
                 "tcp://127.0.0.1:{}",
@@ -118,7 +117,7 @@ impl TransactionProcessor {
         }
     }
 
-    pub async fn listen_block_notifications(&self) -> Result<(), Report> {
+    pub async fn listen_block_notifications(&self) -> Result<(), Error> {
         let mut socket = tmq::subscribe(&tmq::Context::new())
             .connect(&format!(
                 "tcp://127.0.0.1:{}",
@@ -193,7 +192,7 @@ impl TransactionProcessor {
     }
 
     #[instrument(skip(self))]
-    pub async fn process_short_queue(&self) -> Result<(), Report> {
+    pub async fn process_short_queue(&self) -> Result<(), Error> {
         let deposits_enabled = self.deposits_enabled.read().await.clone();
         if !deposits_enabled {
             warn!("deposits disabled");
@@ -256,7 +255,7 @@ impl TransactionProcessor {
     }
 
     #[instrument(skip(self))]
-    pub async fn process_long_queue(&self) -> Result<(), Report> {
+    pub async fn process_long_queue(&self) -> Result<(), Error> {
         let deposits_enabled = self.deposits_enabled.read().await.clone();
         if !deposits_enabled {
             warn!("deposits disabled");

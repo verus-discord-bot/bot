@@ -5,7 +5,6 @@ use crate::{
     commands::misc::Notification,
     reactdrop::{Reactdrop, ReactdropState},
 };
-use color_eyre::eyre::Report;
 use num_traits::cast::ToPrimitive;
 use poise::serenity_prelude::UserId;
 use sqlx::{
@@ -156,35 +155,38 @@ pub async fn store_new_address_for_user(
 pub async fn get_address_from_user(
     conn: &mut PgConnection,
     user_id: &UserId,
+    currency_id: &Address,
 ) -> Result<Option<Address>, Error> {
-    if let Some(row) = sqlx::query!(
-        "SELECT discord_id, address FROM addresses WHERE discord_id = $1",
-        user_id.get() as i64
+    let address = sqlx::query!(
+        "SELECT discord_id, address 
+        FROM addresses
+        WHERE discord_id = $1 AND
+          currency_id = $2",
+        user_id.get() as i64,
+        currency_id.to_string()
     )
     .fetch_optional(conn)
     .await?
-    {
-        Ok(Some(Address::from_str(&row.address)?))
-    } else {
-        Ok(None)
-    }
+    .map(|row| Address::from_str(&row.address))
+    .transpose()?;
+
+    Ok(address)
 }
 
 pub async fn get_user_from_address(
     conn: &mut PgConnection,
     address: &Address,
-) -> Result<Option<UserId>, Report> {
-    if let Some(row) = sqlx::query!(
+) -> Result<Option<UserId>, Error> {
+    // the chance of collision is 2^256, so we don't need currency_id
+    let user = sqlx::query!(
         "SELECT discord_id FROM addresses WHERE address = $1",
         &address.to_string()
     )
     .fetch_optional(conn)
     .await?
-    {
-        Ok(Some(UserId::new(row.discord_id as u64)))
-    } else {
-        Ok(None)
-    }
+    .map(|row| UserId::new(row.discord_id as u64));
+
+    Ok(user)
 }
 
 pub async fn transaction_processed(
@@ -192,7 +194,7 @@ pub async fn transaction_processed(
     txid: &Txid,
     currency_id: &Address,
 ) -> Result<bool, Error> {
-    let transaction_query = sqlx::query!(
+    let is_processed = sqlx::query!(
         "SELECT * 
         FROM transactions 
         WHERE transaction_id = $1 AND 
@@ -202,12 +204,10 @@ pub async fn transaction_processed(
         currency_id.to_string()
     )
     .fetch_optional(conn)
-    .await?;
+    .await
+    .map(|r| r.is_some())?;
 
-    match transaction_query {
-        Some(_) => Ok(true),
-        None => Ok(false),
-    }
+    Ok(is_processed)
 }
 
 pub async fn increase_balance(
@@ -216,11 +216,7 @@ pub async fn increase_balance(
     amount: Amount,
     currency_id: &Address,
 ) -> Result<(), Error> {
-    debug!(
-        "going to increase balance for {user_id} with {} VRSC",
-        amount.as_vrsc()
-    );
-    let result = sqlx::query!(
+    sqlx::query!(
         "INSERT INTO balances (discord_id, balance, currency_id)
         VALUES ($1, $2, $3)
         ON CONFLICT (discord_id, currency_id)
@@ -231,12 +227,7 @@ pub async fn increase_balance(
         currency_id.to_string()
     )
     .execute(conn)
-    .await;
-
-    match result {
-        Ok(result) => info!("increasing the balance went ok! {:?}", result),
-        Err(e) => return Err(e.into()),
-    }
+    .await?;
 
     Ok(())
 }
@@ -249,11 +240,7 @@ pub async fn decrease_balance(
     currency_id: &Address,
 ) -> Result<(), Error> {
     if let Some(to_decrease) = amount.checked_add(*tx_fee) {
-        debug!(
-            "going to decrease balance for {user_id} with {} VRSC",
-            to_decrease.as_vrsc()
-        );
-        let result = sqlx::query!(
+        sqlx::query!(
             "UPDATE balances 
             SET balance = balance - $1 
             WHERE discord_id = $2 AND
@@ -263,15 +250,7 @@ pub async fn decrease_balance(
             currency_id.to_string()
         )
         .execute(conn)
-        .await;
-
-        match result {
-            Ok(result) => trace!("decreasing the balance went ok! {:?}", result),
-            Err(e) => {
-                error!("something went wrong while decreasing the balance: {:?}", e);
-                return Err(e.into());
-            }
-        }
+        .await?;
     } else {
         // summing the 2 balances went wrong. This is an edge case that only happens when someone
         // is withdrawing more than 184,467,440,737.09551615 VRSC,
@@ -280,6 +259,7 @@ pub async fn decrease_balance(
         // TODO: It could be that a PBaaS chain will have such a supply, in which case we need to
         // catch the error and inform the user. But not needed right now.
     }
+
     Ok(())
 }
 
@@ -314,11 +294,8 @@ pub async fn store_withdraw_transaction(
     tx_fee: &Amount,
     currency_id: &Address,
 ) -> Result<(), Error> {
-    let tx_hash = if let Some(tx) = tx_hash {
-        tx.to_string()
-    } else {
-        String::from("")
-    };
+    let tx_hash = tx_hash.map(|tx| tx.to_string()).unwrap_or_default();
+
     sqlx::query!(
         "INSERT INTO transactions (
             uuid, discord_id, transaction_id, opid, transaction_action, fee, currency_id) 
@@ -406,17 +383,16 @@ pub async fn get_blacklist_status(
     conn: &mut PgConnection,
     user_id: UserId,
 ) -> Result<Option<bool>, Error> {
-    if let Some(row) = sqlx::query!(
+    let is_blacklisted = sqlx::query!(
         "SELECT blacklisted FROM discord_users WHERE discord_id = $1",
         user_id.get() as i64
     )
     .fetch_optional(conn)
     .await?
-    {
-        return Ok(row.blacklisted);
-    } else {
-        Ok(None)
-    }
+    .map(|r| r.blacklisted)
+    .flatten();
+
+    Ok(is_blacklisted)
 }
 
 // TODO user might not exist?
@@ -429,21 +405,6 @@ pub async fn set_blacklist_status(
         "UPDATE discord_users SET blacklisted = $1 WHERE discord_id = $2",
         blacklist,
         user_id.get() as i64
-    )
-    .execute(conn)
-    .await?;
-
-    Ok(())
-}
-
-pub async fn store_unprocessed_transaction(
-    conn: &mut PgConnection,
-    txid: &Txid,
-) -> Result<(), Error> {
-    sqlx::query!(
-        "INSERT INTO unprocessed_transactions (txid, status) VALUES ($1, $2)",
-        &txid.to_string(),
-        "unprocessed"
     )
     .execute(conn)
     .await?;
@@ -483,19 +444,17 @@ pub async fn get_total_balance(
     currency_id: &Address,
 ) -> Result<u64, Error> {
     let record = sqlx::query!(
-        "SELECT SUM(CAST(balance AS BIGINT)) 
+        r#"SELECT COALESCE(SUM(CAST(balance AS BIGINT)), 0) AS "sum!"
         FROM balances
-        WHERE currency_id = $1",
+        WHERE currency_id = $1"#,
         currency_id.to_string()
     )
     .fetch_one(&mut *conn)
     .await?;
 
-    if let Some(balance) = record.sum {
-        return Ok(balance.to_u64().unwrap());
-    }
+    let res = record.sum.to_u64().unwrap_or_default();
 
-    Ok(0)
+    Ok(res)
 }
 
 pub async fn get_total_tipped(
@@ -503,30 +462,30 @@ pub async fn get_total_tipped(
     currency_id: &Address,
 ) -> Result<u64, Error> {
     let record = sqlx::query!(
-        "SELECT SUM(CAST(amount AS BIGINT)) FROM tips WHERE currency_id = $1",
+        r#"SELECT COALESCE(SUM(CAST(amount AS BIGINT)), 0) AS "sum!" 
+        FROM tips 
+        WHERE currency_id = $1"#,
         currency_id.to_string()
     )
     .fetch_one(&mut *conn)
     .await?;
 
-    if let Some(total) = record.sum {
-        return Ok(total.to_u64().unwrap());
-    }
+    let res = record.sum.to_u64().unwrap_or_default();
 
-    Ok(0)
+    Ok(res)
 }
 
 pub async fn get_largest_tip(conn: &mut PgConnection, currency_id: &Address) -> Result<u64, Error> {
     let record = sqlx::query!(
-        "SELECT MAX(amount) 
+        r#"SELECT COALESCE(MAX(amount), 0) AS "max!"
         FROM tips 
-        WHERE currency_id = $1",
+        WHERE currency_id = $1"#,
         currency_id.to_string()
     )
     .fetch_one(&mut *conn)
     .await?;
 
-    Ok(record.max.unwrap_or_default() as u64)
+    Ok(record.max as u64)
 }
 
 pub async fn get_all_txids(
@@ -584,9 +543,9 @@ pub async fn insert_reactdrop(
 /// Returns pending reactdrops, or an emtpy Vec if no pending reactdrops present
 pub async fn get_pending_reactdrops(conn: &mut PgConnection) -> Result<Vec<Reactdrop>, Error> {
     let rows = sqlx::query!(
-        "SELECT * \
-FROM reactdrops \
-WHERE status = 'pending'"
+        "SELECT *
+        FROM reactdrops
+        WHERE status = 'pending'"
     )
     .fetch_all(conn)
     .await?;
