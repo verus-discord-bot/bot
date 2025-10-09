@@ -47,12 +47,18 @@
         "ordinal": 8,
         "name": "author",
         "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "currency_id",
+        "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": []
     },
     "nullable": [
+      false,
       false,
       false,
       false,

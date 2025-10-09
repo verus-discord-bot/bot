@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO reactdrops\n        (author, channel_id, message_id, finish_time, emojistr, amount, status, currency_id)\n        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)\n        ON CONFLICT (channel_id, message_id)\n        DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Timestamptz",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "023bc52002402454ada5f3683b310046ac489b5407b5bf8db608ad3ea103f4e5"
+}

@@ -3,14 +3,14 @@ use poise::{
     serenity_prelude::{CreateEmbed, UserId},
 };
 use sqlx::{Postgres, Transaction};
-use std::{sync::Arc, time::Duration};
+use std::{str::FromStr, sync::Arc, time::Duration};
 use tracing::{debug, error, instrument, trace};
 use uuid::Uuid;
-use vrsc::Amount;
+use vrsc::{Address, Amount};
 use vrsc_rpc::{bitcoin::Txid, client::RpcApi};
 
 use crate::{
-    Context, Error, database,
+    Context, Error, VRSC_CURRENCY_ID, database,
     wallet_listener::{TransactionProcessor, process_txid},
 };
 
@@ -42,9 +42,15 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
     let maintenance = *ctx.data().tx_processor.maintenance.read().await;
     let deposits_enabled = *ctx.data().tx_processor.deposits_enabled.read().await;
     let withdrawals_enabled = *ctx.data().withdrawals_enabled.read().await;
-    let total_balance = Amount::from_sat(database::get_total_balance(&mut conn).await?);
-    let total_tipped = Amount::from_sat(database::get_total_tipped(&mut conn).await?);
-    let largest_tip = Amount::from_sat(database::get_largest_tip(&mut conn).await?);
+    let total_balance = Amount::from_sat(
+        database::get_total_balance(&mut conn, &Address::from_str(VRSC_CURRENCY_ID)?).await?,
+    );
+    let total_tipped = Amount::from_sat(
+        database::get_total_tipped(&mut conn, &Address::from_str(VRSC_CURRENCY_ID)?).await?,
+    );
+    let largest_tip = Amount::from_sat(
+        database::get_largest_tip(&mut conn, &Address::from_str(VRSC_CURRENCY_ID)?).await?,
+    );
     let total_deposited = totaldeposited(ctx).await?;
     let total_withdrawn = totalwithdrawn(ctx).await?;
 
@@ -109,7 +115,9 @@ async fn totaldeposited(ctx: Context<'_>) -> Result<Amount, Error> {
     let mut conn = ctx.data().database.acquire().await?;
     let client = ctx.data().verus()?;
 
-    let deposit_transactions = database::get_all_txids(&mut conn, "deposit").await?;
+    let deposit_transactions =
+        database::get_all_txids(&mut conn, "deposit", &Address::from_str(VRSC_CURRENCY_ID)?)
+            .await?;
 
     let mut sum = Amount::ZERO;
 
@@ -141,7 +149,12 @@ pub async fn totalwithdrawn(ctx: Context<'_>) -> Result<Amount, Error> {
     let mut conn = ctx.data().database.acquire().await?;
     let client = ctx.data().verus()?;
 
-    let withdraw_transactions = database::get_all_txids(&mut *conn, "withdraw").await?;
+    let withdraw_transactions = database::get_all_txids(
+        &mut *conn,
+        "withdraw",
+        &Address::from_str(VRSC_CURRENCY_ID)?,
+    )
+    .await?;
 
     let mut sum = Amount::ZERO;
 
@@ -315,6 +328,7 @@ pub async fn manuallyaddwithdraw(
         Some(&txid),
         &format!("opid-{uuid}"),
         &Amount::from_sat(tx_fee),
+        &Address::from_str(VRSC_CURRENCY_ID)?,
     )
     .await?;
 

@@ -1,26 +1,3 @@
---
--- PostgreSQL database dump
---
-
--- Dumped from database version 15.10 (Debian 15.10-1.pgdg110+1)
--- Dumped by pg_dump version 17.2 (Debian 17.2-1.pgdg110+1)
-
-SET statement_timeout = 0;
-SET lock_timeout = 0;
-SET idle_in_transaction_session_timeout = 0;
-SET transaction_timeout = 0;
-SET client_encoding = 'UTF8';
-SET standard_conforming_strings = on;
-SELECT pg_catalog.set_config('search_path', '', false);
-SET check_function_bodies = false;
-SET xmloption = content;
-SET client_min_messages = warning;
-SET row_security = off;
-
---
--- Name: trigger_set_timestamp(); Type: FUNCTION; Schema: public; Owner: -
---
-
 CREATE FUNCTION public.trigger_set_timestamp() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
@@ -32,37 +9,10 @@ END;
 $$;
 
 
-SET default_tablespace = '';
-
-SET default_table_access_method = heap;
-
---
--- Name: _sqlx_migrations; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public._sqlx_migrations (
-    version bigint NOT NULL,
-    description text NOT NULL,
-    installed_on timestamp with time zone DEFAULT now() NOT NULL,
-    success boolean NOT NULL,
-    checksum bytea NOT NULL,
-    execution_time bigint NOT NULL
-);
-
-
---
--- Name: addresses; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE public.addresses (
     discord_id bigint NOT NULL,
     address text NOT NULL
 );
-
-
---
--- Name: balance_vrsc; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.balance_vrsc (
     discord_id bigint,
@@ -72,11 +22,6 @@ CREATE TABLE public.balance_vrsc (
     CONSTRAINT non_negative_balance CHECK ((balance >= 0))
 );
 
-
---
--- Name: discord_users; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE public.discord_users (
     discord_id bigint NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -84,11 +29,6 @@ CREATE TABLE public.discord_users (
     notifications text,
     blacklisted boolean DEFAULT false
 );
-
-
---
--- Name: opids; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.opids (
     opid text NOT NULL,
@@ -102,11 +42,6 @@ CREATE TABLE public.opids (
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-
---
--- Name: reactdrops; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE public.reactdrops (
     channel_id bigint NOT NULL,
     message_id bigint NOT NULL,
@@ -119,11 +54,6 @@ CREATE TABLE public.reactdrops (
     author bigint NOT NULL
 );
 
-
---
--- Name: tips_vrsc; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE public.tips_vrsc (
     uuid text NOT NULL,
     discord_id bigint NOT NULL,
@@ -134,10 +64,6 @@ CREATE TABLE public.tips_vrsc (
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-
---
--- Name: transactions_vrsc; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.transactions_vrsc (
     discord_id bigint NOT NULL,
@@ -150,11 +76,6 @@ CREATE TABLE public.transactions_vrsc (
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-
---
--- Name: unprocessed_transactions; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE public.unprocessed_transactions (
     txid text NOT NULL,
     status text NOT NULL,
@@ -163,17 +84,6 @@ CREATE TABLE public.unprocessed_transactions (
 );
 
 
---
--- Name: _sqlx_migrations _sqlx_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public._sqlx_migrations
-    ADD CONSTRAINT _sqlx_migrations_pkey PRIMARY KEY (version);
-
-
---
--- Name: addresses addresses_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.addresses
     ADD CONSTRAINT addresses_pkey PRIMARY KEY (discord_id);

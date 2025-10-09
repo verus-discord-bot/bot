@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT balance FROM balance_vrsc WHERE discord_id = $1",
+  "query": "SELECT balance \n        FROM balances \n        WHERE discord_id = $1 AND\n            currency_id = $2",
   "describe": {
     "columns": [
       {
@@ -11,12 +11,13 @@
     ],
     "parameters": {
       "Left": [
-        "Int8"
+        "Int8",
+        "Text"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "a2850f8e9377bc9097817497eb424ecfe09ae0e51da21eb8431c6e1cf629f519"
+  "hash": "1129dcc71b75e2149f27c32d1b5f771c99e723de6525f22ab6e6291a41fd0f7e"
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT SUM(CAST(amount AS BIGINT)) FROM tips_vrsc",
+  "query": "SELECT SUM(CAST(amount AS BIGINT)) FROM tips WHERE currency_id = $1",
   "describe": {
     "columns": [
       {
@@ -10,11 +10,13 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text"
+      ]
     },
     "nullable": [
       null
     ]
   },
-  "hash": "099b67ad64803ef2f48120818fe3e228ce6d58e484b766267f0970ec60e34263"
+  "hash": "45a38d77f6781584c252c37714cba89ce8058849855ee1b98bb784c79648ca99"
 }

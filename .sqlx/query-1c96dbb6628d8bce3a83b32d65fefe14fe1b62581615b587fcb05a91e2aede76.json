@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO balances (discord_id, balance, currency_id)\n        VALUES ($1, $2, $3)\n        ON CONFLICT (discord_id, currency_id)\n        DO UPDATE \n        SET balance = balances.balance + excluded.balance",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1c96dbb6628d8bce3a83b32d65fefe14fe1b62581615b587fcb05a91e2aede76"
+}

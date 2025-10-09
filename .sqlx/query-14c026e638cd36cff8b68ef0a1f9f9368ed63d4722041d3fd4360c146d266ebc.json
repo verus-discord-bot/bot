@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * FROM transactions_vrsc WHERE transaction_id = $1 AND transaction_action = 'deposit'",
+  "query": "SELECT * \n        FROM transactions \n        WHERE transaction_id = $1 AND \n        transaction_action = 'deposit' AND\n        currency_id = $2",
   "describe": {
     "columns": [
       {
@@ -45,12 +45,13 @@
       },
       {
         "ordinal": 8,
-        "name": "amount",
-        "type_info": "Int8"
+        "name": "currency_id",
+        "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
+        "Text",
         "Text"
       ]
     },
@@ -63,8 +64,8 @@
       true,
       false,
       false,
-      true
+      false
     ]
   },
-  "hash": "bd058a5a7ce91cf460a4c071e2e7b5e75576feee9a8ee3406395d460215000fe"
+  "hash": "14c026e638cd36cff8b68ef0a1f9f9368ed63d4722041d3fd4360c146d266ebc"
 }
