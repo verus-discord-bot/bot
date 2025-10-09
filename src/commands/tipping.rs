@@ -138,8 +138,10 @@ async fn user(
             ctx.author().id,
         )
         .await?;
+        tx.commit().await?;
 
-        match database::get_notification_settings(&mut *tx, &vec![user.id])
+        let mut conn = ctx.data().database.acquire().await?;
+        match database::get_notification_settings(&mut conn, &vec![user.id])
             .await?
             .first()
         {
