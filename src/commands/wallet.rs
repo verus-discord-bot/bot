@@ -66,12 +66,6 @@ pub async fn all(
         return Ok(());
     }
 
-    debug!(
-        "user {} ({}) demands a withdrawal of his whole balance",
-        ctx.author().name,
-        ctx.author().id
-    );
-
     let client = &ctx.data().verus()?;
     if !destination_is_valid(&destination, &client) {
         ctx.send(CreateReply::default().ephemeral(true).content(format!(
@@ -81,6 +75,12 @@ pub async fn all(
 
         return Ok(());
     }
+
+    debug!(
+        name = %ctx.author().name,
+        user_id = %ctx.author().id,
+        "user demands a withdrawal of his full balance",
+    );
 
     let mut tx = ctx.data().database.begin().await?;
     let uuid = Uuid::new_v4();
@@ -95,13 +95,9 @@ pub async fn all(
                 "withdrawal_amount: {withdrawal_amount}, tx_fee: {tx_fee} must together be balance_amount: {balance_amount}"
             );
 
-            let currency = match ctx.data().settings.application.testnet {
-                true => Some("vrsctest"),
-                false => None,
-            };
-            let sco =
-                SendCurrencyOutput::new(currency, &withdrawal_amount, &destination, None, None);
+            let sco = SendCurrencyOutput::new(None, &withdrawal_amount, &destination, None, None);
             let opid = client.send_currency("*", vec![sco], None, None)?;
+
             debug!("sendcurrency opid: {:?}", &opid);
 
             if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, &client, &opid).await? {
@@ -176,14 +172,14 @@ pub async fn all(
             }
 
             return Ok(());
-        }
-
-        ctx.send(CreateReply::default().ephemeral(true).content(format!(
+        } else {
+            ctx.send(CreateReply::default().ephemeral(true).content(format!(
                 "Your balance is insufficient to withdraw everything.\nMax available balance for \
                 withdraw: {}",
                 withdrawal_amount.checked_sub(*tx_fee).unwrap_or(Amount::ZERO)
             )))
-        .await?;
+            .await?;
+        }
     } else {
         trace!("The user has no balance, abort");
         ctx.send(
@@ -238,10 +234,6 @@ pub async fn amount(
         return Ok(());
     }
 
-    // if amount to withdraw <= 0.0
-    // the reason this has to be done this way is because Amount is an abstraction over floats (f64)
-    //  and 2 floats with the same value are not equal
-    // according to some IEEE standard.
     let withdrawal_amount = Amount::from_vrsc(withdrawal_amount)?;
     if [Ordering::Less, Ordering::Equal].contains(&withdrawal_amount.cmp(&Amount::ZERO)) {
         ctx.send(
@@ -258,23 +250,21 @@ pub async fn amount(
     let uuid = Uuid::new_v4();
     let tx_fee = ctx.data().withdrawal_fee.read().await.clone();
 
+    // can we let the database return something meaningful when the withdraw is not possible?
     if get_and_check_balance(&ctx, withdrawal_amount, tx_fee)
         .await?
         .is_some()
     {
         trace!("balance is sufficient, withdrawal address is valid; starting sendcurrency");
 
-        // until PBaaS releases on mainnet, we should not use a value for currency for "VRSC" withdrawals as there will be a daemon error
-        let currency = match ctx.data().settings.application.testnet {
-            true => Some("vrsctest"),
-            false => None,
-        };
-        let sco = SendCurrencyOutput::new(currency, &withdrawal_amount, &destination, None, None);
+        let sco = SendCurrencyOutput::new(None, &withdrawal_amount, &destination, None, None);
         let opid = client.send_currency("*", vec![sco], None, None)?;
+
         debug!("sendcurrency opid: {:?}", &opid);
 
         if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, &client, &opid).await? {
-            // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
+            // at this point the txid is known. Now blockchain shenanigans could be happening,
+            // so we should store everything in the transactions_db table
             database::store_withdraw_transaction(
                 &mut *tx,
                 &uuid,
@@ -386,18 +376,19 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
         ctx.author().id
     );
 
-    if let Some(address) = database::get_address_from_user(&mut *tx, &ctx.author().id).await? {
-        send_deposit_address_msg(ctx, &address).await?;
-    } else {
-        // the database doesn't have an address, let's create one:
-        let client = &ctx.data().verus().unwrap();
-        let address = client.get_new_address().unwrap();
-        crate::database::store_new_address_for_user(&mut *tx, &ctx.author().id, &address)
-            .await
-            .expect("an address from the verus daemon");
+    let address = match database::get_address_from_user(&mut *tx, &ctx.author().id).await? {
+        Some(address) => address,
+        None => {
+            let client = &ctx.data().verus().unwrap();
+            let address = client.get_new_address().unwrap();
+            crate::database::store_new_address_for_user(&mut *tx, &ctx.author().id, &address)
+                .await?;
 
-        send_deposit_address_msg(ctx, &address).await?;
-    }
+            address
+        }
+    };
+
+    send_deposit_address_msg(ctx, &address).await?;
 
     tx.commit().await?;
 

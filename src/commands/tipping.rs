@@ -336,7 +336,7 @@ pub async fn reactdrop(
 pub async fn tip_multiple_users(
     mut tx: &mut Transaction<'_, Postgres>,
     author: UserId,
-    http: impl CacheHttp + std::convert::AsRef<poise::serenity_prelude::Http>,
+    http: impl CacheHttp,
     channel_id: &ChannelId,
     users: &Vec<UserId>,
     amount: &Amount,
@@ -351,7 +351,11 @@ pub async fn tip_multiple_users(
     debug!("users in tip_users: {:?}", users);
 
     // need to divide tipping amount over number of users
+    // calculation is done using integer division, any remainder is lost,
+    // so we effectively round down the tip amounts.
     if let Some(div_tip_amount) = amount.checked_div(users.len() as u64) {
+        // we sum it all together again to get a (potentially lower) total amount
+        // to tip
         let amount = div_tip_amount
             .checked_mul(users.len() as u64)
             .unwrap_or(*amount);
