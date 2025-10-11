@@ -5,11 +5,10 @@ use crate::{
     commands::misc::Notification,
     reactdrop::{Reactdrop, ReactdropState},
 };
-use color_eyre::eyre::Report;
 use num_traits::cast::ToPrimitive;
 use poise::serenity_prelude::UserId;
 use sqlx::{
-    PgConnection, Postgres, QueryBuilder, Transaction,
+    PgConnection, Postgres, Transaction,
     types::chrono::{DateTime, Utc},
 };
 use tracing::*;
@@ -32,36 +31,30 @@ pub async fn insert_discord_user(conn: &mut PgConnection, user_id: &UserId) -> R
 }
 
 // to store multiple tip transactions at once. Usually when a group tip needs to be processed.
+// Because it all ends up as a transaction, it's fine to have multiple INSERT statements.
 pub async fn store_tip_transactions(
     conn: &mut PgConnection,
     uuid: &Uuid,
-    user_ids: &Vec<UserId>,
+    tippees: &Vec<UserId>,
     kind: &str,
-    amount: &Amount,
-    counterparty: UserId, // this is always a user
+    amount: Amount,
+    tipper: UserId, // this is always a user
+    currency_id: &Address,
 ) -> Result<(), Error> {
-    let mut query_builder: QueryBuilder<Postgres> =
-        QueryBuilder::new("INSERT INTO tips_vrsc(uuid, discord_id, kind, amount, counterparty) ");
-
-    let tuples = user_ids.iter().map(|user| {
-        (
+    for tippee in tippees {
+        sqlx::query!(
+            "INSERT INTO tips (uuid, currency_id, discord_id, kind, amount, counterparty)
+            VALUES ($1, $2, $3, $4, $5, $6)",
             uuid.to_string(),
-            user.get() as i64,
+            currency_id.to_string(),
+            tippee.get() as i64,
             kind,
             amount.as_sat() as i64,
-            counterparty.get() as i64,
+            tipper.get() as i64,
         )
-    });
-
-    query_builder.push_values(tuples, |mut b, tuple| {
-        b.push_bind(tuple.0)
-            .push_bind(tuple.1)
-            .push_bind(tuple.2)
-            .push_bind(tuple.3)
-            .push_bind(tuple.4);
-    });
-
-    query_builder.build().execute(conn).await?;
+        .execute(&mut *conn)
+        .await?;
+    }
 
     Ok(())
 }
@@ -73,21 +66,21 @@ pub async fn store_tip_transactions(
 pub async fn get_balance_for_user(
     conn: &mut PgConnection,
     user_id: &UserId,
+    currency_id: &Address,
 ) -> Result<Option<u64>, Error> {
-    if let Some(row) = sqlx::query!(
-        "SELECT balance FROM balance_vrsc WHERE discord_id = $1",
-        user_id.get() as i64
+    let amount = sqlx::query!(
+        "SELECT balance 
+        FROM balances 
+        WHERE discord_id = $1 AND
+            currency_id = $2",
+        user_id.get() as i64,
+        currency_id.to_string()
     )
     .fetch_optional(conn)
     .await?
-    {
-        let balance = row.balance;
-        debug!("i64 balance: {balance}");
+    .map(|row| row.balance as u64);
 
-        Ok(Some(balance as u64))
-    } else {
-        Ok(None)
-    }
+    Ok(amount)
 }
 
 // process a tip from 1 user to 1 or more users.
@@ -96,38 +89,40 @@ pub async fn get_balance_for_user(
 // If one of these 2 actions fail, the database is not updated.
 pub async fn process_a_tip(
     tx: &mut Transaction<'_, Postgres>,
-    from_user: &UserId,
-    to_users: &Vec<UserId>,
-    tip_amount: &Amount,
+    tipper: UserId,
+    tippees: &Vec<UserId>,
+    amount: Amount,
+    currency_id: &Address,
 ) -> Result<(), Error> {
-    let mut query_builder: QueryBuilder<Postgres> =
-        QueryBuilder::new("INSERT INTO balance_vrsc (discord_id, balance) ");
-
-    let tuples = to_users
-        .iter()
-        .map(|user| (user.get() as i64, tip_amount.as_sat() as i64));
-
-    query_builder.push_values(tuples, |mut b, tuple| {
-        b.push_bind(tuple.0).push_bind(tuple.1);
-    });
-
-    query_builder
-        .push(" ON CONFLICT (discord_id) DO UPDATE SET balance = balance_vrsc.balance + $2");
-
-    query_builder.build().execute(&mut **tx).await?;
-
-    debug!("updated balances");
-
-    if let Some(mul) = tip_amount.checked_mul(to_users.len() as u64) {
+    for tippee in tippees {
         sqlx::query!(
-            "UPDATE balance_vrsc SET balance = balance - $1 WHERE discord_id = $2",
+            "INSERT INTO balances (currency_id, discord_id, balance)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (currency_id, discord_id)
+            DO UPDATE
+            SET balance = balances.balance + excluded.balance",
+            currency_id.to_string(),
+            tippee.get() as i64,
+            amount.as_sat() as i64
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    if let Some(mul) = amount.checked_mul(tippees.len() as u64) {
+        sqlx::query!(
+            "UPDATE balances 
+            SET balance = balance - $1
+            WHERE discord_id = $2 AND 
+            currency_id = $3",
             mul.as_sat() as i64,
-            from_user.get() as i64
+            tipper.get() as i64,
+            currency_id.to_string()
         )
         .execute(&mut **tx)
         .await?;
 
-        debug!("decreased balances");
+        trace!("decreased balances");
         return Ok(());
     }
 
@@ -160,75 +155,79 @@ pub async fn store_new_address_for_user(
 pub async fn get_address_from_user(
     conn: &mut PgConnection,
     user_id: &UserId,
+    currency_id: &Address,
 ) -> Result<Option<Address>, Error> {
-    if let Some(row) = sqlx::query!(
-        "SELECT discord_id, address FROM addresses WHERE discord_id = $1",
-        user_id.get() as i64
+    let address = sqlx::query!(
+        "SELECT discord_id, address 
+        FROM addresses
+        WHERE discord_id = $1 AND
+          currency_id = $2",
+        user_id.get() as i64,
+        currency_id.to_string()
     )
     .fetch_optional(conn)
     .await?
-    {
-        Ok(Some(Address::from_str(&row.address)?))
-    } else {
-        Ok(None)
-    }
+    .map(|row| Address::from_str(&row.address))
+    .transpose()?;
+
+    Ok(address)
 }
 
 pub async fn get_user_from_address(
     conn: &mut PgConnection,
     address: &Address,
-) -> Result<Option<UserId>, Report> {
-    if let Some(row) = sqlx::query!(
+) -> Result<Option<UserId>, Error> {
+    // the chance of collision is 2^256, so we don't need currency_id
+    let user = sqlx::query!(
         "SELECT discord_id FROM addresses WHERE address = $1",
         &address.to_string()
     )
     .fetch_optional(conn)
     .await?
-    {
-        Ok(Some(UserId::new(row.discord_id as u64)))
-    } else {
-        Ok(None)
-    }
+    .map(|row| UserId::new(row.discord_id as u64));
+
+    Ok(user)
 }
 
-pub async fn transaction_processed(conn: &mut PgConnection, txid: &Txid) -> Result<bool, Error> {
-    let transaction_query = sqlx::query!(
-        "SELECT * FROM transactions_vrsc WHERE transaction_id = $1 AND transaction_action = 'deposit'",
-        &txid.to_string()
+pub async fn transaction_processed(
+    conn: &mut PgConnection,
+    txid: &Txid,
+    currency_id: &Address,
+) -> Result<bool, Error> {
+    let is_processed = sqlx::query!(
+        "SELECT * 
+        FROM transactions 
+        WHERE transaction_id = $1 AND 
+        transaction_action = 'deposit' AND
+        currency_id = $2",
+        &txid.to_string(),
+        currency_id.to_string()
     )
     .fetch_optional(conn)
-    .await?;
+    .await
+    .map(|r| r.is_some())?;
 
-    match transaction_query {
-        Some(_) => Ok(true),
-        None => Ok(false),
-    }
+    Ok(is_processed)
 }
 
 pub async fn increase_balance(
     conn: &mut PgConnection,
     user_id: &UserId,
     amount: Amount,
+    currency_id: &Address,
 ) -> Result<(), Error> {
-    debug!(
-        "going to increase balance for {user_id} with {} VRSC",
-        amount.as_vrsc()
-    );
-    let result = sqlx::query!(
-        "INSERT INTO balance_vrsc (discord_id, balance)
-        VALUES ($1, $2)
-        ON CONFLICT (discord_id)
-        DO UPDATE SET balance = balance_vrsc.balance + $2",
+    sqlx::query!(
+        "INSERT INTO balances (discord_id, balance, currency_id)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (discord_id, currency_id)
+        DO UPDATE 
+        SET balance = balances.balance + excluded.balance",
         user_id.get() as i64,
-        amount.as_sat() as i64
+        amount.as_sat() as i64,
+        currency_id.to_string()
     )
     .execute(conn)
-    .await;
-
-    match result {
-        Ok(result) => info!("increasing the balance went ok! {:?}", result),
-        Err(e) => return Err(e.into()),
-    }
+    .await?;
 
     Ok(())
 }
@@ -238,33 +237,29 @@ pub async fn decrease_balance(
     user_id: &UserId,
     amount: &Amount,
     tx_fee: &Amount,
+    currency_id: &Address,
 ) -> Result<(), Error> {
     if let Some(to_decrease) = amount.checked_add(*tx_fee) {
-        debug!(
-            "going to decrease balance for {user_id} with {} VRSC",
-            to_decrease.as_vrsc()
-        );
-        let result = sqlx::query!(
-            "UPDATE balance_vrsc SET balance = balance - $1 WHERE discord_id = $2",
+        sqlx::query!(
+            "UPDATE balances 
+            SET balance = balance - $1 
+            WHERE discord_id = $2 AND
+            currency_id = $3",
             to_decrease.as_sat() as i64,
-            user_id.get() as i64
+            user_id.get() as i64,
+            currency_id.to_string()
         )
         .execute(conn)
-        .await;
-
-        match result {
-            Ok(result) => info!("decreasing the balance went ok! {:?}", result),
-            Err(e) => {
-                error!("something went wrong while decreasing the balance: {:?}", e);
-                return Err(e.into());
-            }
-        }
+        .await?;
     } else {
-        // summing the 2 balances went wrong. This is an edge case that only happens when someone is withdrawing more than 184,467,440,737.09551615 VRSC,
+        // summing the 2 balances went wrong. This is an edge case that only happens when someone
+        // is withdrawing more than 184,467,440,737.09551615 VRSC,
         // which is more than the supply of VRSC will ever be.
         unreachable!()
-        // TODO: It could be that a PBaaS chain will have such a supply, in which case we need to catch the error and inform the user. But not needed right now.
+        // TODO: It could be that a PBaaS chain will have such a supply, in which case we need to
+        // catch the error and inform the user. But not needed right now.
     }
+
     Ok(())
 }
 
@@ -273,16 +268,19 @@ pub async fn store_deposit_transaction(
     uuid: &Uuid,
     user_id: &UserId,
     tx_hash: &Txid,
+    currency_id: &Address,
 ) -> Result<(), Error> {
     sqlx::query!(
-        "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, transaction_action) VALUES ($1, $2, $3, $4)",
-        uuid.to_string(),
-        user_id.get() as i64,
-        tx_hash.to_string(),
-        "deposit"
-        )
-        .execute(conn)
-        .await?;
+    "INSERT INTO transactions (uuid, discord_id, transaction_id, transaction_action, currency_id)
+    VALUES ($1, $2, $3, $4, $5)",
+    uuid.to_string(),
+    user_id.get() as i64,
+    tx_hash.to_string(),
+    "deposit",
+    currency_id.to_string()
+    )
+    .execute(conn)
+    .await?;
 
     Ok(())
 }
@@ -294,23 +292,24 @@ pub async fn store_withdraw_transaction(
     tx_hash: Option<&Txid>,
     opid: &str,
     tx_fee: &Amount,
+    currency_id: &Address,
 ) -> Result<(), Error> {
-    let tx_hash = if let Some(tx) = tx_hash {
-        tx.to_string()
-    } else {
-        String::from("")
-    };
+    let tx_hash = tx_hash.map(|tx| tx.to_string()).unwrap_or_default();
+
     sqlx::query!(
-        "INSERT INTO transactions_vrsc (uuid, discord_id, transaction_id, opid, transaction_action, fee) VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO transactions (
+            uuid, discord_id, transaction_id, opid, transaction_action, fee, currency_id) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7)",
         uuid.to_string(),
         user_id.get() as i64,
         tx_hash,
         opid,
         "withdraw",
-        tx_fee.as_sat() as i64
-        )
-        .execute(conn)
-        .await?;
+        tx_fee.as_sat() as i64,
+        currency_id.to_string()
+    )
+    .execute(conn)
+    .await?;
 
     Ok(())
 }
@@ -384,17 +383,16 @@ pub async fn get_blacklist_status(
     conn: &mut PgConnection,
     user_id: UserId,
 ) -> Result<Option<bool>, Error> {
-    if let Some(row) = sqlx::query!(
+    let is_blacklisted = sqlx::query!(
         "SELECT blacklisted FROM discord_users WHERE discord_id = $1",
         user_id.get() as i64
     )
     .fetch_optional(conn)
     .await?
-    {
-        return Ok(row.blacklisted);
-    } else {
-        Ok(None)
-    }
+    .map(|r| r.blacklisted)
+    .flatten();
+
+    Ok(is_blacklisted)
 }
 
 // TODO user might not exist?
@@ -407,21 +405,6 @@ pub async fn set_blacklist_status(
         "UPDATE discord_users SET blacklisted = $1 WHERE discord_id = $2",
         blacklist,
         user_id.get() as i64
-    )
-    .execute(conn)
-    .await?;
-
-    Ok(())
-}
-
-pub async fn store_unprocessed_transaction(
-    conn: &mut PgConnection,
-    txid: &Txid,
-) -> Result<(), Error> {
-    sqlx::query!(
-        "INSERT INTO unprocessed_transactions (txid, status) VALUES ($1, $2)",
-        &txid.to_string(),
-        "unprocessed"
     )
     .execute(conn)
     .await?;
@@ -456,49 +439,67 @@ pub async fn set_stored_txid_to_processed(
 }
 
 // sums all the balances currently in the database and returns them
-pub async fn get_total_balance(conn: &mut PgConnection) -> Result<u64, Error> {
-    let record = sqlx::query!("SELECT SUM(CAST(balance AS BIGINT)) FROM balance_vrsc")
-        .fetch_one(&mut *conn)
-        .await?;
+pub async fn get_total_balance(
+    conn: &mut PgConnection,
+    currency_id: &Address,
+) -> Result<u64, Error> {
+    let record = sqlx::query!(
+        r#"SELECT COALESCE(SUM(CAST(balance AS BIGINT)), 0) AS "sum!"
+        FROM balances
+        WHERE currency_id = $1"#,
+        currency_id.to_string()
+    )
+    .fetch_one(&mut *conn)
+    .await?;
 
-    if let Some(balance) = record.sum {
-        return Ok(balance.to_u64().unwrap());
-    }
+    let res = record.sum.to_u64().unwrap_or_default();
 
-    Ok(0)
+    Ok(res)
 }
 
-pub async fn get_total_tipped(conn: &mut PgConnection) -> Result<u64, Error> {
-    let record = sqlx::query!("SELECT SUM(CAST(amount AS BIGINT)) FROM tips_vrsc")
-        .fetch_one(&mut *conn)
-        .await?;
+pub async fn get_total_tipped(
+    conn: &mut PgConnection,
+    currency_id: &Address,
+) -> Result<u64, Error> {
+    let record = sqlx::query!(
+        r#"SELECT COALESCE(SUM(CAST(amount AS BIGINT)), 0) AS "sum!" 
+        FROM tips 
+        WHERE currency_id = $1"#,
+        currency_id.to_string()
+    )
+    .fetch_one(&mut *conn)
+    .await?;
 
-    if let Some(total) = record.sum {
-        return Ok(total.to_u64().unwrap());
-    }
+    let res = record.sum.to_u64().unwrap_or_default();
 
-    Ok(0)
+    Ok(res)
 }
 
-pub async fn get_largest_tip(conn: &mut PgConnection) -> Result<u64, Error> {
-    let record = sqlx::query!("SELECT MAX(amount) FROM tips_vrsc")
-        .fetch_one(&mut *conn)
-        .await?;
+pub async fn get_largest_tip(conn: &mut PgConnection, currency_id: &Address) -> Result<u64, Error> {
+    let record = sqlx::query!(
+        r#"SELECT COALESCE(MAX(amount), 0) AS "max!"
+        FROM tips 
+        WHERE currency_id = $1"#,
+        currency_id.to_string()
+    )
+    .fetch_one(&mut *conn)
+    .await?;
 
-    if let Some(max) = record.max {
-        return Ok(max.to_u64().unwrap());
-    }
-
-    Ok(0)
+    Ok(record.max as u64)
 }
 
 pub async fn get_all_txids(
     conn: &mut PgConnection,
     transaction_action: &str,
+    currency_id: &Address,
 ) -> Result<Vec<Txid>, Error> {
     let rows = sqlx::query!(
-        "SELECT transaction_id FROM transactions_vrsc WHERE transaction_action = $1",
-        transaction_action
+        "SELECT transaction_id 
+        FROM transactions 
+        WHERE transaction_action = $1 AND 
+        currency_id = $2",
+        transaction_action,
+        currency_id.to_string()
     )
     .fetch_all(conn)
     .await?;
@@ -517,18 +518,21 @@ pub async fn insert_reactdrop(
     channel_id: i64,
     message_id: i64,
     finish_time: DateTime<Utc>,
+    currency_id: &Address,
 ) -> Result<(), Error> {
     sqlx::query!(
-        "INSERT INTO reactdrops(author, channel_id, message_id, finish_time, emojistr, amount, status) \
-    VALUES ($1, $2, $3, $4, $5, $6, 'pending') \
-    ON CONFLICT (channel_id, message_id) \
-    DO NOTHING",
+        "INSERT INTO reactdrops
+        (author, channel_id, message_id, finish_time, emojistr, amount, status, currency_id)
+        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
+        ON CONFLICT (channel_id, message_id)
+        DO NOTHING",
         author,
         channel_id,
         message_id,
         finish_time,
         emoji,
         amount,
+        currency_id.to_string()
     )
     .execute(conn)
     .await?;
@@ -539,9 +543,9 @@ pub async fn insert_reactdrop(
 /// Returns pending reactdrops, or an emtpy Vec if no pending reactdrops present
 pub async fn get_pending_reactdrops(conn: &mut PgConnection) -> Result<Vec<Reactdrop>, Error> {
     let rows = sqlx::query!(
-        "SELECT * \
-FROM reactdrops \
-WHERE status = 'pending'"
+        "SELECT *
+        FROM reactdrops
+        WHERE status = 'pending'"
     )
     .fetch_all(conn)
     .await?;

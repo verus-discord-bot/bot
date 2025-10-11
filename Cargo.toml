@@ -8,7 +8,6 @@ version = "0.1.0"
 [dependencies]
 charming = { version = "0.6.0", features = ["ssr", "ssr-raster"] }
 chrono = { version = "0.4.42", features = ["rkyv"] }
-color-eyre = "0.6.5"
 config = { version = "0.15.18", default-features = false, features = ["toml"] }
 poise = { features = ["cache"], version = "0.6.1" }
 emojis = "0.7.2"

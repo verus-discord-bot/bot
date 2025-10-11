@@ -14,7 +14,7 @@ use vrsc_rpc::{
 };
 
 use crate::commands::user_blacklisted;
-use crate::{Context, Error, database};
+use crate::{Context, Error, VRSC_CURRENCY_ID, database};
 
 /// Withdraw funds from the tipbot wallet.
 ///
@@ -86,7 +86,13 @@ pub async fn all(
     let uuid = Uuid::new_v4();
     let tx_fee = &ctx.data().withdrawal_fee.read().await.clone();
 
-    if let Some(balance) = database::get_balance_for_user(&mut *tx, &ctx.author().id).await? {
+    if let Some(balance) = database::get_balance_for_user(
+        &mut *tx,
+        &ctx.author().id,
+        &Address::from_str(VRSC_CURRENCY_ID)?,
+    )
+    .await?
+    {
         let balance_amount = Amount::from_sat(balance);
         let withdrawal_amount = balance_amount.sub(*tx_fee); // no need to check for underflow, tx_fee is always low.
 
@@ -109,17 +115,28 @@ pub async fn all(
                     Some(&txid),
                     &opid,
                     &tx_fee,
+                    &Address::from_str(VRSC_CURRENCY_ID)?,
                 )
                 .await?;
 
                 trace!(
                     "transaction {txid} stored in db, now decrease balance with ({withdrawal_amount} + {tx_fee})"
                 );
-                database::decrease_balance(&mut *tx, &ctx.author().id, &withdrawal_amount, &tx_fee)
-                    .await?;
+                database::decrease_balance(
+                    &mut *tx,
+                    &ctx.author().id,
+                    &withdrawal_amount,
+                    &tx_fee,
+                    &Address::from_str(VRSC_CURRENCY_ID)?,
+                )
+                .await?;
 
-                let new_balance =
-                    database::get_balance_for_user(&mut *tx, &ctx.author().id).await?;
+                let new_balance = database::get_balance_for_user(
+                    &mut *tx,
+                    &ctx.author().id,
+                    &Address::from_str(VRSC_CURRENCY_ID)?,
+                )
+                .await?;
 
                 tx.commit().await?;
 
@@ -163,6 +180,7 @@ pub async fn all(
                     None,
                     &opid,
                     &tx_fee,
+                    &Address::from_str(VRSC_CURRENCY_ID)?,
                 )
                 .await?;
 
@@ -272,14 +290,26 @@ pub async fn amount(
                 Some(&txid),
                 &opid,
                 &tx_fee,
+                &Address::from_str(VRSC_CURRENCY_ID)?,
             )
             .await?;
 
             trace!("transaction stored, now decrease balance");
-            database::decrease_balance(&mut *tx, &ctx.author().id, &withdrawal_amount, &tx_fee)
-                .await?;
+            database::decrease_balance(
+                &mut *tx,
+                &ctx.author().id,
+                &withdrawal_amount,
+                &tx_fee,
+                &Address::from_str(VRSC_CURRENCY_ID)?,
+            )
+            .await?;
 
-            let new_balance = database::get_balance_for_user(&mut *tx, &ctx.author().id).await?;
+            let new_balance = database::get_balance_for_user(
+                &mut *tx,
+                &ctx.author().id,
+                &Address::from_str(VRSC_CURRENCY_ID)?,
+            )
+            .await?;
 
             ctx.send(CreateReply::default().ephemeral(true).embed({
                 let mut embed = CreateEmbed::new()
@@ -319,6 +349,7 @@ pub async fn amount(
                 None,
                 &opid,
                 &tx_fee,
+                &Address::from_str(VRSC_CURRENCY_ID)?,
             )
             .await?;
 
@@ -350,9 +381,13 @@ pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
     let mut conn = ctx.data().database.acquire().await?;
 
     let balance = Amount::from_sat(
-        database::get_balance_for_user(&mut conn, &ctx.author().id)
-            .await?
-            .unwrap_or(0),
+        database::get_balance_for_user(
+            &mut conn,
+            &ctx.author().id,
+            &Address::from_str(VRSC_CURRENCY_ID)?,
+        )
+        .await?
+        .unwrap_or(0),
     );
 
     ctx.send(
@@ -376,19 +411,24 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
         ctx.author().id
     );
 
-    let address = match database::get_address_from_user(&mut *tx, &ctx.author().id).await? {
-        Some(address) => address,
-        None => {
-            let client = &ctx.data().verus().unwrap();
-            let address = client.get_new_address().unwrap();
-            crate::database::store_new_address_for_user(&mut *tx, &ctx.author().id, &address)
-                .await?;
+    if let Some(address) = database::get_address_from_user(
+        &mut *tx,
+        &ctx.author().id,
+        &Address::from_str(VRSC_CURRENCY_ID)?,
+    )
+    .await?
+    {
+        send_deposit_address_msg(ctx, &address).await?;
+    } else {
+        // the database doesn't have an address, let's create one:
+        let client = &ctx.data().verus().unwrap();
+        let address = client.get_new_address().unwrap();
+        crate::database::store_new_address_for_user(&mut *tx, &ctx.author().id, &address)
+            .await
+            .expect("an address from the verus daemon");
 
-            address
-        }
-    };
-
-    send_deposit_address_msg(ctx, &address).await?;
+        send_deposit_address_msg(ctx, &address).await?;
+    }
 
     tx.commit().await?;
 
@@ -536,7 +576,13 @@ pub async fn get_and_check_balance(
 ) -> Result<Option<Amount>, Error> {
     let mut conn = ctx.data().database.acquire().await?;
 
-    if let Some(balance) = database::get_balance_for_user(&mut conn, &ctx.author().id).await? {
+    if let Some(balance) = database::get_balance_for_user(
+        &mut conn,
+        &ctx.author().id,
+        &Address::from_str(VRSC_CURRENCY_ID)?,
+    )
+    .await?
+    {
         trace!("tipper has balance");
 
         if balance_is_enough(

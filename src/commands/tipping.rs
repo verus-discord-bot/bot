@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use ::chrono::Duration;
 use poise::{
     CreateReply,
@@ -7,10 +9,10 @@ use poise::{
 use sqlx::{Postgres, Transaction, types::chrono};
 use tracing::*;
 use uuid::Uuid;
-use vrsc::Amount;
+use vrsc::{Address, Amount};
 
 use crate::{
-    Context, Error,
+    Context, Error, VRSC_CURRENCY_ID,
     commands::{misc::Notification, user_blacklisted},
     database,
     wallet::get_and_check_balance,
@@ -75,7 +77,7 @@ async fn role(
                 ctx.author().id,
                 ctx.http(),
                 &ctx.channel_id(),
-                &role_members,
+                role_members,
                 &tip_amount,
                 "role",
             )
@@ -125,7 +127,14 @@ async fn user(
         trace!("tipper has enough balance");
 
         let mut tx = ctx.data().database.begin().await?;
-        database::process_a_tip(&mut tx, &ctx.author().id, &vec![user.id], &tip_amount).await?;
+        database::process_a_tip(
+            &mut tx,
+            ctx.author().id,
+            &vec![user.id],
+            tip_amount,
+            &Address::from_str(VRSC_CURRENCY_ID)?,
+        )
+        .await?;
 
         // tips are only stored one way: counterparty is the sender of the tip.
         let tip_event_id = Uuid::new_v4();
@@ -134,8 +143,9 @@ async fn user(
             &tip_event_id,
             &vec![user.id],
             "direct",
-            &tip_amount,
+            tip_amount,
             ctx.author().id,
+            &Address::from_str(VRSC_CURRENCY_ID)?,
         )
         .await?;
         tx.commit().await?;
@@ -319,6 +329,7 @@ pub async fn reactdrop(
                 channel_id.try_into()?,
                 message_id.try_into()?,
                 finish_time,
+                &Address::from_str(VRSC_CURRENCY_ID)?,
             )
             .await?;
         }
@@ -338,7 +349,7 @@ pub async fn tip_multiple_users(
     author: UserId,
     http: impl CacheHttp,
     channel_id: &ChannelId,
-    users: &Vec<UserId>,
+    users: Vec<UserId>,
     amount: &Amount,
     kind: &str,
 ) -> Result<(), Error> {
@@ -364,15 +375,23 @@ pub async fn tip_multiple_users(
 
         let tip_event_id = Uuid::new_v4();
 
-        database::process_a_tip(&mut *tx, &author, &users, &div_tip_amount).await?;
+        database::process_a_tip(
+            &mut *tx,
+            author,
+            &users,
+            div_tip_amount,
+            &Address::from_str(VRSC_CURRENCY_ID)?,
+        )
+        .await?;
 
         database::store_tip_transactions(
             &mut tx,
             &tip_event_id,
-            users,
+            &users,
             kind,
-            &div_tip_amount,
+            div_tip_amount,
             author,
+            &Address::from_str(VRSC_CURRENCY_ID)?,
         )
         .await?;
 

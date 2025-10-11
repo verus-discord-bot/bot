@@ -146,7 +146,7 @@ impl Subsystem {
                         reactdrop.author,
                         &self.http,
                         &reactdrop.channel_id,
-                        &reaction_users,
+                        reaction_users,
                         &reactdrop.tip_amount,
                         "reactdrop",
                     )

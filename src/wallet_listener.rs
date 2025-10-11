@@ -1,4 +1,3 @@
-use color_eyre::Report;
 use futures::StreamExt;
 use poise::serenity_prelude::{CreateMessage, Http, UserId};
 use sqlx::{PgConnection, PgPool};
@@ -8,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, instrument, trace, warn};
 use uuid::Uuid;
-use vrsc::Amount;
+use vrsc::{Address, Amount};
 use vrsc_rpc::bitcoin::Txid;
 use vrsc_rpc::json::GetRawTransactionResultVerbose;
 use vrsc_rpc::{
@@ -16,9 +15,9 @@ use vrsc_rpc::{
     client::{Client, RpcApi},
 };
 
-use crate::Error;
 use crate::config::Config;
 use crate::database::*;
+use crate::{Error, VRSC_CURRENCY_ID};
 
 /// Listens for wallet transactions and processes them.
 ///
@@ -61,7 +60,7 @@ impl TransactionProcessor {
         }
     }
 
-    pub async fn listen_wallet_notifications(&self, verus_client: &Client) -> Result<(), Report> {
+    pub async fn listen_wallet_notifications(&self, verus_client: &Client) -> Result<(), Error> {
         let mut socket = tmq::subscribe(&tmq::Context::new())
             .connect(&format!(
                 "tcp://127.0.0.1:{}",
@@ -118,7 +117,7 @@ impl TransactionProcessor {
         }
     }
 
-    pub async fn listen_block_notifications(&self) -> Result<(), Report> {
+    pub async fn listen_block_notifications(&self) -> Result<(), Error> {
         let mut socket = tmq::subscribe(&tmq::Context::new())
             .connect(&format!(
                 "tcp://127.0.0.1:{}",
@@ -193,7 +192,7 @@ impl TransactionProcessor {
     }
 
     #[instrument(skip(self))]
-    pub async fn process_short_queue(&self) -> Result<(), Report> {
+    pub async fn process_short_queue(&self) -> Result<(), Error> {
         let deposits_enabled = self.deposits_enabled.read().await.clone();
         if !deposits_enabled {
             warn!("deposits disabled");
@@ -256,7 +255,7 @@ impl TransactionProcessor {
     }
 
     #[instrument(skip(self))]
-    pub async fn process_long_queue(&self) -> Result<(), Report> {
+    pub async fn process_long_queue(&self) -> Result<(), Error> {
         let deposits_enabled = self.deposits_enabled.read().await.clone();
         if !deposits_enabled {
             warn!("deposits disabled");
@@ -326,22 +325,39 @@ pub async fn process_txid(
     mut conn: &mut PgConnection,
     raw_tx: &GetRawTransactionResultVerbose,
 ) -> Result<(), Error> {
-    if !transaction_processed(&mut conn, &raw_tx.txid).await? {
+    if !transaction_processed(
+        &mut conn,
+        &raw_tx.txid,
+        &Address::from_str(VRSC_CURRENCY_ID)?,
+    )
+    .await?
+    {
         for vout in raw_tx.vout.iter() {
             if let Some(addresses) = &vout.script_pubkey.addresses {
                 for address in addresses {
                     if let Some(user_id) = get_user_from_address(&mut conn, address).await? {
                         let uuid = Uuid::new_v4();
-                        if let Err(e) = increase_balance(&mut conn, &user_id, vout.value_sat).await
+                        if let Err(e) = increase_balance(
+                            &mut conn,
+                            &user_id,
+                            vout.value_sat,
+                            &Address::from_str(VRSC_CURRENCY_ID)?,
+                        )
+                        .await
                         {
                             error!(
                                 "something went wrong while increasing a user's balance\nuser: {user_id} txid: {} vout: {} \nerror: {:?}",
                                 &raw_tx.txid, vout.n, e
                             )
                         } else {
-                            if let Err(e) =
-                                store_deposit_transaction(&mut conn, &uuid, &user_id, &raw_tx.txid)
-                                    .await
+                            if let Err(e) = store_deposit_transaction(
+                                &mut conn,
+                                &uuid,
+                                &user_id,
+                                &raw_tx.txid,
+                                &Address::from_str(VRSC_CURRENCY_ID)?,
+                            )
+                            .await
                             {
                                 error!(
                                     "something went wrong while storing a transaction to the database: {:?}",

@@ -36,6 +36,8 @@ use vrsc_rpc::client::{Client as VerusClient, RpcApi};
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 
+pub const VRSC_CURRENCY_ID: &str = "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV";
+
 #[tokio::main(worker_threads = 1)]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     log_setup()?;
