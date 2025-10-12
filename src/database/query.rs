@@ -133,6 +133,7 @@ pub async fn store_new_address_for_user(
     conn: &mut PgConnection,
     user_id: &UserId,
     address: &Address,
+    currency_id: &Address,
 ) -> Result<(), Error> {
     sqlx::query!(
         "WITH inserted_row AS (
@@ -140,11 +141,12 @@ pub async fn store_new_address_for_user(
             VALUES ($1)
             ON CONFLICT (discord_id) DO NOTHING
         )
-        INSERT INTO addresses (discord_id, address)
-        VALUES ($1, $2)
+        INSERT INTO addresses (discord_id, address, currency_id)
+        VALUES ($1, $2, $3)
         ",
         user_id.get() as i64,
-        &address.to_string()
+        &address.to_string(),
+        currency_id.to_string()
     )
     .execute(conn)
     .await?;
