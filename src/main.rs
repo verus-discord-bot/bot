@@ -180,11 +180,6 @@ async fn app(config: Config, database: PgPool) -> Result<serenity::Client, Error
         },
         pre_command: |ctx| {
             Box::pin(async move {
-                let mut tx = ctx.data().database.begin().await.unwrap();
-                database::insert_discord_user(&mut *tx, &ctx.author().id)
-                    .await
-                    .expect("a discord_user to be added to the database");
-
                 let channel_name = ctx
                     .channel_id()
                     .name(&ctx.serenity_context())
@@ -357,8 +352,8 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
             ..
         } => {
             let s = format!(
-                "The argument you provided ({}) was incorrect. Press arrow up \u{2191} to change the arguments and press Enter when you're done.",
-                input.unwrap()
+                "The argument you provided ({}) was incorrect.",
+                input.unwrap_or_default()
             );
             if let Err(e) = ctx.say(s).await {
                 warn!("{}", e)

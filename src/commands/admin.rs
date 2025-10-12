@@ -4,7 +4,7 @@ use poise::{
 };
 use sqlx::{Postgres, Transaction};
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
-use tracing::{debug, error, instrument, trace};
+use tracing::{debug, instrument, trace};
 use vrsc::{Address, Amount};
 use vrsc_rpc::{bitcoin::Txid, client::RpcApi};
 
@@ -170,12 +170,11 @@ pub async fn totalwithdrawn(ctx: Context<'_>) -> Result<Amount, Error> {
 #[instrument(skip(ctx))]
 #[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
-    debug!("no more fun for {user_id}");
     let mut tx = ctx.data().database.begin().await?;
 
-    if let Some(status) = database::get_blacklist_status(&mut tx, user_id).await? {
-        if status == true {
-            database::set_blacklist_status(&mut tx, user_id, false).await?;
+    if let Some(is_blacklisted) = database::get_blacklist_status(&mut tx, user_id).await? {
+        if is_blacklisted == true {
+            database::set_blacklist_status(&mut tx, user_id, !is_blacklisted).await?;
             if let Ok(mut blacklist) = ctx.data().blacklist.lock() {
                 blacklist.remove(&user_id);
             }
@@ -184,22 +183,24 @@ pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
             )
             .await?;
             trace!("{user_id} has been removed from blacklist");
-        } else {
-            database::set_blacklist_status(&mut tx, user_id, true).await?;
-            if let Ok(mut blacklist) = ctx.data().blacklist.lock() {
-                blacklist.insert(user_id);
-            }
 
-            ctx.send(CreateReply::default().content(format!("user {user_id} blacklisted")))
-                .await?;
+            tx.commit().await?;
 
-            trace!("{user_id} has been added to blacklist");
+            return Ok(());
         }
-
-        tx.commit().await?;
-    } else {
-        error!("user not in database");
     }
+
+    database::set_blacklist_status(&mut tx, user_id, true).await?;
+    tx.commit().await?;
+
+    if let Ok(mut blacklist) = ctx.data().blacklist.lock() {
+        blacklist.insert(user_id);
+    }
+
+    ctx.send(CreateReply::default().content(format!("user {user_id} blacklisted")))
+        .await?;
+
+    trace!("{user_id} has been added to blacklist");
 
     Ok(())
 }
