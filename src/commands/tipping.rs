@@ -151,11 +151,8 @@ async fn user(
         tx.commit().await?;
 
         let mut conn = ctx.data().database.acquire().await?;
-        match database::get_notification_settings(&mut conn, &vec![user.id])
-            .await?
-            .first()
-        {
-            Some((_, notification)) => {
+        match database::get_loudness_setting(&mut conn, user.id).await? {
+            Some(notification) => {
                 match notification {
                     Notification::All | Notification::ChannelOnly => {
                         // send a message in the same channel:
@@ -395,23 +392,23 @@ pub async fn tip_multiple_users(
         )
         .await?;
 
-        let notification_settings = database::get_notification_settings(&mut tx, &users).await?;
-
-        for (user_id, notification) in notification_settings {
-            match (user_id, notification) {
-                (_, Notification::All) | (_, Notification::DMOnly) => {
-                    let user = UserId::new(user_id as u64).to_user(&http).await?;
-                    user.dm(
-                        &http,
-                        CreateMessage::new().content(format!(
-                            "You just got tipped {div_tip_amount} from <@{}>!",
-                            &author,
-                        )),
-                    )
-                    .await?;
-                }
-                _ => {
-                    // don't ping when ChannelOnly or Off
+        for user_id in &users {
+            if let Some(setting) = database::get_loudness_setting(&mut tx, *user_id).await? {
+                match setting {
+                    Notification::All | Notification::DMOnly => {
+                        user_id
+                            .to_user(&http)
+                            .await?
+                            .dm(
+                                &http,
+                                CreateMessage::new().content(format!(
+                                    "You just got tipped {div_tip_amount} from <@{}>!",
+                                    &author,
+                                )),
+                            )
+                            .await?;
+                    }
+                    _ => {}
                 }
             }
         }
