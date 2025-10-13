@@ -758,7 +758,7 @@ fn time_until_block(current_height: u64, future_height: u64) -> Option<DateTime<
 fn reserve_table_str(reserves: &mut Vec<Reserve>, precision: usize) -> String {
     let longest_name_len = reserves
         .iter()
-        .max_by_key(|x| x.name.len())
+        .max_by_key(|x| x.name.chars().count())
         .unwrap()
         .name
         .len();
@@ -782,12 +782,13 @@ fn reserve_table_str(reserves: &mut Vec<Reserve>, precision: usize) -> String {
         reserves
             .iter()
             .map(|tvl| format!(
-                "{name:<max_name_len$}: {amount:>max$.*} ({price:.precision$})",
+                "{name:<max_name_len$} : {amount:>max$.*} ({price:.precision$})",
                 precision,
                 name = tvl.name,
                 amount = tvl.amount,
                 price = tvl.price,
-                max_name_len = longest_name_len + 1,
+                max_name_len =
+                    longest_name_len - tvl.name.chars().filter(|c| !c.is_ascii()).count(),
                 max = longest_value_len + 1
             ))
             .collect::<Vec<_>>()
