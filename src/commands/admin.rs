@@ -148,12 +148,9 @@ pub async fn totalwithdrawn(ctx: Context<'_>) -> Result<Amount, Error> {
     let mut conn = ctx.data().database.acquire().await?;
     let client = ctx.data().verus()?;
 
-    let withdraw_transactions = database::get_all_txids(
-        &mut *conn,
-        "withdraw",
-        &Address::from_str(VRSC_CURRENCY_ID)?,
-    )
-    .await?;
+    let withdraw_transactions =
+        database::get_all_txids(&mut conn, "withdraw", &Address::from_str(VRSC_CURRENCY_ID)?)
+            .await?;
 
     let mut sum = Amount::ZERO;
 
@@ -173,7 +170,7 @@ pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
     let mut tx = ctx.data().database.begin().await?;
 
     if let Some(is_blacklisted) = database::get_blacklist_status(&mut tx, user_id).await? {
-        if is_blacklisted == true {
+        if is_blacklisted {
             database::set_blacklist_status(&mut tx, user_id, !is_blacklisted).await?;
             if let Ok(mut blacklist) = ctx.data().blacklist.lock() {
                 blacklist.remove(&user_id);
@@ -216,7 +213,7 @@ pub async fn setwithdrawfee(ctx: Context<'_>, amount: u64) -> Result<(), Error> 
     *write = Amount::from_sat(amount);
 
     debug!("fee after changing: {:?}", withdrawal_fee);
-    ctx.send(CreateReply::default().content(format!("Withdraw fee set to {} sats", amount)))
+    ctx.send(CreateReply::default().content(format!("Withdraw fee set to {amount} sats")))
         .await?;
 
     Ok(())
@@ -269,7 +266,7 @@ pub async fn depositenabled(ctx: Context<'_>, value: bool) -> Result<(), Error> 
         let mut tx = ctx.data().database.begin().await?;
         let deposits_enabled = &ctx.data().deposits_enabled;
         let mut write = deposits_enabled.write().await;
-        if *write == true && value == false {
+        if *write && !value {
             trace!("need to process possible unprocessed transactions");
 
             let tx_proc = Arc::clone(&ctx.data().tx_processor);
@@ -297,7 +294,7 @@ pub async fn checktxid(ctx: Context<'_>, txid: Txid) -> Result<(), Error> {
     let client = &ctx.data().verus()?;
 
     if let Ok(raw_tx) = client.get_raw_transaction_verbose(&txid) {
-        process_txid(http, &mut *tx, &raw_tx).await?;
+        process_txid(http, &mut tx, &raw_tx).await?;
         tx.commit().await?;
     }
 
@@ -313,7 +310,7 @@ pub async fn maintenance(ctx: Context<'_>, value: bool) -> Result<(), Error> {
     {
         let mut tx = ctx.data().database.begin().await?;
         let mut write = ctx.data().tx_processor.maintenance.write().await;
-        if *write == true && value == false {
+        if *write && !value {
             trace!("need to process possible unprocessed transactions");
 
             let tx_proc = Arc::clone(&ctx.data().tx_processor);
@@ -368,7 +365,7 @@ pub async fn banned_balances(ctx: Context<'_>) -> Result<(), Error> {
     let bans = match guild.bans(&ctx.http(), None, None).await {
         Ok(bans) => bans,
         Err(why) => {
-            ctx.say(format!("Failed to fetch bans: {}", why)).await?;
+            ctx.say(format!("Failed to fetch bans: {why}")).await?;
 
             return Ok(());
         }

@@ -59,7 +59,7 @@ async fn role(
         trace!("tipper has enough balance");
         let guild_id = ctx.guild_id();
 
-        if let Some(members) = ctx.guild().and_then(|guild| Some(guild.members.clone())) {
+        if let Some(members) = ctx.guild().map(|guild| guild.members.clone()) {
             let guild_members = members.values();
             let role_members = guild_members
                 .filter(
@@ -130,7 +130,7 @@ async fn user(
         database::process_a_tip(
             &mut tx,
             ctx.author().id,
-            &vec![user.id],
+            &[user.id],
             tip_amount,
             &Address::from_str(VRSC_CURRENCY_ID)?,
         )
@@ -139,7 +139,7 @@ async fn user(
         // tips are only stored one way: counterparty is the sender of the tip.
         let tip_event_id = Uuid::new_v4();
         database::store_tip_transactions(
-            &mut *tx,
+            &mut tx,
             &tip_event_id,
             &vec![user.id],
             "direct",
@@ -265,7 +265,7 @@ pub async fn reactdrop(
                     }
                 }
                 ReactionType::Unicode(unicode) => {
-                    let emoji = emojis::get(&unicode);
+                    let emoji = emojis::get(unicode);
 
                     if emoji.is_none() {
                         ctx.send(CreateReply::default().ephemeral(true).content(
@@ -319,12 +319,12 @@ pub async fn reactdrop(
             let mut conn = ctx.data().database.acquire().await?;
 
             database::insert_reactdrop(
-                &mut *conn,
-                ctx.author().id.try_into()?,
+                &mut conn,
+                ctx.author().id.into(),
                 reaction_type.to_string(),
                 Amount::from_vrsc(amount).unwrap().as_sat() as i64,
-                channel_id.try_into()?,
-                message_id.try_into()?,
+                channel_id.into(),
+                message_id.into(),
                 finish_time,
                 &Address::from_str(VRSC_CURRENCY_ID)?,
             )
@@ -342,7 +342,7 @@ pub async fn reactdrop(
 // which is the time Discord drops the context, giving
 // us an invalid webhook token when trying to send a message using that context.
 pub async fn tip_multiple_users(
-    mut tx: &mut Transaction<'_, Postgres>,
+    tx: &mut Transaction<'_, Postgres>,
     author: UserId,
     http: impl CacheHttp,
     channel_id: &ChannelId,
@@ -382,7 +382,7 @@ pub async fn tip_multiple_users(
         .await?;
 
         database::store_tip_transactions(
-            &mut tx,
+            tx,
             &tip_event_id,
             &users,
             kind,
@@ -393,23 +393,20 @@ pub async fn tip_multiple_users(
         .await?;
 
         for user_id in &users {
-            if let Some(setting) = database::get_loudness_setting(&mut tx, *user_id).await? {
-                match setting {
-                    Notification::All | Notification::DMOnly => {
-                        user_id
-                            .to_user(&http)
-                            .await?
-                            .dm(
-                                &http,
-                                CreateMessage::new().content(format!(
-                                    "You just got tipped {div_tip_amount} from <@{}>!",
-                                    &author,
-                                )),
-                            )
-                            .await?;
-                    }
-                    _ => {}
-                }
+            if let Some(Notification::All | Notification::DMOnly) =
+                database::get_loudness_setting(tx, *user_id).await?
+            {
+                user_id
+                    .to_user(&http)
+                    .await?
+                    .dm(
+                        &http,
+                        CreateMessage::new().content(format!(
+                            "You just got tipped {div_tip_amount} from <@{}>!",
+                            &author,
+                        )),
+                    )
+                    .await?;
             }
         }
 

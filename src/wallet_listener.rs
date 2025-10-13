@@ -98,11 +98,11 @@ impl TransactionProcessor {
                                     {
                                         trace!("{txid} put in long queue");
                                         let mut long_write = self.queue_large_txns.write().await;
-                                        long_write.push_back((txid.clone(), vout.value))
+                                        long_write.push_back((txid, vout.value))
                                     } else {
                                         trace!("{txid} put in short queue");
                                         let mut write = self.queue_small_txns.write().await;
-                                        write.push_back((txid.clone(), vout.value))
+                                        write.push_back((txid, vout.value))
                                     }
                                 }
                             }
@@ -176,10 +176,10 @@ impl TransactionProcessor {
                             .gt(&self.config.application.min_deposit_threshold)
                         {
                             trace!("{txid} put in long queue");
-                            long_write.push_back((txid.clone(), vout.value))
+                            long_write.push_back((txid, vout.value))
                         } else {
                             trace!("{txid} put in short queue");
-                            write.push_back((txid.clone(), vout.value))
+                            write.push_back((txid, vout.value))
                         }
                     }
                 }
@@ -193,7 +193,7 @@ impl TransactionProcessor {
 
     #[instrument(skip(self))]
     pub async fn process_short_queue(&self) -> Result<(), Error> {
-        let deposits_enabled = self.deposits_enabled.read().await.clone();
+        let deposits_enabled = *self.deposits_enabled.read().await;
         if !deposits_enabled {
             warn!("deposits disabled");
 
@@ -256,7 +256,7 @@ impl TransactionProcessor {
 
     #[instrument(skip(self))]
     pub async fn process_long_queue(&self) -> Result<(), Error> {
-        let deposits_enabled = self.deposits_enabled.read().await.clone();
+        let deposits_enabled = *self.deposits_enabled.read().await;
         if !deposits_enabled {
             warn!("deposits disabled");
 
@@ -322,23 +322,17 @@ impl TransactionProcessor {
 // a dm is sent to the user afterwards
 pub async fn process_txid(
     http: Arc<Http>,
-    mut conn: &mut PgConnection,
+    conn: &mut PgConnection,
     raw_tx: &GetRawTransactionResultVerbose,
 ) -> Result<(), Error> {
-    if !transaction_processed(
-        &mut conn,
-        &raw_tx.txid,
-        &Address::from_str(VRSC_CURRENCY_ID)?,
-    )
-    .await?
-    {
+    if !transaction_processed(conn, &raw_tx.txid, &Address::from_str(VRSC_CURRENCY_ID)?).await? {
         for vout in raw_tx.vout.iter() {
             if let Some(addresses) = &vout.script_pubkey.addresses {
                 for address in addresses {
-                    if let Some(user_id) = get_user_from_address(&mut conn, address).await? {
+                    if let Some(user_id) = get_user_from_address(conn, address).await? {
                         let uuid = Uuid::new_v4();
                         if let Err(e) = increase_balance(
-                            &mut conn,
+                            conn,
                             &user_id,
                             vout.value_sat,
                             &Address::from_str(VRSC_CURRENCY_ID)?,
@@ -349,25 +343,23 @@ pub async fn process_txid(
                                 "something went wrong while increasing a user's balance\nuser: {user_id} txid: {} vout: {} \nerror: {:?}",
                                 &raw_tx.txid, vout.n, e
                             )
-                        } else {
-                            if let Err(e) = store_deposit_transaction(
-                                &mut conn,
-                                &uuid,
-                                &user_id,
-                                &raw_tx.txid,
-                                &Address::from_str(VRSC_CURRENCY_ID)?,
-                                vout.value_sat,
-                                &address,
+                        } else if let Err(e) = store_deposit_transaction(
+                            &mut *conn,
+                            &uuid,
+                            &user_id,
+                            &raw_tx.txid,
+                            &Address::from_str(VRSC_CURRENCY_ID)?,
+                            vout.value_sat,
+                            address,
+                        )
+                        .await
+                        {
+                            error!(
+                                "something went wrong while storing a transaction to the database: {:?}",
+                                e
                             )
-                            .await
-                            {
-                                error!(
-                                    "something went wrong while storing a transaction to the database: {:?}",
-                                    e
-                                )
-                            } else {
-                                send_deposit_dm(http.clone(), user_id, vout.value).await?;
-                            }
+                        } else {
+                            send_deposit_dm(http.clone(), user_id, vout.value).await?;
                         }
                     }
                 }
@@ -386,7 +378,7 @@ async fn send_deposit_dm(http: Arc<Http>, user_id: UserId, amount: Amount) -> Re
     let user = http.get_user(user_id).await?;
     user.direct_message(
         http,
-        CreateMessage::new().content(format!("Your deposit of {} has been processed.", amount)),
+        CreateMessage::new().content(format!("Your deposit of {amount} has been processed.")),
     )
     .await?;
 

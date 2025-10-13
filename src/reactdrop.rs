@@ -59,7 +59,7 @@ pub struct Subsystem {
 impl Subsystem {
     pub async fn check_running_reactdrops(&self) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
-        let pending_reactdrops = database::get_pending_reactdrops(&mut *tx).await?;
+        let pending_reactdrops = database::get_pending_reactdrops(&mut tx).await?;
 
         if pending_reactdrops.is_empty() {
             return Ok(());
@@ -85,7 +85,7 @@ impl Subsystem {
             let diff_fmt = || -> String {
                 match diff.num_seconds() {
                     t @ 0..=3600 => format!("{} minute(s)", t / 60),
-                    t @ _ => {
+                    t => {
                         format!("{} hour(s) and {} minute(s)", t / (60 * 60), (t / 60) % 60)
                     }
                 }
@@ -136,7 +136,7 @@ impl Subsystem {
                     .map(|u| u.id)
                     .collect::<Vec<_>>();
 
-                if reaction_users.len() == 0 {
+                if reaction_users.is_empty() {
                     trace!("no users to tip, abort");
                 } else {
                     trace!("tipping {} users in reactdrop", reaction_users.len());
@@ -177,7 +177,7 @@ impl Subsystem {
                     .await?;
 
                 database::update_reactdrop(
-                    &mut *tx,
+                    &mut tx,
                     reactdrop.channel_id.get() as i64,
                     reactdrop.message_id.get() as i64,
                     ReactdropState::Processed,
