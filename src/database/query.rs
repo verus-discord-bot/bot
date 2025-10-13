@@ -90,7 +90,7 @@ pub async fn get_balance_for_user(
 pub async fn process_a_tip(
     tx: &mut Transaction<'_, Postgres>,
     tipper: UserId,
-    tippees: &Vec<UserId>,
+    tippees: &[UserId],
     amount: Amount,
     currency_id: &Address,
 ) -> Result<(), Error> {
@@ -317,6 +317,7 @@ pub async fn store_withdraw_transaction(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn store_opid(
     conn: &mut PgConnection,
     opid: &str,
@@ -373,9 +374,7 @@ pub async fn get_loudness_setting(
     .fetch_optional(conn)
     .await?;
 
-    Ok(row
-        .map(|r| r.loudness.map(|s| Notification::from(s)))
-        .flatten())
+    Ok(row.and_then(|r| r.loudness.map(Notification::from)))
 }
 
 pub async fn get_blacklist_status(
@@ -419,10 +418,10 @@ pub async fn get_stored_txids(conn: &mut PgConnection) -> Result<Vec<Txid>, Erro
             .fetch_all(conn)
             .await?;
 
-    return Ok(rows
+    Ok(rows
         .into_iter()
         .map(|row| Txid::from_str(&row.txid).unwrap())
-        .collect::<Vec<_>>());
+        .collect::<Vec<_>>())
 }
 
 pub async fn set_stored_txid_to_processed(
@@ -505,12 +504,13 @@ pub async fn get_all_txids(
     .fetch_all(conn)
     .await?;
 
-    return Ok(rows
+    Ok(rows
         .into_iter()
         .map(|row| Txid::from_str(&row.transaction_id).unwrap())
-        .collect::<Vec<_>>());
+        .collect::<Vec<_>>())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_reactdrop(
     conn: &mut PgConnection,
     author: i64,
