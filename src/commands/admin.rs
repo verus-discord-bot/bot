@@ -4,7 +4,7 @@ use poise::{
 };
 use sqlx::{Postgres, Transaction};
 use std::{str::FromStr, sync::Arc, time::Duration};
-use tracing::{debug, error, instrument, trace};
+use tracing::{debug, instrument, trace};
 use uuid::Uuid;
 use vrsc::{Address, Amount};
 use vrsc_rpc::{bitcoin::Txid, client::RpcApi};
@@ -150,7 +150,7 @@ pub async fn totalwithdrawn(ctx: Context<'_>) -> Result<Amount, Error> {
     let client = ctx.data().verus()?;
 
     let withdraw_transactions = database::get_all_txids(
-        &mut *conn,
+        &mut conn,
         "withdraw",
         &Address::from_str(VRSC_CURRENCY_ID)?,
     )
@@ -171,12 +171,11 @@ pub async fn totalwithdrawn(ctx: Context<'_>) -> Result<Amount, Error> {
 #[instrument(skip(ctx))]
 #[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
-    debug!("no more fun for {user_id}");
     let mut tx = ctx.data().database.begin().await?;
 
-    if let Some(status) = database::get_blacklist_status(&mut tx, user_id).await? {
-        if status == true {
-            database::set_blacklist_status(&mut tx, user_id, false).await?;
+    if let Some(is_blacklisted) = database::get_blacklist_status(&mut tx, user_id).await? {
+        if is_blacklisted {
+            database::set_blacklist_status(&mut tx, user_id, !is_blacklisted).await?;
             if let Ok(mut blacklist) = ctx.data().blacklist.lock() {
                 blacklist.remove(&user_id);
             }
@@ -185,22 +184,24 @@ pub async fn blacklist(ctx: Context<'_>, user_id: UserId) -> Result<(), Error> {
             )
             .await?;
             trace!("{user_id} has been removed from blacklist");
-        } else {
-            database::set_blacklist_status(&mut tx, user_id, true).await?;
-            if let Ok(mut blacklist) = ctx.data().blacklist.lock() {
-                blacklist.insert(user_id);
-            }
 
-            ctx.send(CreateReply::default().content(format!("user {user_id} blacklisted")))
-                .await?;
+            tx.commit().await?;
 
-            trace!("{user_id} has been added to blacklist");
+            return Ok(());
         }
-
-        tx.commit().await?;
-    } else {
-        error!("user not in database");
     }
+
+    database::set_blacklist_status(&mut tx, user_id, true).await?;
+    tx.commit().await?;
+
+    if let Ok(mut blacklist) = ctx.data().blacklist.lock() {
+        blacklist.insert(user_id);
+    }
+
+    ctx.send(CreateReply::default().content(format!("user {user_id} blacklisted")))
+        .await?;
+
+    trace!("{user_id} has been added to blacklist");
 
     Ok(())
 }
@@ -216,7 +217,7 @@ pub async fn setwithdrawfee(ctx: Context<'_>, amount: u64) -> Result<(), Error> 
     *write = Amount::from_sat(amount);
 
     debug!("fee after changing: {:?}", withdrawal_fee);
-    ctx.send(CreateReply::default().content(format!("Withdraw fee set to {} sats", amount)))
+    ctx.send(CreateReply::default().content(format!("Withdraw fee set to {amount} sats")))
         .await?;
 
     Ok(())
@@ -269,7 +270,7 @@ pub async fn depositenabled(ctx: Context<'_>, value: bool) -> Result<(), Error> 
         let mut tx = ctx.data().database.begin().await?;
         let deposits_enabled = &ctx.data().deposits_enabled;
         let mut write = deposits_enabled.write().await;
-        if *write == true && value == false {
+        if *write && !value {
             trace!("need to process possible unprocessed transactions");
 
             let tx_proc = Arc::clone(&ctx.data().tx_processor);
@@ -297,7 +298,7 @@ pub async fn checktxid(ctx: Context<'_>, txid: Txid) -> Result<(), Error> {
     let client = &ctx.data().verus()?;
 
     if let Ok(raw_tx) = client.get_raw_transaction_verbose(&txid) {
-        process_txid(http, &mut *tx, &raw_tx).await?;
+        process_txid(http, &mut tx, &raw_tx).await?;
         tx.commit().await?;
     }
 
@@ -322,7 +323,7 @@ pub async fn manuallyaddwithdraw(
     debug!("manually storing withdraw transaction: {uuid}: {user_id} - {txid} ({tx_fee})");
 
     database::store_withdraw_transaction(
-        &mut *tx,
+        &mut tx,
         &uuid,
         &user_id,
         Some(&txid),
@@ -353,7 +354,7 @@ pub async fn maintenance(ctx: Context<'_>, value: bool) -> Result<(), Error> {
     {
         let mut tx = ctx.data().database.begin().await?;
         let mut write = ctx.data().tx_processor.maintenance.write().await;
-        if *write == true && value == false {
+        if *write && !value {
             trace!("need to process possible unprocessed transactions");
 
             let tx_proc = Arc::clone(&ctx.data().tx_processor);

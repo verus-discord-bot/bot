@@ -51,11 +51,11 @@ pub async fn all(
     #[description = "You can use any address starting with R* or i*, or use an existing VerusID (ends with @)."]
     destination: String,
 ) -> Result<(), Error> {
-    if *ctx.data().withdrawals_enabled.read().await == false {
+    if !(*ctx.data().withdrawals_enabled.read().await) {
         ctx.send(
             CreateReply::default()
                 .ephemeral(true)
-                .content(format!("Withdrawals are temporarily disabled.")),
+                .content("Withdrawals are temporarily disabled.".to_string()),
         )
         .await?;
 
@@ -67,7 +67,7 @@ pub async fn all(
     }
 
     let client = &ctx.data().verus()?;
-    if !destination_is_valid(&destination, &client) {
+    if !destination_is_valid(&destination, client) {
         ctx.send(CreateReply::default().ephemeral(true).content(format!(
             "Error: The destination you entered cannot be used: {destination}"
         )))
@@ -87,7 +87,7 @@ pub async fn all(
     let tx_fee = &ctx.data().withdrawal_fee.read().await.clone();
 
     if let Some(balance) = database::get_balance_for_user(
-        &mut *tx,
+        &mut tx,
         &ctx.author().id,
         &Address::from_str(VRSC_CURRENCY_ID)?,
     )
@@ -106,15 +106,15 @@ pub async fn all(
 
             debug!("sendcurrency opid: {:?}", &opid);
 
-            if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, &client, &opid).await? {
+            if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, client, &opid).await? {
                 // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
                 database::store_withdraw_transaction(
-                    &mut *tx,
+                    &mut tx,
                     &uuid,
                     &ctx.author().id,
                     Some(&txid),
                     &opid,
-                    &tx_fee,
+                    tx_fee,
                     &Address::from_str(VRSC_CURRENCY_ID)?,
                 )
                 .await?;
@@ -123,16 +123,16 @@ pub async fn all(
                     "transaction {txid} stored in db, now decrease balance with ({withdrawal_amount} + {tx_fee})"
                 );
                 database::decrease_balance(
-                    &mut *tx,
+                    &mut tx,
                     &ctx.author().id,
                     &withdrawal_amount,
-                    &tx_fee,
+                    tx_fee,
                     &Address::from_str(VRSC_CURRENCY_ID)?,
                 )
                 .await?;
 
                 let new_balance = database::get_balance_for_user(
-                    &mut *tx,
+                    &mut tx,
                     &ctx.author().id,
                     &Address::from_str(VRSC_CURRENCY_ID)?,
                 )
@@ -147,7 +147,7 @@ pub async fn all(
                         .field("Fees", tx_fee.to_string(), false)
                         .field(
                             "Explorer",
-                            format!("[link](https://insight.verus.io/tx/{})", txid.to_string()),
+                            format!("[link](https://insight.verus.io/tx/{txid})"),
                             false,
                         );
 
@@ -169,17 +169,16 @@ pub async fn all(
                 // and we'll store the op-id in the database.
                 let response = format!(
                     "Something went wrong trying to process your withdrawal. \
-                Please contact support with withdrawal ID: {}",
-                    uuid.to_string()
+                Please contact support with withdrawal ID: {uuid}"
                 );
 
                 database::store_withdraw_transaction(
-                    &mut *tx,
+                    &mut tx,
                     &uuid,
                     &ctx.author().id,
                     None,
                     &opid,
-                    &tx_fee,
+                    tx_fee,
                     &Address::from_str(VRSC_CURRENCY_ID)?,
                 )
                 .await?;
@@ -203,7 +202,7 @@ pub async fn all(
         ctx.send(
             CreateReply::default()
                 .ephemeral(true)
-                .content(format!("Your balance is insufficient to withdraw")),
+                .content("Your balance is insufficient to withdraw".to_string()),
         )
         .await?;
     }
@@ -221,11 +220,11 @@ pub async fn amount(
     identity (ends with @)."]
     destination: String,
 ) -> Result<(), Error> {
-    if *ctx.data().withdrawals_enabled.read().await == false {
+    if !(*ctx.data().withdrawals_enabled.read().await) {
         ctx.send(
             CreateReply::default()
                 .ephemeral(true)
-                .content(format!("Withdrawals are temporarily disabled.")),
+                .content("Withdrawals are temporarily disabled.".to_string()),
         )
         .await?;
 
@@ -243,7 +242,7 @@ pub async fn amount(
     );
 
     let client = &ctx.data().verus()?;
-    if !destination_is_valid(&destination, &client) {
+    if !destination_is_valid(&destination, client) {
         ctx.send(CreateReply::default().ephemeral(true).content(format!(
             "Error: The destination you entered cannot be used: {destination}"
         )))
@@ -266,7 +265,7 @@ pub async fn amount(
 
     let mut tx = ctx.data().database.begin().await?;
     let uuid = Uuid::new_v4();
-    let tx_fee = ctx.data().withdrawal_fee.read().await.clone();
+    let tx_fee = *ctx.data().withdrawal_fee.read().await;
 
     // can we let the database return something meaningful when the withdraw is not possible?
     if get_and_check_balance(&ctx, withdrawal_amount, tx_fee)
@@ -280,11 +279,11 @@ pub async fn amount(
 
         debug!("sendcurrency opid: {:?}", &opid);
 
-        if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, &client, &opid).await? {
+        if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, client, &opid).await? {
             // at this point the txid is known. Now blockchain shenanigans could be happening,
             // so we should store everything in the transactions_db table
             database::store_withdraw_transaction(
-                &mut *tx,
+                &mut tx,
                 &uuid,
                 &ctx.author().id,
                 Some(&txid),
@@ -296,7 +295,7 @@ pub async fn amount(
 
             trace!("transaction stored, now decrease balance");
             database::decrease_balance(
-                &mut *tx,
+                &mut tx,
                 &ctx.author().id,
                 &withdrawal_amount,
                 &tx_fee,
@@ -305,7 +304,7 @@ pub async fn amount(
             .await?;
 
             let new_balance = database::get_balance_for_user(
-                &mut *tx,
+                &mut tx,
                 &ctx.author().id,
                 &Address::from_str(VRSC_CURRENCY_ID)?,
             )
@@ -318,7 +317,7 @@ pub async fn amount(
                     .field("Fees", tx_fee.to_string(), false)
                     .field(
                         "Explorer",
-                        format!("[link](https://insight.verus.io/tx/{})", txid.to_string()),
+                        format!("[link](https://insight.verus.io/tx/{txid})"),
                         false,
                     );
 
@@ -338,12 +337,11 @@ pub async fn amount(
             // We should check this manually, so we'll let the user know to contact support and we'll store the op-id in the database.
             let response = format!(
                 "Something went wrong trying to process your withdrawal.
-                Please contact support with withdrawal ID: {}",
-                uuid.to_string()
+                Please contact support with withdrawal ID: {uuid}"
             );
 
             database::store_withdraw_transaction(
-                &mut *tx,
+                &mut tx,
                 &uuid,
                 &ctx.author().id,
                 None,
@@ -393,7 +391,7 @@ pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
     ctx.send(
         CreateReply::default()
             .ephemeral(true)
-            .content(format!("Your balance is: {}", balance)),
+            .content(format!("Your balance is: {balance}")),
     )
     .await?;
 
@@ -412,7 +410,7 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
     );
 
     let address = match database::get_address_from_user(
-        &mut *tx,
+        &mut tx,
         &ctx.author().id,
         &Address::from_str(VRSC_CURRENCY_ID)?,
     )
@@ -423,7 +421,7 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
             let client = &ctx.data().verus().unwrap();
             let address = client.get_new_address().unwrap();
             database::store_new_address_for_user(
-                &mut *tx,
+                &mut tx,
                 &ctx.author().id,
                 &address,
                 &Address::from_str(VRSC_CURRENCY_ID)?,
@@ -444,7 +442,7 @@ pub async fn deposit(ctx: Context<'_>) -> Result<(), Error> {
 async fn send_deposit_address_msg(ctx: Context<'_>, address: &Address) -> Result<(), Error> {
     let qr = QRBuilder::new(address.to_string())
         .build()
-        .map_err(|e| format!("QR builder error: {:?}", e))?;
+        .map_err(|e| format!("QR builder error: {e:?}"))?;
 
     let img_bytes = ImageBuilder::default()
         .shape(Shape::RoundedSquare)
@@ -452,12 +450,12 @@ async fn send_deposit_address_msg(ctx: Context<'_>, address: &Address) -> Result
         .module_color([49, 101, 212, 255])
         .background_color([255, 255, 255, 0])
         .to_bytes(&qr)
-        .map_err(|e| format!("Image build error: {}", e))?;
+        .map_err(|e| format!("Image build error: {e:?}"))?;
 
     let filename = format!("{address}.png");
     let embed = CreateEmbed::default()
         .image(format!("attachment://{filename}"))
-        .field("Address", format!("{}", address.to_string()), false);
+        .field("Address", format!("{address}"), false);
     let attachment = CreateAttachment::bytes(img_bytes, &filename);
 
     ctx.send(
@@ -506,13 +504,13 @@ async fn wait_for_sendcurrency_finish(
 
                 database::store_opid(
                     &mut *tx,
-                    &opid,
+                    opid,
                     &opstatus.status,
                     opstatus.creation_time as i64,
                     opstatus.result.as_ref().map(|txid| txid.txid),
                     &params.address,
                     params.amount,
-                    &params.currency.as_ref().unwrap_or(&String::from("VRSC")),
+                    params.currency.as_ref().unwrap_or(&String::from("VRSC")),
                 )
                 .await?;
                 return Ok(Some(txid.txid));
@@ -521,13 +519,13 @@ async fn wait_for_sendcurrency_finish(
 
                 database::store_opid(
                     &mut *tx,
-                    &opid,
+                    opid,
                     &opstatus.status,
                     opstatus.creation_time as i64,
                     opstatus.result.as_ref().map(|txid| txid.txid),
                     &params.address,
                     params.amount,
-                    &params.currency.as_ref().unwrap(),
+                    params.currency.as_ref().unwrap(),
                 )
                 .await?;
             }
@@ -597,17 +595,18 @@ pub async fn get_and_check_balance(
             &tx_fee, // no fees for tipping
         ) {
             trace!("tipper has sufficient balance");
-            return Ok(Some(Amount::from_sat(balance)));
+
+            Ok(Some(Amount::from_sat(balance)))
         } else {
             trace!("balance is insufficient");
             ctx.send(
                 CreateReply::default()
                     .ephemeral(true)
-                    .content(format!("Your balance is insufficient to tip that amount!")),
+                    .content("Your balance is insufficient to tip that amount!".to_string()),
             )
             .await?;
 
-            return Ok(None);
+            Ok(None)
         }
     } else {
         trace!("tipper has no balance");
@@ -616,11 +615,11 @@ pub async fn get_and_check_balance(
         ctx.send(
             CreateReply::default()
                 .ephemeral(true)
-                .content(format!("Your balance is insufficient to tip that amount!")),
+                .content("Your balance is insufficient to tip that amount!".to_string()),
         )
         .await?;
 
-        return Ok(None);
+        Ok(None)
     }
 }
 

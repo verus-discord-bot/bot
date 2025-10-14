@@ -102,7 +102,7 @@ fn get_charming_chart_bytes(data: Vec<Candle>) -> Result<Vec<u8>, Error> {
     let lowest = ohlc
         .iter()
         .flatten()
-        .map(|p| *p)
+        .copied()
         .reduce(f32::min)
         .unwrap_or_default();
 
@@ -178,12 +178,10 @@ fn get_conversion_data(
 
                     None
                 }) {
-                    res.push(new_row.clone());
+                    res.push(new_row);
                     previous_row = Some(new_row);
-                } else {
-                    if let Some(row) = previous_row {
-                        res.push(row);
-                    }
+                } else if let Some(row) = previous_row {
+                    res.push(row);
                 }
             }
         }
@@ -209,7 +207,7 @@ pub async fn chaininfo(ctx: Context<'_>) -> Result<(), Error> {
         CreateReply::default()
             .embed(
                 CreateEmbed::new()
-                    .title(format!("{} info", testnet_name))
+                    .title(format!("{testnet_name} info"))
                     .field("height", blockchain_info.blocks.to_string(), false)
                     .field("difficulty", blockchain_info.difficulty.to_string(), false)
                     .field(
@@ -243,7 +241,7 @@ pub async fn peerinfo(ctx: Context<'_>) -> Result<(), Error> {
     let peer_info = client
         .get_peer_info()?
         .into_iter()
-        .filter(|peer| peer.inbound == false)
+        .filter(|peer| !peer.inbound)
         .collect::<Vec<_>>();
 
     ctx.send(CreateReply::default().ephemeral(true).content(format!(
@@ -278,28 +276,20 @@ pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
     //     .trim()
     //     .parse()?;
 
-    let btc_price = resp
-        .quotes
-        .get("BTC")
-        .and_then(|obj| Some(obj.price))
-        .unwrap_or(0.0);
+    let btc_price = resp.quotes.get("BTC").map(|obj| obj.price).unwrap_or(0.0);
 
-    let usd_price = resp
-        .quotes
-        .get("USD")
-        .and_then(|obj| Some(obj.price))
-        .unwrap_or(0.0);
+    let usd_price = resp.quotes.get("USD").map(|obj| obj.price).unwrap_or(0.0);
 
     let usd_volume = resp
         .quotes
         .get("USD")
-        .and_then(|obj| Some(obj.volume_24h))
+        .map(|obj| obj.volume_24h)
         .unwrap_or(0.0);
 
     let price_up = resp
         .quotes
         .get("BTC")
-        .and_then(|obj| Some(obj.percent_change_24h))
+        .map(|obj| obj.percent_change_24h)
         .unwrap_or(0.0)
         .is_sign_positive();
 
@@ -313,7 +303,7 @@ pub async fn price(ctx: Context<'_>) -> Result<(), Error> {
                     "% from ATH (USD)",
                     resp.quotes
                         .get("USD")
-                        .and_then(|obj| Some(obj.percent_from_price_ath))
+                        .map(|obj| obj.percent_from_price_ath)
                         .unwrap_or(0.0)
                         .to_string(),
                     false,
@@ -424,7 +414,7 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
 
                 let mut basket_reserves = reserves
                     .iter()
-                    .filter_map(|rc| {
+                    .map(|rc| {
                         let name = currency
                             .currencynames
                             .as_ref()
@@ -442,13 +432,13 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
                                 / (main_reserve.weight / rc.weight)
                         };
 
-                        Some(Reserve {
+                        Reserve {
                             name,
                             amount: rc_reserves,
                             price,
-                        })
+                        }
                     })
-                    .collect::<Vec<Reserve>>();
+                    .collect::<Vec<_>>();
 
                 let precision: usize = match &*main_reserve_name {
                     "DAI.vETH" => 2,
@@ -469,11 +459,8 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
                 fields.push((
                     "Total value of liquidity".to_string(),
                     format!(
-                        "{} {main_reserve_name}",
-                        format!(
-                            "{:.precision$}",
-                            main_reserve.reserves.as_vrsc() / main_reserve.weight
-                        )
+                        "{:.precision$} {main_reserve_name}",
+                        main_reserve.reserves.as_vrsc() / main_reserve.weight
                     ),
                     false,
                 ));
@@ -490,10 +477,7 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
                     {
                         fields.push((
                             "Volume (24h)".to_string(),
-                            format!(
-                                "{} {main_reserve_name}",
-                                format!("{:.precision$}", *totalvolume)
-                            ),
+                            format!("{:.precision$} {main_reserve_name}", *totalvolume),
                             false,
                         ));
                     }
@@ -502,30 +486,25 @@ async fn _basket(ctx: Context<'_>, basket_name: &str) -> Result<(), Error> {
                 fields.push((
                     "Supply".to_string(),
                     format!(
-                        "{}",
-                        format!(
-                            "{:.precision$}",
-                            currency
-                                .bestcurrencystate
-                                .as_ref()
-                                .map_or(0.0, |cs| cs.supply.as_vrsc())
-                        )
-                    ),
+                        "{:.precision$}",
+                        currency
+                            .bestcurrencystate
+                            .as_ref()
+                            .map_or(0.0, |cs| cs.supply.as_vrsc())
+                    )
+                    .to_string(),
                     true,
                 ));
 
                 fields.push((
                     "Price".to_string(),
                     format!(
-                        "{} {main_reserve_name}",
-                        format!(
-                            "{:.precision$}",
-                            (main_reserve.reserves.as_vrsc() / main_reserve.weight)
-                                / currency
-                                    .bestcurrencystate
-                                    .as_ref()
-                                    .map_or(0.0, |cs| cs.supply.as_vrsc())
-                        )
+                        "{:.precision$} {main_reserve_name}",
+                        (main_reserve.reserves.as_vrsc() / main_reserve.weight)
+                            / currency
+                                .bestcurrencystate
+                                .as_ref()
+                                .map_or(0.0, |cs| cs.supply.as_vrsc())
                     ),
                     true,
                 ));
@@ -755,7 +734,7 @@ fn time_until_block(current_height: u64, future_height: u64) -> Option<DateTime<
     diff.and_then(|diff| now.checked_add_signed(Duration::minutes(diff as i64)))
 }
 
-fn reserve_table_str(reserves: &mut Vec<Reserve>, precision: usize) -> String {
+fn reserve_table_str(reserves: &mut [Reserve], precision: usize) -> String {
     let longest_name_len = reserves
         .iter()
         .max_by_key(|x| x.name.chars().count())
@@ -770,7 +749,7 @@ fn reserve_table_str(reserves: &mut Vec<Reserve>, precision: usize) -> String {
         .unwrap();
 
     debug!("largest value: {largest_value}");
-    let longest_value_len = format!("{:.precision$}", largest_value);
+    let longest_value_len = format!("{largest_value:.precision$}");
     debug!("longest_value_len: {longest_value_len}");
     let longest_value_len = largest_value.to_string().len() + precision;
     debug!("longest_value_len: {longest_value_len}");
