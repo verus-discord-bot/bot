@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE balances \n            SET balance = balance - $1\n            WHERE discord_id = $2 AND \n            currency_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f202e81210fd7d1a3c6518362ca3df4bc2f258aa503d1c2103f5f19ceaff86cb"
+}

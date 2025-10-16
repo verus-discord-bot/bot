@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, ops::Sub, str::FromStr, time::Duration};
+use std::{ops::Sub, str::FromStr, time::Duration};
 
 use fast_qr::convert::{Builder, Shape, image::ImageBuilder};
 use fast_qr::qr::QRBuilder;
@@ -236,6 +236,17 @@ pub async fn amount(
         return Ok(());
     }
 
+    if !withdrawal_amount.is_sign_positive() || !withdrawal_amount.is_normal() {
+        ctx.send(
+            CreateReply::default()
+                .ephemeral(true)
+                .content("Error: Withdrawal amount should be more than 0.0"),
+        )
+        .await?;
+
+        return Ok(());
+    }
+
     debug!(
         "user {} ({}) demands a withdrawal of {withdrawal_amount}",
         ctx.author().name,
@@ -253,16 +264,6 @@ pub async fn amount(
     }
 
     let withdrawal_amount = Amount::from_vrsc(withdrawal_amount)?;
-    if [Ordering::Less, Ordering::Equal].contains(&withdrawal_amount.cmp(&Amount::ZERO)) {
-        ctx.send(
-            CreateReply::default()
-                .ephemeral(true)
-                .content("Error: Withdrawal amount should be more than 0.0"),
-        )
-        .await?;
-
-        return Ok(());
-    }
 
     let mut tx = ctx.data().database.begin().await?;
     let uuid = Uuid::new_v4();
@@ -370,6 +371,145 @@ pub async fn amount(
                 .unwrap_or(Amount::ZERO)
         )))
     .await?;
+
+    Ok(())
+}
+
+/// Donate the given amount to the `Verus Coin Foundation@` VerusID.
+///
+/// Donate some VRSC to the Verus Coin Foundation@ VerusID.
+/// This will be an on-chain transaction, so withdrawal fees (50,000 sats) apply.
+/// If you want to donate your full balance, make sure to set `include_fee` to true, 50,000
+/// sats will be automatically deducted.
+///
+/// This will be broadcasted publicly in Discord.
+#[instrument(err, skip(ctx))]
+#[poise::command(slash_command, category = "Wallet")]
+pub async fn donate_to_foundation(
+    ctx: Context<'_>,
+    amount: f64,
+    include_fee: bool,
+) -> Result<(), Error> {
+    if !(*ctx.data().withdrawals_enabled.read().await) {
+        ctx.send(
+            CreateReply::default()
+                .ephemeral(true)
+                .content("Withdrawals are temporarily disabled.".to_string()),
+        )
+        .await?;
+
+        return Ok(());
+    }
+
+    if !amount.is_sign_positive() || !amount.is_normal() {
+        ctx.send(
+            CreateReply::default()
+                .ephemeral(true)
+                .content("Error: Withdrawal amount should be more than 0.0"),
+        )
+        .await?;
+
+        return Ok(());
+    }
+
+    // discord doesn't allow very big numbers, so this is a safe way to ditch
+    // any number that is too precise.
+    // todo: should move to Decimal type at some point.
+    let amount = (amount * 100_000_000.0).trunc() as u64;
+
+    let mut withdrawal_amount = Amount::from_sat(amount);
+    let tx_fee = *ctx.data().withdrawal_fee.read().await;
+
+    if include_fee {
+        withdrawal_amount = withdrawal_amount
+            .checked_sub(tx_fee)
+            .unwrap_or(Amount::ZERO);
+    }
+
+    if withdrawal_amount == Amount::ZERO {
+        ctx.send(
+            CreateReply::default()
+                .ephemeral(true)
+                .content("Error: Withdrawal amount including fees should be more than 0.0"),
+        )
+        .await?;
+
+        return Ok(());
+    }
+
+    let mut tx = ctx.data().database.begin().await?;
+    let destination = "Verus Coin Foundation@";
+
+    if get_and_check_balance(&ctx, withdrawal_amount, tx_fee)
+        .await?
+        .is_some()
+    {
+        trace!("balance is sufficient, withdrawal address is valid; starting sendcurrency");
+
+        let client = &ctx.data().verus()?;
+
+        let sco = SendCurrencyOutput::new(None, &withdrawal_amount, destination, None, None);
+        let opid = client.send_currency("*", vec![sco], None, None)?;
+
+        debug!("sendcurrency opid: {:?}", &opid);
+
+        if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, client, &opid).await? {
+            // at this point the txid is known. Now blockchain shenanigans could be happening,
+            // so we should store everything in the transactions_db table
+            database::store_withdraw_transaction(
+                &mut tx,
+                &Uuid::new_v4(),
+                &ctx.author().id,
+                Some(&txid),
+                &opid,
+                &tx_fee,
+                &Address::from_str(VRSC_CURRENCY_ID)?,
+            )
+            .await?;
+
+            database::decrease_balance(
+                &mut tx,
+                &ctx.author().id,
+                &withdrawal_amount,
+                &tx_fee,
+                &Address::from_str(VRSC_CURRENCY_ID)?,
+            )
+            .await?;
+
+            tx.commit().await?;
+
+            ctx.send(CreateReply::default().content(format!(
+                "<@{}> donated {} VRSC to the Verus Coin Foundation!",
+                ctx.author().id,
+                withdrawal_amount.as_vrsc()
+            )))
+            .await?;
+        } else {
+            // at this point, the sendcurrency didn't finish. Maybe it went through, but we don't know.
+            // We should check this manually, so we'll let the user know to contact support and we'll store the op-id in the database.
+            let uuid = Uuid::new_v4();
+            let response = format!(
+                "Something went wrong trying to process your withdrawal.
+                Please contact support with withdrawal ID: {uuid}"
+            );
+
+            database::store_withdraw_transaction(
+                &mut tx,
+                &uuid,
+                &ctx.author().id,
+                None,
+                &opid,
+                &tx_fee,
+                &Address::from_str(VRSC_CURRENCY_ID)?,
+            )
+            .await?;
+
+            tx.commit().await?;
+
+            ctx.send(CreateReply::default().ephemeral(true).content(&response))
+                .await?;
+        }
+    }
 
     Ok(())
 }

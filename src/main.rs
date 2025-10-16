@@ -149,6 +149,7 @@ async fn app(config: Config, database: PgPool) -> Result<serenity::Client, Error
             wallet::deposit(),
             wallet::balance(),
             wallet::withdraw(),
+            wallet::donate_to_foundation(),
             tipping::tip(),
             tipping::reactdrop(),
         ],

@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT SUM(CAST(balance AS BIGINT)) \n        FROM balances\n        WHERE currency_id = $1",
+  "query": "SELECT COALESCE(SUM(CAST(amount AS BIGINT)), 0) AS \"sum!\" \n        FROM tips \n        WHERE currency_id = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "sum",
+        "name": "sum!",
         "type_info": "Numeric"
       }
     ],
@@ -18,5 +18,5 @@
       null
     ]
   },
-  "hash": "7cd95f20b68a82f0be9b37544cd98f95eb69f1d3349802eebd61a6423f948a75"
+  "hash": "384f845b2d5460a8f8eb898022f5149007e9578f9fed794df9bc442e1ef9be45"
 }

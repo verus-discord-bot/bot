@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH inserted_row AS (\n            INSERT INTO discord_users (discord_id) \n            VALUES ($1)\n            ON CONFLICT (discord_id) DO NOTHING\n        )\n        INSERT INTO addresses (discord_id, address, currency_id)\n        VALUES ($1, $2, $3)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e4970ba35a7968db8d6ae54d3719258e2549273ae646a809465f8f80c0b7b8cf"
+}

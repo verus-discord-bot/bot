@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT discord_id, address FROM addresses WHERE discord_id = $1",
+  "query": "SELECT discord_id, address \n        FROM addresses\n        WHERE discord_id = $1 AND\n          currency_id = $2",
   "describe": {
     "columns": [
       {
@@ -16,7 +16,8 @@
     ],
     "parameters": {
       "Left": [
-        "Int8"
+        "Int8",
+        "Text"
       ]
     },
     "nullable": [
@@ -24,5 +25,5 @@
       false
     ]
   },
-  "hash": "ab9f765f331a76860e7d2db12f59bfabce156598a80de1ea3396cc0b3a12931b"
+  "hash": "91d57a836f5d609e2ba70b00d4c1348fff91eff8c903a1e36ad8bee5c852cc9e"
 }

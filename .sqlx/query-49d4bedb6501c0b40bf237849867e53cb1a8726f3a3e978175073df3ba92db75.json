@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT MAX(amount) \n        FROM tips \n        WHERE currency_id = $1",
+  "query": "SELECT COALESCE(MAX(amount), 0) AS \"max!\"\n        FROM tips \n        WHERE currency_id = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "max",
+        "name": "max!",
         "type_info": "Int8"
       }
     ],
@@ -18,5 +18,5 @@
       null
     ]
   },
-  "hash": "e0858634508fa9bb7a673ab84cd88c32e3d57d925f1a72d9b99f89c691a888fa"
+  "hash": "49d4bedb6501c0b40bf237849867e53cb1a8726f3a3e978175073df3ba92db75"
 }

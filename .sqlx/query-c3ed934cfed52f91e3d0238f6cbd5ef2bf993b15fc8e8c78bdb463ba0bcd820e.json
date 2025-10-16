@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * FROM reactdrops WHERE status = 'pending'",
+  "query": "SELECT *\n        FROM reactdrops\n        WHERE status = 'pending'",
   "describe": {
     "columns": [
       {
@@ -70,5 +70,5 @@
       false
     ]
   },
-  "hash": "3427e79ae68620e71af060fb3bf953ead2620a3cb22852c8940ed2aafe2a3325"
+  "hash": "c3ed934cfed52f91e3d0238f6cbd5ef2bf993b15fc8e8c78bdb463ba0bcd820e"
 }
