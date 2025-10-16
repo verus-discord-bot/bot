@@ -378,18 +378,10 @@ pub async fn amount(
 /// Donate the given amount to the `Verus Coin Foundation@` VerusID.
 ///
 /// Donate some VRSC to the Verus Coin Foundation@ VerusID.
-/// This will be an on-chain transaction, so withdrawal fees (50,000 sats) apply.
-/// If you want to donate your full balance, make sure to set `include_fee` to true, 50,000
-/// sats will be automatically deducted.
-///
-/// This will be broadcasted publicly in Discord.
+/// This will be an on-chain transaction, but no withdrawal fees are incurred.
 #[instrument(err, skip(ctx))]
 #[poise::command(slash_command, category = "Wallet")]
-pub async fn donate_to_foundation(
-    ctx: Context<'_>,
-    amount: f64,
-    include_fee: bool,
-) -> Result<(), Error> {
+pub async fn donate_to_foundation(ctx: Context<'_>, amount: f64) -> Result<(), Error> {
     if !(*ctx.data().withdrawals_enabled.read().await) {
         ctx.send(
             CreateReply::default()
@@ -412,19 +404,7 @@ pub async fn donate_to_foundation(
         return Ok(());
     }
 
-    // discord doesn't allow very big numbers, so this is a safe way to ditch
-    // any number that is too precise.
-    // todo: should move to Decimal type at some point.
-    let amount = (amount * 100_000_000.0).trunc() as u64;
-
-    let mut withdrawal_amount = Amount::from_sat(amount);
-    let tx_fee = *ctx.data().withdrawal_fee.read().await;
-
-    if include_fee {
-        withdrawal_amount = withdrawal_amount
-            .checked_sub(tx_fee)
-            .unwrap_or(Amount::ZERO);
-    }
+    let withdrawal_amount = Amount::from_vrsc(amount)?;
 
     if withdrawal_amount == Amount::ZERO {
         ctx.send(
@@ -440,7 +420,7 @@ pub async fn donate_to_foundation(
     let mut tx = ctx.data().database.begin().await?;
     let destination = "Verus Coin Foundation@";
 
-    if get_and_check_balance(&ctx, withdrawal_amount, tx_fee)
+    if get_and_check_balance(&ctx, withdrawal_amount, Amount::ZERO)
         .await?
         .is_some()
     {
@@ -462,7 +442,7 @@ pub async fn donate_to_foundation(
                 &ctx.author().id,
                 Some(&txid),
                 &opid,
-                &tx_fee,
+                &Amount::ZERO,
                 &Address::from_str(VRSC_CURRENCY_ID)?,
             )
             .await?;
@@ -471,7 +451,7 @@ pub async fn donate_to_foundation(
                 &mut tx,
                 &ctx.author().id,
                 &withdrawal_amount,
-                &tx_fee,
+                &Amount::ZERO,
                 &Address::from_str(VRSC_CURRENCY_ID)?,
             )
             .await?;
@@ -499,7 +479,7 @@ pub async fn donate_to_foundation(
                 &ctx.author().id,
                 None,
                 &opid,
-                &tx_fee,
+                &Amount::ZERO,
                 &Address::from_str(VRSC_CURRENCY_ID)?,
             )
             .await?;
