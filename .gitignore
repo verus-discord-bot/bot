@@ -1,6 +1,9 @@
 /target
 /config
 /qr_address
+/logs
 walletnotify.sh
 blocknotify.sh
 .env
+/bin
+/old_migrations

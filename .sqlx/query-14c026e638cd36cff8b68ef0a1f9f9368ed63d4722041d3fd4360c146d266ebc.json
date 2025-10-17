@@ -47,6 +47,21 @@
         "ordinal": 8,
         "name": "currency_id",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "amount",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "tx_fee",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "address",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -64,7 +79,10 @@
       true,
       false,
       false,
-      false
+      false,
+      true,
+      true,
+      true
     ]
   },
   "hash": "14c026e638cd36cff8b68ef0a1f9f9368ed63d4722041d3fd4360c146d266ebc"

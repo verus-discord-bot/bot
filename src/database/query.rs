@@ -585,3 +585,65 @@ pub async fn update_reactdrop(
 
     Ok(())
 }
+
+pub async fn get_transactions_without_amount(
+    conn: &mut PgConnection,
+    created_at: Option<DateTime<Utc>>,
+    action: Option<&str>,
+    limit: i64,
+) -> Result<Vec<(UserId, Txid, String, DateTime<Utc>)>, Error> {
+    let rows = sqlx::query!(
+        "SELECT discord_id, transaction_id, created_at, transaction_action
+        FROM transactions 
+        WHERE (created_at > $1 OR $1 IS NULL)
+        AND (transaction_action = $2 OR $2 IS NULL)
+        AND amount IS NULL
+        ORDER BY created_at 
+        LIMIT $3",
+        created_at,
+        action,
+        limit
+    )
+    .fetch_all(conn)
+    .await?;
+
+    let ret = rows
+        .into_iter()
+        .map(|row| {
+            (
+                UserId::new(row.discord_id as u64),
+                Txid::from_str(&row.transaction_id).unwrap(),
+                row.transaction_action,
+                row.created_at,
+            )
+        })
+        .collect();
+
+    Ok(ret)
+}
+
+pub async fn update_transaction(
+    conn: &mut PgConnection,
+    transaction_id: &str,
+    amount: u64,
+    address: &str,
+    tx_fee: Option<u64>,
+) -> Result<(), Error> {
+    let result = sqlx::query!(
+        "UPDATE transactions
+        SET amount = $1, address = $2, tx_fee = $3
+        WHERE transaction_id = $4",
+        amount as i64,
+        address,
+        tx_fee.map(|i| i as i64),
+        transaction_id
+    )
+    .execute(&mut *conn)
+    .await?;
+
+    if result.rows_affected() > 1 {
+        tracing::warn!(?transaction_id, "updated more than 1 row")
+    }
+
+    Ok(())
+}

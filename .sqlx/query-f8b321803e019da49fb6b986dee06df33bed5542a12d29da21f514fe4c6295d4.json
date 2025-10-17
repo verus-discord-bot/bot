@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE transactions\n        SET amount = $1, address = $2, tx_fee = $3\n        WHERE transaction_id = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f8b321803e019da49fb6b986dee06df33bed5542a12d29da21f514fe4c6295d4"
+}

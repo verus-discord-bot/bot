@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let config = get_configuration()?;
     let database = PgPool::connect_lazy(&config.database.connection_string())?;
-    sqlx::migrate!("./migrations").run(&database).await?;
+    // sqlx::migrate!("./migrations").run(&database).await?;
 
     let bot = Bot {
         client: app(config, database.clone()).await?,
@@ -128,6 +128,7 @@ async fn app(config: Config, database: PgPool) -> Result<serenity::Client, Error
             admin::maintenance(),
             admin::manuallyaddwithdraw(),
             admin::status(),
+            admin::batch_convert_transaction_amounts(),
             misc::help(),
             misc::info(),
             misc::source(),

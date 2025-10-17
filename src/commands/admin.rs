@@ -7,7 +7,7 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 use tracing::{debug, error, instrument, trace};
 use uuid::Uuid;
 use vrsc::{Address, Amount};
-use vrsc_rpc::{bitcoin::Txid, client::RpcApi};
+use vrsc_rpc::{bitcoin::Txid, client::RpcApi, json::GetTransactionDetailsCategory};
 
 use crate::{
     Context, Error, VRSC_CURRENCY_ID, database,
@@ -390,3 +390,190 @@ async fn process_stored_txids(
 
     Ok(())
 }
+
+#[instrument(err, skip(ctx))]
+#[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
+pub async fn batch_convert_transaction_amounts(ctx: Context<'_>, limit: u32) -> Result<(), Error> {
+    let verus_client = ctx.data().verus()?;
+
+    let mut created_at = None;
+
+    tracing::trace!("adding amounts from deposits");
+    loop {
+        let mut tx = ctx.data().database.begin().await?;
+
+        let db_txns = database::get_transactions_without_amount(
+            &mut *tx,
+            created_at,
+            Some("deposit"),
+            limit as i64,
+        )
+        .await?;
+
+        if db_txns.is_empty() {
+            tracing::info!("All deposits done");
+            break;
+        }
+
+        for db_tx in db_txns {
+            tracing::trace!("checking {}", db_tx.1);
+
+            match verus_client.get_transaction(&db_tx.1, None) {
+                Ok(raw_tx) => {
+                    let Some(send_detail) = raw_tx
+                        .details
+                        .iter()
+                        .find(|detail| detail.category == GetTransactionDetailsCategory::Receive)
+                    // every deposit should have a receive
+                    else {
+                        tracing::warn!(
+                            "deposit transaction in db does not have receive in daemon tx"
+                        );
+
+                        continue;
+                    };
+
+                    let amount = (send_detail.amount.abs() * 100_000_000.0) as u64;
+                    let address = &send_detail.address.to_string();
+                    // fee is irrelevant when depositing
+
+                    database::update_transaction(
+                        &mut *tx,
+                        &db_tx.1.to_string(),
+                        amount,
+                        address,
+                        None,
+                    )
+                    .await?;
+
+                    created_at = Some(db_tx.3);
+                }
+                Err(e) => {
+                    tracing::warn!(?e, txid = %db_tx.1, "Transaction not found, needs getrawtransaction");
+
+                    continue;
+                }
+            }
+        }
+
+        tx.commit().await?;
+    }
+
+    tracing::trace!("adding amounts from withdrawals");
+
+    loop {
+        let mut tx = ctx.data().database.begin().await?;
+
+        let db_txns = database::get_transactions_without_amount(
+            &mut *tx,
+            created_at,
+            Some("withdraw"),
+            limit as i64,
+        )
+        .await?;
+
+        if db_txns.is_empty() {
+            tracing::info!("All withdrawals done");
+            break;
+        }
+
+        for db_tx in db_txns {
+            tracing::trace!("checking {}", db_tx.1);
+
+            match verus_client.get_transaction(&db_tx.1, None) {
+                Ok(raw_tx) => {
+                    let Some(send_detail) = raw_tx
+                        .details
+                        .iter()
+                        .find(|detail| detail.category == GetTransactionDetailsCategory::Send)
+                    // every transaction has a send
+                    else {
+                        tracing::warn!(
+                            txid = ?db_tx.1,
+                            "withdraw transaction in db does not have Send transaction in daemon"
+                        );
+
+                        continue;
+                    };
+                    let actual_tx_fee = (send_detail.fee.unwrap().abs() * 100_000_000.0) as u64;
+                    let amount = (send_detail.amount.abs() * 100_000_000.0) as u64;
+                    let address = &send_detail.address.to_string();
+
+                    database::update_transaction(
+                        &mut *tx,
+                        &db_tx.1.to_string(),
+                        amount,
+                        address,
+                        Some(actual_tx_fee),
+                    )
+                    .await?;
+
+                    created_at = Some(db_tx.3);
+                }
+                Err(e) => {
+                    tracing::warn!(?e, txid = %db_tx.1, "Transaction not found, needs getrawtransaction");
+
+                    continue;
+                }
+            }
+        }
+
+        tx.commit().await?;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+
+    Ok(())
+}
+
+// let raw_tx = verus_client.get_raw_transaction_verbose(&db_tx.1)?;
+
+// match raw_tx.vout.len() {
+//     // no change address, so always the user
+//     1 => {
+//         // todo add actual tx fee
+//         let amount = raw_tx.vout.first().unwrap().value_sat.as_sat();
+//         database::update_transaction(&mut *tx, &db_tx.1.to_string(), amount).await?;
+
+//         tracing::info!(txid = %db_tx.1, %amount, "stored amount");
+
+//         // no need to do any address lookup
+//         continue;
+//     }
+//     // one address is the users' address, the other should be our change address
+//     // verify using `validateaddress`
+//     2 => {
+//         for tx_vout in raw_tx.vout {
+//             let not_mine = tx_vout
+//                 .script_pubkey
+//                 .addresses
+//                 // unwrap: a vout always has addresses
+//                 .unwrap()
+//                 .iter()
+//                 .find(|address| {
+//                     !verus_client
+//                         .validate_address(&address.to_string())
+//                         .unwrap()
+//                         .is_mine
+//                 })
+//                 .cloned();
+
+//             if let Some(user_address) = not_mine {
+//                 let amount = tx_vout.value_sat;
+//                 tracing::trace!(%user_address, %amount, "found address, storing amount");
+
+//                 // todo:
+//                 // filter on amount
+//                 // add in actual tx fee.
+
+//                 continue;
+//             }
+//         }
+//     }
+//     _ => {
+//         tracing::warn!(
+//             txid = %db_tx.1,
+//             vout = ?raw_tx.vout,
+//             "withdraw transaction has 0 or more than 2 outputs, needs investigation"
+//         )
+//     }
+// }
