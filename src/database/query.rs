@@ -271,15 +271,26 @@ pub async fn store_deposit_transaction(
     user_id: &UserId,
     tx_hash: &Txid,
     currency_id: &Address,
+    amount: Amount,
+    address: &Address,
 ) -> Result<(), Error> {
     sqlx::query!(
-    "INSERT INTO transactions (uuid, discord_id, transaction_id, transaction_action, currency_id)
-    VALUES ($1, $2, $3, $4, $5)",
-    uuid.to_string(),
-    user_id.get() as i64,
-    tx_hash.to_string(),
-    "deposit",
-    currency_id.to_string()
+        "INSERT INTO transactions (
+        uuid, 
+        discord_id, 
+        transaction_id, 
+        transaction_action, 
+        currency_id,
+        amount,
+        address
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        uuid.to_string(),
+        user_id.get() as i64,
+        tx_hash.to_string(),
+        "deposit",
+        currency_id.to_string(),
+        amount.as_sat() as i64,
+        &address.to_string()
     )
     .execute(conn)
     .await?;
@@ -293,22 +304,37 @@ pub async fn store_withdraw_transaction(
     user_id: &UserId,
     tx_hash: Option<&Txid>,
     opid: &str,
-    tx_fee: &Amount,
+    fee: &Amount,
     currency_id: &Address,
+    amount: Amount,
+    address: &Address,
+    tx_fee: Amount,
 ) -> Result<(), Error> {
     let tx_hash = tx_hash.map(|tx| tx.to_string()).unwrap_or_default();
 
     sqlx::query!(
         "INSERT INTO transactions (
-            uuid, discord_id, transaction_id, opid, transaction_action, fee, currency_id) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            uuid, 
+            discord_id, 
+            transaction_id, 
+            opid,
+            transaction_action, 
+            fee,
+            currency_id,
+            amount,
+            address,
+            tx_fee
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         uuid.to_string(),
         user_id.get() as i64,
         tx_hash,
         opid,
         "withdraw",
-        tx_fee.as_sat() as i64,
-        currency_id.to_string()
+        fee.as_sat() as i64,
+        currency_id.to_string(),
+        amount.as_sat() as i64,
+        &address.to_string(),
+        tx_fee.as_sat() as i64
     )
     .execute(conn)
     .await?;
@@ -582,68 +608,6 @@ pub async fn update_reactdrop(
     )
     .execute(conn)
     .await?;
-
-    Ok(())
-}
-
-pub async fn get_transactions_without_amount(
-    conn: &mut PgConnection,
-    created_at: Option<DateTime<Utc>>,
-    action: Option<&str>,
-    limit: i64,
-) -> Result<Vec<(UserId, Txid, String, DateTime<Utc>)>, Error> {
-    let rows = sqlx::query!(
-        "SELECT discord_id, transaction_id, created_at, transaction_action
-        FROM transactions 
-        WHERE (created_at > $1 OR $1 IS NULL)
-        AND (transaction_action = $2 OR $2 IS NULL)
-        AND amount IS NULL
-        ORDER BY created_at 
-        LIMIT $3",
-        created_at,
-        action,
-        limit
-    )
-    .fetch_all(conn)
-    .await?;
-
-    let ret = rows
-        .into_iter()
-        .map(|row| {
-            (
-                UserId::new(row.discord_id as u64),
-                Txid::from_str(&row.transaction_id).unwrap(),
-                row.transaction_action,
-                row.created_at,
-            )
-        })
-        .collect();
-
-    Ok(ret)
-}
-
-pub async fn update_transaction(
-    conn: &mut PgConnection,
-    transaction_id: &str,
-    amount: u64,
-    address: &str,
-    tx_fee: Option<u64>,
-) -> Result<(), Error> {
-    let result = sqlx::query!(
-        "UPDATE transactions
-        SET amount = $1, address = $2, tx_fee = $3
-        WHERE transaction_id = $4",
-        amount as i64,
-        address,
-        tx_fee.map(|i| i as i64),
-        transaction_id
-    )
-    .execute(&mut *conn)
-    .await?;
-
-    if result.rows_affected() > 1 {
-        tracing::warn!(?transaction_id, "updated more than 1 row")
-    }
 
     Ok(())
 }

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO transactions (\n            uuid, \n            discord_id, \n            transaction_id, \n            opid,\n            transaction_action, \n            fee,\n            currency_id,\n            amount,\n            address,\n            tx_fee\n        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Varchar",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f8c91317fd757916733e177e5a8f6bc53cc7166d8a619191d872e69acfd89beb"
+}

@@ -1,0 +1,2 @@
+ALTER TABLE transactions ALTER COLUMN amount SET NOT NULL;
+ALTER TABLE transactions ALTER COLUMN address SET NOT NULL;

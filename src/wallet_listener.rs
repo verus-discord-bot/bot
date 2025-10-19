@@ -356,6 +356,8 @@ pub async fn process_txid(
                                 &user_id,
                                 &raw_tx.txid,
                                 &Address::from_str(VRSC_CURRENCY_ID)?,
+                                vout.value_sat,
+                                &address,
                             )
                             .await
                             {

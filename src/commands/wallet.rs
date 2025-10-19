@@ -67,14 +67,15 @@ pub async fn all(
     }
 
     let client = &ctx.data().verus()?;
-    if !destination_is_valid(&destination, &client) {
+
+    let Some(address) = address_from_str(&destination, &client) else {
         ctx.send(CreateReply::default().ephemeral(true).content(format!(
             "Error: The destination you entered cannot be used: {destination}"
         )))
         .await?;
 
         return Ok(());
-    }
+    };
 
     debug!(
         name = %ctx.author().name,
@@ -84,7 +85,7 @@ pub async fn all(
 
     let mut tx = ctx.data().database.begin().await?;
     let uuid = Uuid::new_v4();
-    let tx_fee = &ctx.data().withdrawal_fee.read().await.clone();
+    let withdrawal_fee = &ctx.data().withdrawal_fee.read().await.clone();
 
     if let Some(balance) = database::get_balance_for_user(
         &mut *tx,
@@ -94,19 +95,22 @@ pub async fn all(
     .await?
     {
         let balance_amount = Amount::from_sat(balance);
-        let withdrawal_amount = balance_amount.sub(*tx_fee); // no need to check for underflow, tx_fee is always low.
+        let withdrawal_amount = balance_amount.sub(*withdrawal_fee); // no need to check for underflow, tx_fee is always low.
 
         if withdrawal_amount > Amount::ZERO {
             debug!(
-                "withdrawal_amount: {withdrawal_amount}, tx_fee: {tx_fee} must together be balance_amount: {balance_amount}"
+                "withdrawal_amount: {withdrawal_amount}, tx_fee: {withdrawal_fee} must together be balance_amount: {balance_amount}"
             );
 
-            let sco = SendCurrencyOutput::new(None, &withdrawal_amount, &destination, None, None);
+            let sco =
+                SendCurrencyOutput::new(None, &withdrawal_amount, &address.to_string(), None, None);
             let opid = client.send_currency("*", vec![sco], None, None)?;
 
             debug!("sendcurrency opid: {:?}", &opid);
 
             if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, &client, &opid).await? {
+                let txn = client.get_transaction(&txid, None)?;
+                let tx_fee = txn.fee;
                 // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
                 database::store_withdraw_transaction(
                     &mut *tx,
@@ -114,19 +118,24 @@ pub async fn all(
                     &ctx.author().id,
                     Some(&txid),
                     &opid,
-                    &tx_fee,
+                    &withdrawal_fee,
                     &Address::from_str(VRSC_CURRENCY_ID)?,
+                    withdrawal_amount,
+                    &address,
+                    tx_fee
+                        .map(|fee| Amount::from_vrsc(fee.abs()).unwrap_or(Amount::ZERO))
+                        .unwrap(),
                 )
                 .await?;
 
                 trace!(
-                    "transaction {txid} stored in db, now decrease balance with ({withdrawal_amount} + {tx_fee})"
+                    "transaction {txid} stored in db, now decrease balance with ({withdrawal_amount} + {withdrawal_fee})"
                 );
                 database::decrease_balance(
                     &mut *tx,
                     &ctx.author().id,
                     &withdrawal_amount,
-                    &tx_fee,
+                    &withdrawal_fee,
                     &Address::from_str(VRSC_CURRENCY_ID)?,
                 )
                 .await?;
@@ -144,7 +153,7 @@ pub async fn all(
                     let mut embed = CreateEmbed::new()
                         .title("Withdraw")
                         .field("Amount", withdrawal_amount.to_string(), false)
-                        .field("Fees", tx_fee.to_string(), false)
+                        .field("Fees", withdrawal_fee.to_string(), false)
                         .field(
                             "Explorer",
                             format!("[link](https://insight.verus.io/tx/{})", txid.to_string()),
@@ -179,8 +188,11 @@ pub async fn all(
                     &ctx.author().id,
                     None,
                     &opid,
-                    &tx_fee,
+                    &withdrawal_fee,
                     &Address::from_str(VRSC_CURRENCY_ID)?,
+                    withdrawal_amount,
+                    &address,
+                    Amount::ZERO,
                 )
                 .await?;
 
@@ -194,7 +206,7 @@ pub async fn all(
             ctx.send(CreateReply::default().ephemeral(true).content(format!(
                 "Your balance is insufficient to withdraw everything.\nMax available balance for \
                 withdraw: {}",
-                withdrawal_amount.checked_sub(*tx_fee).unwrap_or(Amount::ZERO)
+                withdrawal_amount.checked_sub(*withdrawal_fee).unwrap_or(Amount::ZERO)
             )))
             .await?;
         }
@@ -254,23 +266,24 @@ pub async fn amount(
     );
 
     let client = &ctx.data().verus()?;
-    if !destination_is_valid(&destination, &client) {
+
+    let Some(address) = address_from_str(&destination, &client) else {
         ctx.send(CreateReply::default().ephemeral(true).content(format!(
             "Error: The destination you entered cannot be used: {destination}"
         )))
         .await?;
 
         return Ok(());
-    }
+    };
 
     let withdrawal_amount = Amount::from_vrsc(withdrawal_amount)?;
 
     let mut tx = ctx.data().database.begin().await?;
     let uuid = Uuid::new_v4();
-    let tx_fee = ctx.data().withdrawal_fee.read().await.clone();
+    let withdrawal_fee = ctx.data().withdrawal_fee.read().await.clone();
 
     // can we let the database return something meaningful when the withdraw is not possible?
-    if get_and_check_balance(&ctx, withdrawal_amount, tx_fee)
+    if get_and_check_balance(&ctx, withdrawal_amount, withdrawal_fee)
         .await?
         .is_some()
     {
@@ -282,6 +295,10 @@ pub async fn amount(
         debug!("sendcurrency opid: {:?}", &opid);
 
         if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, &client, &opid).await? {
+            // let tx_fee = client.get_transaction(&txid, None)?.fee;
+            let txn = client.get_transaction(&txid, None)?;
+            let tx_fee = txn.fee;
+
             // at this point the txid is known. Now blockchain shenanigans could be happening,
             // so we should store everything in the transactions_db table
             database::store_withdraw_transaction(
@@ -290,8 +307,13 @@ pub async fn amount(
                 &ctx.author().id,
                 Some(&txid),
                 &opid,
-                &tx_fee,
+                &withdrawal_fee,
                 &Address::from_str(VRSC_CURRENCY_ID)?,
+                withdrawal_amount,
+                &address,
+                tx_fee
+                    .map(|fee| Amount::from_vrsc(fee.abs()).unwrap_or(Amount::ZERO))
+                    .unwrap(),
             )
             .await?;
 
@@ -300,7 +322,7 @@ pub async fn amount(
                 &mut *tx,
                 &ctx.author().id,
                 &withdrawal_amount,
-                &tx_fee,
+                &withdrawal_fee,
                 &Address::from_str(VRSC_CURRENCY_ID)?,
             )
             .await?;
@@ -316,7 +338,7 @@ pub async fn amount(
                 let mut embed = CreateEmbed::new()
                     .title("Withdraw")
                     .field("Amount", withdrawal_amount.to_string(), false)
-                    .field("Fees", tx_fee.to_string(), false)
+                    .field("Fees", withdrawal_fee.to_string(), false)
                     .field(
                         "Explorer",
                         format!("[link](https://insight.verus.io/tx/{})", txid.to_string()),
@@ -349,8 +371,11 @@ pub async fn amount(
                 &ctx.author().id,
                 None,
                 &opid,
-                &tx_fee,
+                &withdrawal_fee,
                 &Address::from_str(VRSC_CURRENCY_ID)?,
+                withdrawal_amount,
+                &address,
+                Amount::ZERO,
             )
             .await?;
 
@@ -367,7 +392,7 @@ pub async fn amount(
             "Your balance is insufficient to withdraw {withdrawal_amount}.\n
             Max available balance for withdraw: {}",
             withdrawal_amount
-                .checked_sub(tx_fee)
+                .checked_sub(withdrawal_fee)
                 .unwrap_or(Amount::ZERO)
         )))
     .await?;
@@ -418,7 +443,9 @@ pub async fn donate_to_foundation(ctx: Context<'_>, amount: f64) -> Result<(), E
     }
 
     let mut tx = ctx.data().database.begin().await?;
-    let destination = "Verus Coin Foundation@";
+
+    // Verus Coin Foundation@
+    let address = Address::from_str("i5v3h9FWVdRFbNHU7DfcpGykQjRaHtMqu7").unwrap();
 
     if get_and_check_balance(&ctx, withdrawal_amount, Amount::ZERO)
         .await?
@@ -428,12 +455,15 @@ pub async fn donate_to_foundation(ctx: Context<'_>, amount: f64) -> Result<(), E
 
         let client = &ctx.data().verus()?;
 
-        let sco = SendCurrencyOutput::new(None, &withdrawal_amount, destination, None, None);
+        let sco =
+            SendCurrencyOutput::new(None, &withdrawal_amount, &address.to_string(), None, None);
         let opid = client.send_currency("*", vec![sco], None, None)?;
 
         debug!("sendcurrency opid: {:?}", &opid);
 
         if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, client, &opid).await? {
+            let tx_fee = client.get_transaction(&txid, None)?.fee;
+
             // at this point the txid is known. Now blockchain shenanigans could be happening,
             // so we should store everything in the transactions_db table
             database::store_withdraw_transaction(
@@ -444,6 +474,11 @@ pub async fn donate_to_foundation(ctx: Context<'_>, amount: f64) -> Result<(), E
                 &opid,
                 &Amount::ZERO,
                 &Address::from_str(VRSC_CURRENCY_ID)?,
+                withdrawal_amount,
+                &address,
+                tx_fee
+                    .map(|fee| Amount::from_vrsc(fee.abs()).unwrap_or(Amount::ZERO))
+                    .unwrap(),
             )
             .await?;
 
@@ -481,6 +516,9 @@ pub async fn donate_to_foundation(ctx: Context<'_>, amount: f64) -> Result<(), E
                 &opid,
                 &Amount::ZERO,
                 &Address::from_str(VRSC_CURRENCY_ID)?,
+                withdrawal_amount,
+                &address,
+                Amount::ZERO,
             )
             .await?;
 
@@ -635,6 +673,7 @@ async fn wait_for_sendcurrency_finish(
                     &params.currency.as_ref().unwrap_or(&String::from("VRSC")),
                 )
                 .await?;
+
                 return Ok(Some(txid.txid));
             } else {
                 error!("execution failed with status: {}", opstatus.status);
@@ -658,26 +697,15 @@ async fn wait_for_sendcurrency_finish(
     }
 }
 
-// - is the withdrawal address a valid address?
-// (- is the withdrawal address a z_address?)
-// - is the withdrawal address an identity?
-// - is the withdrawal address a i-address?
-fn destination_is_valid(dest: &str, client: &Client) -> bool {
-    if Address::from_str(dest).is_ok() {
-        // this parses both R* addresses and i* addresses
-        // (maybe z-addresses?)
-        return true;
+fn address_from_str(s: &str, client: &Client) -> Option<Address> {
+    if let Ok(address) = Address::from_str(s) {
+        return Some(address);
     } else {
-        debug!("dest: {}", dest);
-        // it could be an identity
-        if client.get_identity(dest).is_ok() {
-            // this is a valid identity, let's use it.
-            return true;
-        }
+        client
+            .get_identity(s)
+            .map(|id| id.identity.identityaddress)
+            .ok()
     }
-
-    // in all other cases it's invalid.
-    false
 }
 
 // This function checks if the user has sufficient balance to withdraw and to pay the fees.

@@ -1,0 +1,2 @@
+ALTER TABLE transactions ALTER COLUMN amount DROP NOT NULL;
+ALTER TABLE transactions ALTER COLUMN address DROP NOT NULL;
