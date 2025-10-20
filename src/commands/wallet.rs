@@ -89,7 +89,7 @@ pub async fn all(
 
     if let Some(balance) = database::get_balance_for_user(
         &mut *tx,
-        &ctx.author().id,
+        ctx.author().id,
         &Address::from_str(VRSC_CURRENCY_ID)?,
     )
     .await?
@@ -142,7 +142,7 @@ pub async fn all(
 
                 let new_balance = database::get_balance_for_user(
                     &mut *tx,
-                    &ctx.author().id,
+                    ctx.author().id,
                     &Address::from_str(VRSC_CURRENCY_ID)?,
                 )
                 .await?;
@@ -329,7 +329,7 @@ pub async fn amount(
 
             let new_balance = database::get_balance_for_user(
                 &mut *tx,
-                &ctx.author().id,
+                ctx.author().id,
                 &Address::from_str(VRSC_CURRENCY_ID)?,
             )
             .await?;
@@ -541,7 +541,7 @@ pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
     let balance = Amount::from_sat(
         database::get_balance_for_user(
             &mut conn,
-            &ctx.author().id,
+            ctx.author().id,
             &Address::from_str(VRSC_CURRENCY_ID)?,
         )
         .await?
@@ -732,7 +732,7 @@ pub async fn get_and_check_balance(
 
     if let Some(balance) = database::get_balance_for_user(
         &mut conn,
-        &ctx.author().id,
+        ctx.author().id,
         &Address::from_str(VRSC_CURRENCY_ID)?,
     )
     .await?

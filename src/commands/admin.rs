@@ -3,7 +3,7 @@ use poise::{
     serenity_prelude::{CreateEmbed, UserId},
 };
 use sqlx::{Postgres, Transaction};
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 use tracing::{debug, error, instrument, trace};
 use vrsc::{Address, Amount};
 use vrsc_rpc::{bitcoin::Txid, client::RpcApi};
@@ -346,6 +346,77 @@ async fn process_stored_txids(
 
         database::set_stored_txid_to_processed(&mut *tx, &txid).await?;
     }
+
+    Ok(())
+}
+
+#[instrument(skip(ctx))]
+#[poise::command(guild_only, owners_only, prefix_command, hide_in_help)]
+pub async fn banned_balances(ctx: Context<'_>) -> Result<(), Error> {
+    let guild = match ctx.guild_id() {
+        Some(guild) => guild,
+        None => {
+            ctx.say("This command can only be used in a server.")
+                .await?;
+
+            return Ok(());
+        }
+    };
+
+    // Fetch all bans (requires bot to have BAN_MEMBERS permission)
+    let bans = match guild.bans(&ctx.http(), None, None).await {
+        Ok(bans) => bans,
+        Err(why) => {
+            ctx.say(format!("Failed to fetch bans: {}", why)).await?;
+
+            return Ok(());
+        }
+    };
+
+    if bans.is_empty() {
+        ctx.send(
+            CreateReply::default()
+                .ephemeral(true)
+                .content("No banned users in guild"),
+        )
+        .await?;
+
+        return Ok(());
+    }
+    let mut conn = ctx.data().database.acquire().await?;
+
+    let mut hm = HashMap::new();
+
+    for banned_member in bans {
+        if let Some(balance) = database::get_balance_for_user(
+            &mut conn,
+            banned_member.user.id,
+            &Address::from_str(VRSC_CURRENCY_ID).unwrap(),
+        )
+        .await?
+        {
+            let amount = Amount::from_sat(balance);
+            hm.insert(banned_member.user, amount);
+
+            tracing::info!(%amount, "balance for banned user");
+        }
+    }
+
+    let response = hm
+        .iter()
+        .filter(|(_, v)| **v != Amount::ZERO)
+        .map(|(k, v)| format!("{} ({}): {}", k.id, k.name, v))
+        .collect::<Vec<String>>()
+        .join("\n");
+
+    let total = hm.iter().fold(Amount::ZERO, |acc, bal| acc + *bal.1);
+
+    ctx.send(
+        CreateReply::default()
+            .ephemeral(true)
+            .content(format!("```\n{response}\n```\n\nTotal: {total}")),
+    )
+    .await?;
 
     Ok(())
 }

@@ -65,7 +65,7 @@ pub async fn store_tip_transactions(
 /// The database has a constraint that balances can not go below 0.
 pub async fn get_balance_for_user(
     conn: &mut PgConnection,
-    user_id: &UserId,
+    user_id: UserId,
     currency_id: &Address,
 ) -> Result<Option<u64>, Error> {
     let amount = sqlx::query!(
