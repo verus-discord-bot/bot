@@ -36,6 +36,8 @@ pub async fn adminhelp(ctx: Context<'_>) -> Result<(), Error> {
 #[instrument(skip(ctx))]
 #[poise::command(dm_only, owners_only, prefix_command, hide_in_help)]
 pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.defer().await?;
+
     let mut conn = ctx.data().database.acquire().await?;
 
     let maintenance = *ctx.data().tx_processor.maintenance.read().await;
@@ -50,8 +52,8 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
     let largest_tip = Amount::from_sat(
         database::get_largest_tip(&mut conn, &Address::from_str(VRSC_CURRENCY_ID)?).await?,
     );
-    let total_deposited = totaldeposited(ctx).await?;
-    let total_withdrawn = totalwithdrawn(ctx).await?;
+    let total_deposited = database::get_summed_deposits(&mut conn).await?;
+    let total_withdrawn = database::get_summed_withdrawals(&mut conn).await?;
 
     let client = ctx.data().verus()?;
 
@@ -106,62 +108,6 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
     .await?;
 
     Ok(())
-}
-
-async fn totaldeposited(ctx: Context<'_>) -> Result<Amount, Error> {
-    ctx.defer().await?;
-
-    let mut conn = ctx.data().database.acquire().await?;
-    let client = ctx.data().verus()?;
-
-    let deposit_transactions =
-        database::get_all_txids(&mut conn, "deposit", &Address::from_str(VRSC_CURRENCY_ID)?)
-            .await?;
-
-    let mut sum = Amount::ZERO;
-
-    for txid in deposit_transactions {
-        let raw_tx = client.get_raw_transaction_verbose(&txid)?;
-
-        for vout in raw_tx.vout.iter() {
-            if let Some(addresses) = &vout.script_pubkey.addresses {
-                for address in addresses {
-                    if let Some(user_id) =
-                        database::get_user_from_address(&mut conn, address).await?
-                    {
-                        trace!("there is a user for this address: {user_id}",);
-                        sum = sum.checked_add(vout.value_sat).unwrap();
-                    }
-                }
-            } else {
-                trace!("no addresses found in scriptpubkey");
-            }
-        }
-    }
-
-    Ok(sum)
-}
-
-pub async fn totalwithdrawn(ctx: Context<'_>) -> Result<Amount, Error> {
-    ctx.defer().await?;
-
-    let mut conn = ctx.data().database.acquire().await?;
-    let client = ctx.data().verus()?;
-
-    let withdraw_transactions =
-        database::get_all_txids(&mut conn, "withdraw", &Address::from_str(VRSC_CURRENCY_ID)?)
-            .await?;
-
-    let mut sum = Amount::ZERO;
-
-    for txid in withdraw_transactions {
-        let raw_tx = client.get_raw_transaction_verbose(&txid)?;
-        let vout = raw_tx.vout.first().unwrap();
-
-        sum = sum.checked_add(vout.value_sat).unwrap();
-    }
-
-    Ok(sum)
 }
 
 #[instrument(skip(ctx))]

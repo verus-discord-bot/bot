@@ -515,28 +515,6 @@ pub async fn get_largest_tip(conn: &mut PgConnection, currency_id: &Address) -> 
     Ok(record.max as u64)
 }
 
-pub async fn get_all_txids(
-    conn: &mut PgConnection,
-    transaction_action: &str,
-    currency_id: &Address,
-) -> Result<Vec<Txid>, Error> {
-    let rows = sqlx::query!(
-        "SELECT transaction_id 
-        FROM transactions 
-        WHERE transaction_action = $1 AND 
-        currency_id = $2",
-        transaction_action,
-        currency_id.to_string()
-    )
-    .fetch_all(conn)
-    .await?;
-
-    Ok(rows
-        .into_iter()
-        .map(|row| Txid::from_str(&row.transaction_id).unwrap())
-        .collect::<Vec<_>>())
-}
-
 #[allow(clippy::too_many_arguments)]
 pub async fn insert_reactdrop(
     conn: &mut PgConnection,
@@ -610,4 +588,36 @@ pub async fn update_reactdrop(
     .await?;
 
     Ok(())
+}
+
+pub async fn get_summed_deposits(conn: &mut PgConnection) -> Result<Amount, Error> {
+    let row = sqlx::query!(
+        r#"
+        SELECT SUM(amount) as "amount!" 
+        FROM transactions 
+        WHERE transaction_action = 'deposit'
+        "#
+    )
+    .fetch_one(conn)
+    .await?;
+
+    let amount = row.amount.to_u64().unwrap_or_default();
+
+    Ok(Amount::from_sat(amount))
+}
+
+pub async fn get_summed_withdrawals(conn: &mut PgConnection) -> Result<Amount, Error> {
+    let row = sqlx::query!(
+        r#"
+        SELECT SUM(amount) as "amount!" 
+        FROM transactions 
+        WHERE transaction_action = 'withdraw'
+        "#
+    )
+    .fetch_one(conn)
+    .await?;
+
+    let amount = row.amount.to_u64().unwrap_or_default();
+
+    Ok(Amount::from_sat(amount))
 }

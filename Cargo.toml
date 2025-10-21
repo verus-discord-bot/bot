@@ -40,7 +40,7 @@ default-features = false
 features = [
     "postgres",
     "macros",
-    "bigdecimal",
+    "rust_decimal",
     "migrate",
     "uuid",
     "chrono",
