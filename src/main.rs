@@ -161,7 +161,7 @@ async fn app(config: Config, database: PgPool) -> Result<serenity::Client, Error
             Box::pin(async move {
                 let maintenance_mode = { *ctx.data().tx_processor.maintenance.read().await };
 
-                if maintenance_mode && !owners.contains(&author) {
+                if maintenance_mode && !owners.contains(author) {
                     ctx.send(CreateReply::default().content(
                             ":tools: The bot is in maintenance mode, we'll be right back :tools:",
                         ).ephemeral(true)
@@ -180,11 +180,6 @@ async fn app(config: Config, database: PgPool) -> Result<serenity::Client, Error
         },
         pre_command: |ctx| {
             Box::pin(async move {
-                let mut tx = ctx.data().database.begin().await.unwrap();
-                database::insert_discord_user(&mut *tx, &ctx.author().id)
-                    .await
-                    .expect("a discord_user to be added to the database");
-
                 let channel_name = ctx
                     .channel_id()
                     .name(&ctx.serenity_context())
@@ -318,8 +313,8 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
         poise::FrameworkError::Command { ctx, error, .. } => {
             let owners = &ctx.data().owners;
             let s = owners
-                .into_iter()
-                .map(|id| format!("<@{}>", id.get().to_string()))
+                .iter()
+                .map(|id| format!("<@{}>", id.get()))
                 .collect::<Vec<_>>()
                 .join(", ");
 
@@ -357,8 +352,8 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
             ..
         } => {
             let s = format!(
-                "The argument you provided ({}) was incorrect. Press arrow up \u{2191} to change the arguments and press Enter when you're done.",
-                input.unwrap()
+                "The argument you provided ({}) was incorrect.",
+                input.unwrap_or_default()
             );
             if let Err(e) = ctx.say(s).await {
                 warn!("{}", e)
@@ -401,13 +396,14 @@ impl Data {
 
     pub fn to_currency_name(&self, address: &Address) -> Result<String, Error> {
         if let Some(name) = self.currency_names.get(address) {
-            return Ok(name.to_owned());
+            Ok(name.to_owned())
         } else {
             let client = self.verus()?;
 
             let currency = client.get_currency(&address.to_string())?;
             let currency_name = currency.fullyqualifiedname;
-            return Ok(currency_name);
+
+            Ok(currency_name)
         }
     }
 }

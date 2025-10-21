@@ -16,19 +16,19 @@ use uuid::Uuid;
 use vrsc::{Address, Amount};
 use vrsc_rpc::bitcoin::Txid;
 
-pub async fn insert_discord_user(conn: &mut PgConnection, user_id: &UserId) -> Result<(), Error> {
-    sqlx::query!(
-        "INSERT INTO discord_users(discord_id)
-        VALUES ($1) 
-        ON CONFLICT (discord_id) 
-        DO NOTHING",
-        user_id.get() as i64
-    )
-    .execute(conn)
-    .await?;
+// pub async fn insert_discord_user(conn: &mut PgConnection, user_id: &UserId) -> Result<(), Error> {
+//     sqlx::query!(
+//         "INSERT INTO discord_users(discord_id)
+//         VALUES ($1)
+//         ON CONFLICT (discord_id)
+//         DO NOTHING",
+//         user_id.get() as i64
+//     )
+//     .execute(conn)
+//     .await?;
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 // to store multiple tip transactions at once. Usually when a group tip needs to be processed.
 // Because it all ends up as a transaction, it's fine to have multiple INSERT statements.
@@ -90,7 +90,7 @@ pub async fn get_balance_for_user(
 pub async fn process_a_tip(
     tx: &mut Transaction<'_, Postgres>,
     tipper: UserId,
-    tippees: &Vec<UserId>,
+    tippees: &[UserId],
     amount: Amount,
     currency_id: &Address,
 ) -> Result<(), Error> {
@@ -136,11 +136,12 @@ pub async fn store_new_address_for_user(
     currency_id: &Address,
 ) -> Result<(), Error> {
     sqlx::query!(
-        "WITH inserted_row AS (
-            INSERT INTO discord_users (discord_id) 
-            VALUES ($1)
-            ON CONFLICT (discord_id) DO NOTHING
-        )
+        // "WITH inserted_row AS (
+        //     INSERT INTO discord_users (discord_id)
+        //     VALUES ($1)
+        //     ON CONFLICT (discord_id) DO NOTHING
+        // )
+        "
         INSERT INTO addresses (discord_id, address, currency_id)
         VALUES ($1, $2, $3)
         ",
@@ -298,6 +299,7 @@ pub async fn store_deposit_transaction(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn store_withdraw_transaction(
     conn: &mut PgConnection,
     uuid: &Uuid,
@@ -342,6 +344,7 @@ pub async fn store_withdraw_transaction(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn store_opid(
     conn: &mut PgConnection,
     opid: &str,
@@ -373,11 +376,13 @@ pub async fn update_notifications(
     user_id: &UserId,
     notification: &str,
 ) -> Result<(), Error> {
-    // pre_command takes care of having a db row at this point for this user.
     sqlx::query!(
-        "UPDATE discord_users SET notifications = ($1) WHERE discord_id = ($2)",
+        "INSERT INTO notifications (discord_id, loudness)
+        VALUES ($1, $2)
+        ON CONFLICT (discord_id) 
+        DO UPDATE SET loudness = $2",
+        user_id.get() as i64,
         notification,
-        user_id.get() as i64
     )
     .execute(conn)
     .await?;
@@ -385,26 +390,18 @@ pub async fn update_notifications(
     Ok(())
 }
 
-pub async fn get_notification_settings(
+pub async fn get_loudness_setting(
     conn: &mut PgConnection,
-    user_ids: &Vec<UserId>,
-) -> Result<Vec<(i64, Notification)>, Error> {
-    let users = user_ids
-        .iter()
-        .map(|user| user.get() as i64)
-        .collect::<Vec<_>>();
-    let rows = sqlx::query!(
-        "SELECT discord_id, notifications FROM discord_users WHERE discord_id IN (SELECT * FROM UNNEST($1::bigint[]))",
-        &users
+    user_id: UserId,
+) -> Result<Option<Notification>, Error> {
+    let row = sqlx::query!(
+        "SELECT loudness FROM notifications WHERE discord_id = $1",
+        user_id.get() as i64
     )
-    .fetch_all(conn)
+    .fetch_optional(conn)
     .await?;
 
-    Ok(rows
-        .into_iter()
-        .filter(|row| row.notifications.is_some())
-        .map(|row| (row.discord_id, row.notifications.unwrap().into()))
-        .collect())
+    Ok(row.and_then(|r| r.loudness.map(Notification::from)))
 }
 
 pub async fn get_blacklist_status(
@@ -412,27 +409,29 @@ pub async fn get_blacklist_status(
     user_id: UserId,
 ) -> Result<Option<bool>, Error> {
     let is_blacklisted = sqlx::query!(
-        "SELECT blacklisted FROM discord_users WHERE discord_id = $1",
+        "SELECT blacklisted FROM blacklist WHERE discord_id = $1",
         user_id.get() as i64
     )
     .fetch_optional(conn)
     .await?
-    .map(|r| r.blacklisted)
-    .flatten();
+    .map(|r| r.blacklisted);
 
     Ok(is_blacklisted)
 }
 
-// TODO user might not exist?
 pub async fn set_blacklist_status(
     conn: &mut PgConnection,
     user_id: UserId,
     blacklist: bool,
 ) -> Result<(), Error> {
     sqlx::query!(
-        "UPDATE discord_users SET blacklisted = $1 WHERE discord_id = $2",
+        "INSERT INTO blacklist (discord_id, blacklisted)
+        VALUES ($1, $2) 
+        ON CONFLICT (discord_id)
+        DO UPDATE SET 
+        blacklisted = excluded.blacklisted",
+        user_id.get() as i64,
         blacklist,
-        user_id.get() as i64
     )
     .execute(conn)
     .await?;
@@ -446,10 +445,10 @@ pub async fn get_stored_txids(conn: &mut PgConnection) -> Result<Vec<Txid>, Erro
             .fetch_all(conn)
             .await?;
 
-    return Ok(rows
+    Ok(rows
         .into_iter()
         .map(|row| Txid::from_str(&row.txid).unwrap())
-        .collect::<Vec<_>>());
+        .collect::<Vec<_>>())
 }
 
 pub async fn set_stored_txid_to_processed(
@@ -532,12 +531,13 @@ pub async fn get_all_txids(
     .fetch_all(conn)
     .await?;
 
-    return Ok(rows
+    Ok(rows
         .into_iter()
         .map(|row| Txid::from_str(&row.transaction_id).unwrap())
-        .collect::<Vec<_>>());
+        .collect::<Vec<_>>())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_reactdrop(
     conn: &mut PgConnection,
     author: i64,
