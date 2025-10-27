@@ -255,7 +255,7 @@ async fn app(config: Config, database: PgPool) -> Result<serenity::Client, Error
                                 .listen_wallet_notifications(&verus)
                                 .await
                             {
-                                error!("listening for new tx failed: {e:?}");
+                                error!("listening for new tx failed: {e:#}");
                             };
                         }
                     }

@@ -1,3 +1,4 @@
+use anyhow::Context;
 use futures::StreamExt;
 use poise::serenity_prelude::{CreateMessage, Http, UserId};
 use sqlx::{PgConnection, PgPool};
@@ -80,7 +81,9 @@ impl TransactionProcessor {
                     trace!("new tx: {tx_hash_str}");
 
                     let txid = Txid::from_str(&tx_hash_str)?;
-                    let raw_tx = verus_client.get_raw_transaction_verbose(&txid)?;
+                    let raw_tx = verus_client
+                        .get_raw_transaction_verbose(&txid)
+                        .with_context(|| format!("Failing tx: {txid}"))?;
 
                     let mut conn = self.pool.acquire().await?;
 

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO blacklist (discord_id, blacklisted)\n        VALUES ($1, $2) \n        ON CONFLICT (discord_id)\n        DO UPDATE SET \n        blacklisted = excluded.blacklisted",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "737b6f434fed1d3561cd24aac207345c482fcab06b5afe217e5f3fd4df3b59ed"
+}

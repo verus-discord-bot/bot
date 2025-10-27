@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT blacklisted FROM discord_users WHERE discord_id = $1",
+  "query": "SELECT blacklisted FROM blacklist WHERE discord_id = $1",
   "describe": {
     "columns": [
       {
@@ -15,8 +15,8 @@
       ]
     },
     "nullable": [
-      true
+      false
     ]
   },
-  "hash": "247d765e9acb9efc4fc77b53c13d397decd8256c345488c96dbf890de9f2f28e"
+  "hash": "301b94e2183c15c5cba501ee4d88c35ad06eebf9715eda4e26a07a5f60dcefb3"
 }
