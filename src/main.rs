@@ -7,6 +7,7 @@ pub mod wallet_listener;
 
 use crate::{
     config::{Config, get_configuration},
+    util::Amount,
     wallet_listener::TransactionProcessor,
 };
 use commands::*;
@@ -30,7 +31,7 @@ use tracing_subscriber::{
     layer::SubscriberExt,
     util::SubscriberInitExt,
 };
-use vrsc::{Address, Amount};
+use vrsc::Address;
 use vrsc_rpc::client::{Client as VerusClient, RpcApi};
 
 type Error = Box<dyn std::error::Error + Send + Sync>;

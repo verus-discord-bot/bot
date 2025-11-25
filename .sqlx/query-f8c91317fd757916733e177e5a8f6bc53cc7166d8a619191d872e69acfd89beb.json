@@ -10,11 +10,11 @@
         "Varchar",
         "Text",
         "Text",
-        "Int8",
+        "Numeric",
         "Text",
-        "Int8",
+        "Numeric",
         "Text",
-        "Int8"
+        "Numeric"
       ]
     },
     "nullable": []

@@ -1,20 +1,21 @@
-use std::{ops::Sub, str::FromStr, time::Duration};
+use std::{str::FromStr, time::Duration};
 
 use fast_qr::convert::{Builder, Shape, image::ImageBuilder};
 use fast_qr::qr::QRBuilder;
+use num_traits::CheckedSub;
 use poise::CreateReply;
 use poise::serenity_prelude::{CreateAttachment, CreateEmbed};
 use sqlx::{Postgres, Transaction};
 use tracing::*;
 use uuid::Uuid;
-use vrsc::{Address, Amount};
+use vrsc::Address;
 use vrsc_rpc::{
     bitcoin::Txid,
     client::{Client, RpcApi, SendCurrencyOutput},
 };
 
 use crate::commands::user_blacklisted;
-use crate::{Context, Error, VRSC_CURRENCY_ID, database};
+use crate::{Context, Error, VRSC_CURRENCY_ID, database, util::Amount};
 
 /// Withdraw funds from the tipbot wallet.
 ///
@@ -94,16 +95,21 @@ pub async fn all(
     )
     .await?
     {
-        let balance_amount = Amount::from_sat(balance);
-        let withdrawal_amount = balance_amount.sub(*withdrawal_fee); // no need to check for underflow, tx_fee is always low.
+        let balance_amount = balance;
+        let withdrawal_amount = balance_amount - *withdrawal_fee; // no need to check for underflow, tx_fee is always low.
 
         if withdrawal_amount > Amount::ZERO {
             debug!(
-                "withdrawal_amount: {withdrawal_amount}, tx_fee: {withdrawal_fee} must together be balance_amount: {balance_amount}"
+                "withdrawal_amount: {withdrawal_amount:?}, tx_fee: {withdrawal_fee:?} must together be balance_amount: {balance_amount:?}"
             );
 
-            let sco =
-                SendCurrencyOutput::new(None, &withdrawal_amount, &address.to_string(), None, None);
+            let sco = SendCurrencyOutput::new(
+                None,
+                &(withdrawal_amount.try_into()?),
+                &address.to_string(),
+                None,
+                None,
+            );
             let opid = client.send_currency("*", vec![sco], None, None)?;
 
             debug!("sendcurrency opid: {:?}", &opid);
@@ -122,9 +128,7 @@ pub async fn all(
                     &Address::from_str(VRSC_CURRENCY_ID)?,
                     withdrawal_amount,
                     &address,
-                    tx_fee
-                        .map(|fee| Amount::from_vrsc(fee.abs()).unwrap_or(Amount::ZERO))
-                        .unwrap(),
+                    tx_fee.map(|fee| Amount::from(fee.abs())).unwrap(),
                 )
                 .await?;
 
@@ -161,11 +165,7 @@ pub async fn all(
                         );
 
                     if let Some(new_balance) = new_balance {
-                        embed = embed.field(
-                            "New balance",
-                            Amount::from_sat(new_balance).to_string(),
-                            false,
-                        );
+                        embed = embed.field("New balance", new_balance.to_string(), false);
                     }
 
                     embed
@@ -205,7 +205,7 @@ pub async fn all(
             ctx.send(CreateReply::default().ephemeral(true).content(format!(
                 "Your balance is insufficient to withdraw everything.\nMax available balance for \
                 withdraw: {}",
-                withdrawal_amount.checked_sub(*withdrawal_fee).unwrap_or(Amount::ZERO)
+                withdrawal_amount.checked_sub(withdrawal_fee).unwrap_or(Amount::ZERO)
             )))
             .await?;
         }
@@ -275,7 +275,7 @@ pub async fn amount(
         return Ok(());
     };
 
-    let withdrawal_amount = Amount::from_vrsc(withdrawal_amount)?;
+    let withdrawal_amount = Amount::from(withdrawal_amount);
 
     let mut tx = ctx.data().database.begin().await?;
     let uuid = Uuid::new_v4();
@@ -288,7 +288,13 @@ pub async fn amount(
     {
         trace!("balance is sufficient, withdrawal address is valid; starting sendcurrency");
 
-        let sco = SendCurrencyOutput::new(None, &withdrawal_amount, &destination, None, None);
+        let sco = SendCurrencyOutput::new(
+            None,
+            &(withdrawal_amount.try_into()?),
+            &destination,
+            None,
+            None,
+        );
         let opid = client.send_currency("*", vec![sco], None, None)?;
 
         debug!("sendcurrency opid: {:?}", &opid);
@@ -310,9 +316,7 @@ pub async fn amount(
                 &Address::from_str(VRSC_CURRENCY_ID)?,
                 withdrawal_amount,
                 &address,
-                tx_fee
-                    .map(|fee| Amount::from_vrsc(fee.abs()).unwrap_or(Amount::ZERO))
-                    .unwrap(),
+                tx_fee.map(|fee| Amount::from(fee.abs())).unwrap(),
             )
             .await?;
 
@@ -345,11 +349,7 @@ pub async fn amount(
                     );
 
                 if let Some(new_balance) = new_balance {
-                    embed = embed.field(
-                        "New balance",
-                        Amount::from_sat(new_balance).to_string(),
-                        false,
-                    );
+                    embed = embed.field("New balance", new_balance.to_string(), false);
                 }
 
                 embed
@@ -390,7 +390,7 @@ pub async fn amount(
             "Your balance is insufficient to withdraw {withdrawal_amount}.\n
             Max available balance for withdraw: {}",
             withdrawal_amount
-                .checked_sub(withdrawal_fee)
+                .checked_sub(&withdrawal_fee)
                 .unwrap_or(Amount::ZERO)
         )))
     .await?;
@@ -427,7 +427,7 @@ pub async fn donate_to_foundation(ctx: Context<'_>, amount: f64) -> Result<(), E
         return Ok(());
     }
 
-    let withdrawal_amount = Amount::from_vrsc(amount)?;
+    let withdrawal_amount = Amount::from(amount);
 
     if withdrawal_amount == Amount::ZERO {
         ctx.send(
@@ -453,8 +453,13 @@ pub async fn donate_to_foundation(ctx: Context<'_>, amount: f64) -> Result<(), E
 
         let client = &ctx.data().verus()?;
 
-        let sco =
-            SendCurrencyOutput::new(None, &withdrawal_amount, &address.to_string(), None, None);
+        let sco = SendCurrencyOutput::new(
+            None,
+            &(withdrawal_amount.try_into()?),
+            &address.to_string(),
+            None,
+            None,
+        );
         let opid = client.send_currency("*", vec![sco], None, None)?;
 
         debug!("sendcurrency opid: {:?}", &opid);
@@ -474,9 +479,7 @@ pub async fn donate_to_foundation(ctx: Context<'_>, amount: f64) -> Result<(), E
                 &Address::from_str(VRSC_CURRENCY_ID)?,
                 withdrawal_amount,
                 &address,
-                tx_fee
-                    .map(|fee| Amount::from_vrsc(fee.abs()).unwrap_or(Amount::ZERO))
-                    .unwrap(),
+                tx_fee.map(|fee| Amount::from(fee.abs())).unwrap(),
             )
             .await?;
 
@@ -494,7 +497,7 @@ pub async fn donate_to_foundation(ctx: Context<'_>, amount: f64) -> Result<(), E
             ctx.send(CreateReply::default().content(format!(
                 "<@{}> donated {} VRSC to the Verus Coin Foundation!",
                 ctx.author().id,
-                withdrawal_amount.as_vrsc()
+                withdrawal_amount
             )))
             .await?;
         } else {
@@ -536,15 +539,13 @@ pub async fn donate_to_foundation(ctx: Context<'_>, amount: f64) -> Result<(), E
 pub async fn balance(ctx: Context<'_>) -> Result<(), Error> {
     let mut conn = ctx.data().database.acquire().await?;
 
-    let balance = Amount::from_sat(
-        database::get_balance_for_user(
-            &mut conn,
-            ctx.author().id,
-            &Address::from_str(VRSC_CURRENCY_ID)?,
-        )
-        .await?
-        .unwrap_or(0),
-    );
+    let balance = database::get_balance_for_user(
+        &mut conn,
+        ctx.author().id,
+        &Address::from_str(VRSC_CURRENCY_ID)?,
+    )
+    .await?
+    .unwrap_or_default();
 
     ctx.send(
         CreateReply::default()
@@ -709,12 +710,11 @@ fn address_from_str(s: &str, client: &Client) -> Option<Address> {
 // This function checks if the user has sufficient balance to withdraw and to pay the fees.
 pub fn balance_is_enough(balance: &Amount, amount_to_withdraw: &Amount, tx_fee: &Amount) -> bool {
     debug!("balance: {balance}, amount: {amount_to_withdraw}, tx_fee: {tx_fee}");
-    if let Some(total_amount) = amount_to_withdraw.checked_add(*tx_fee) {
-        if let Some(positive_result) = balance.checked_sub(total_amount) {
-            debug!("{positive_result}");
+    let total_amount = *amount_to_withdraw + *tx_fee;
+    if let Some(positive_result) = balance.checked_sub(&total_amount) {
+        debug!("{positive_result}");
 
-            return true;
-        }
+        return true;
     }
 
     false
@@ -738,13 +738,13 @@ pub async fn get_and_check_balance(
         trace!("tipper has balance");
 
         if balance_is_enough(
-            &Amount::from_sat(balance),
+            &balance,
             &amount_to_check,
             &tx_fee, // no fees for tipping
         ) {
             trace!("tipper has sufficient balance");
 
-            Ok(Some(Amount::from_sat(balance)))
+            Ok(Some(balance))
         } else {
             trace!("balance is insufficient");
             ctx.send(
@@ -801,14 +801,14 @@ mod tests {
 
     #[test]
     fn edge_cases() {
-        let balance = Amount::max_value();
-        let to_withdraw = Amount::max_value();
+        let balance = Amount::MAX;
+        let to_withdraw = Amount::MAX;
 
         let tx_fee = Amount::from_sat(0);
 
         assert!(balance_is_enough(&balance, &to_withdraw, &tx_fee));
-        let balance = Amount::max_value();
-        let to_withdraw = Amount::min_value();
+        let balance = Amount::MAX;
+        let to_withdraw = Amount::MIN;
 
         let tx_fee = Amount::from_sat(0);
 

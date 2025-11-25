@@ -9,12 +9,13 @@ use poise::{
 use sqlx::{Postgres, Transaction, types::chrono};
 use tracing::*;
 use uuid::Uuid;
-use vrsc::{Address, Amount};
+use vrsc::Address;
 
 use crate::{
     Context, Error, VRSC_CURRENCY_ID,
     commands::{misc::Notification, user_blacklisted},
     database,
+    util::Amount,
     wallet::get_and_check_balance,
 };
 
@@ -50,7 +51,7 @@ async fn role(
     }
 
     debug!("role: {:?}", role.id);
-    let tip_amount = Amount::from_vrsc(tip_amount)?;
+    let tip_amount = Amount::from(tip_amount);
 
     if get_and_check_balance(&ctx, tip_amount, Amount::ZERO)
         .await?
@@ -78,7 +79,7 @@ async fn role(
                 ctx.http(),
                 &ctx.channel_id(),
                 role_members,
-                &tip_amount,
+                tip_amount,
                 "role",
             )
             .await?;
@@ -108,7 +109,7 @@ async fn user(
         return Ok(());
     }
 
-    let tip_amount = Amount::from_vrsc(tip_amount)?;
+    let tip_amount = Amount::from(tip_amount);
 
     debug!(
         "user {} ({}) wants to tip {} with {tip_amount}",
@@ -239,7 +240,7 @@ pub async fn reactdrop(
         return Ok(());
     }
 
-    let tip_amount = Amount::from_vrsc(amount)?;
+    let tip_amount = Amount::from(amount);
 
     if get_and_check_balance(&ctx, tip_amount, Amount::ZERO)
         .await?
@@ -322,7 +323,7 @@ pub async fn reactdrop(
                 &mut conn,
                 ctx.author().id.into(),
                 reaction_type.to_string(),
-                Amount::from_vrsc(amount).unwrap().as_sat() as i64,
+                Amount::from(amount),
                 channel_id.into(),
                 message_id.into(),
                 finish_time,
@@ -347,7 +348,7 @@ pub async fn tip_multiple_users(
     http: impl CacheHttp,
     channel_id: &ChannelId,
     users: Vec<UserId>,
-    amount: &Amount,
+    amount: Amount,
     kind: &str,
 ) -> Result<(), Error> {
     // TODO optimize this query (select all that don't exist, insert them in 1 go)
@@ -361,69 +362,75 @@ pub async fn tip_multiple_users(
     // need to divide tipping amount over number of users
     // calculation is done using integer division, any remainder is lost,
     // so we effectively round down the tip amounts.
-    if let Some(div_tip_amount) = amount.checked_div(users.len() as u64) {
-        // we sum it all together again to get a (potentially lower) total amount
-        // to tip
-        let amount = div_tip_amount
-            .checked_mul(users.len() as u64)
-            .unwrap_or(*amount);
-        debug!("after division every member gets {div_tip_amount}");
-        debug!("members: {:#?}", &users);
+    let div_tip_amount = Amount::new(
+        amount
+            .inner()
+            .checked_div(users.len().into())
+            .ok_or("Could not divide")?,
+    );
 
-        let tip_event_id = Uuid::new_v4();
+    // we sum it all together again to get a (potentially lower) total amount
+    // to tip
+    let amount = div_tip_amount
+        .inner()
+        .checked_mul(users.len().into())
+        .map(|d| Amount::new(d))
+        .unwrap_or(amount);
 
-        database::process_a_tip(
-            &mut *tx,
-            author,
-            &users,
-            div_tip_amount,
-            &Address::from_str(VRSC_CURRENCY_ID)?,
-        )
-        .await?;
+    debug!("after division every member gets {div_tip_amount}");
+    debug!("members: {:#?}", &users);
 
-        database::store_tip_transactions(
-            tx,
-            &tip_event_id,
-            &users,
-            kind,
-            div_tip_amount,
-            author,
-            &Address::from_str(VRSC_CURRENCY_ID)?,
-        )
-        .await?;
+    let tip_event_id = Uuid::new_v4();
 
-        for user_id in &users {
-            if let Some(Notification::All | Notification::DMOnly) =
-                database::get_loudness_setting(tx, *user_id).await?
-            {
-                user_id
-                    .to_user(&http)
-                    .await?
-                    .dm(
-                        &http,
-                        CreateMessage::new().content(format!(
-                            "You just got tipped {div_tip_amount} from <@{}>!",
-                            &author,
-                        )),
-                    )
-                    .await?;
-            }
+    database::process_a_tip(
+        &mut *tx,
+        author,
+        &users,
+        div_tip_amount,
+        &Address::from_str(VRSC_CURRENCY_ID)?,
+    )
+    .await?;
+
+    database::store_tip_transactions(
+        tx,
+        &tip_event_id,
+        &users,
+        kind,
+        div_tip_amount,
+        author,
+        &Address::from_str(VRSC_CURRENCY_ID)?,
+    )
+    .await?;
+
+    for user_id in &users {
+        if let Some(Notification::All | Notification::DMOnly) =
+            database::get_loudness_setting(tx, *user_id).await?
+        {
+            user_id
+                .to_user(&http)
+                .await?
+                .dm(
+                    &http,
+                    CreateMessage::new().content(format!(
+                        "You just got tipped {div_tip_amount} from <@{}>!",
+                        &author,
+                    )),
+                )
+                .await?;
         }
-
-        channel_id
-            .send_message(
-                http,
-                CreateMessage::new().content(format!(
-                    "<@{}> just tipped {} to {} users!",
-                    &author,
-                    amount,
-                    &users.len()
-                )),
-            )
-            .await?;
-    } else {
-        error!("could not send tip to role");
     }
+
+    channel_id
+        .send_message(
+            http,
+            CreateMessage::new().content(format!(
+                "<@{}> just tipped {} to {} users!",
+                &author,
+                amount,
+                &users.len()
+            )),
+        )
+        .await?;
 
     Ok(())
 }

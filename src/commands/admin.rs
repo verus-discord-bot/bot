@@ -1,3 +1,4 @@
+use num_traits::CheckedSub;
 use poise::{
     CreateReply,
     serenity_prelude::{CreateEmbed, UserId},
@@ -5,11 +6,12 @@ use poise::{
 use sqlx::{Postgres, Transaction};
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 use tracing::{debug, instrument, trace};
-use vrsc::{Address, Amount};
+use vrsc::Address;
 use vrsc_rpc::{bitcoin::Txid, client::RpcApi};
 
 use crate::{
     Context, Error, VRSC_CURRENCY_ID, database,
+    util::Amount,
     wallet_listener::{TransactionProcessor, process_txid},
 };
 
@@ -43,21 +45,18 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
     let maintenance = *ctx.data().tx_processor.maintenance.read().await;
     let deposits_enabled = *ctx.data().tx_processor.deposits_enabled.read().await;
     let withdrawals_enabled = *ctx.data().withdrawals_enabled.read().await;
-    let total_balance = Amount::from_sat(
-        database::get_total_balance(&mut conn, &Address::from_str(VRSC_CURRENCY_ID)?).await?,
-    );
-    let total_tipped = Amount::from_sat(
-        database::get_total_tipped(&mut conn, &Address::from_str(VRSC_CURRENCY_ID)?).await?,
-    );
-    let largest_tip = Amount::from_sat(
-        database::get_largest_tip(&mut conn, &Address::from_str(VRSC_CURRENCY_ID)?).await?,
-    );
+    let total_balance =
+        database::get_total_balance(&mut conn, &Address::from_str(VRSC_CURRENCY_ID)?).await?;
+    let total_tipped =
+        database::get_total_tipped(&mut conn, &Address::from_str(VRSC_CURRENCY_ID)?).await?;
+    let largest_tip =
+        database::get_largest_tip(&mut conn, &Address::from_str(VRSC_CURRENCY_ID)?).await?;
     let total_deposited = database::get_summed_deposits(&mut conn).await?;
     let total_withdrawn = database::get_summed_withdrawals(&mut conn).await?;
 
     let client = ctx.data().verus()?;
 
-    let daemon_balance = client.get_balance(None, None)?;
+    let daemon_balance: Amount = client.get_balance(None, None)?.into();
 
     debug!("total balance: {total_balance}");
     debug!("total_tipped: {total_tipped}");
@@ -84,9 +83,9 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
                 .field(
                     "Database deposits - withdraws",
                     total_deposited
-                        .checked_sub(total_withdrawn)
+                        .checked_sub(&total_withdrawn)
                         .unwrap_or(Amount::ZERO)
-                        .to_string_in(vrsc::Denomination::Verus),
+                        .to_string(),
                     false,
                 )
                 .field("Total tipped", total_tipped.to_string(), false)
@@ -94,13 +93,11 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
                 .field(
                     "Bot fees _(minus network fees)_",
                     {
-                        if let Some(pos_amount) = daemon_balance.checked_sub(total_balance) {
-                            pos_amount
-                        } else {
-                            Amount::ZERO
-                        }
+                        daemon_balance
+                            .checked_sub(&total_balance)
+                            .unwrap_or_default()
                     }
-                    .to_string_in(vrsc::Denomination::Verus),
+                    .to_string(),
                     false,
                 ),
         ),
@@ -156,7 +153,7 @@ pub async fn setwithdrawfee(ctx: Context<'_>, amount: u64) -> Result<(), Error> 
     debug!("fee before changing: {:?}", withdrawal_fee);
 
     let mut write = withdrawal_fee.write().await;
-    *write = Amount::from_sat(amount);
+    *write = Amount::from(amount);
 
     debug!("fee after changing: {:?}", withdrawal_fee);
     ctx.send(CreateReply::default().content(format!("Withdraw fee set to {amount} sats")))
@@ -339,10 +336,9 @@ pub async fn banned_balances(ctx: Context<'_>) -> Result<(), Error> {
         )
         .await?
         {
-            let amount = Amount::from_sat(balance);
-            hm.insert(banned_member.user, amount);
+            hm.insert(banned_member.user, balance);
 
-            tracing::info!(%amount, "balance for banned user");
+            tracing::info!(%balance, "balance for banned user");
         }
     }
 
