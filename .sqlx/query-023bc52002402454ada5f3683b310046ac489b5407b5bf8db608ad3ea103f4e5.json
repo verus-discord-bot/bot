@@ -10,7 +10,7 @@
         "Int8",
         "Timestamptz",
         "Text",
-        "Int8",
+        "Numeric",
         "Text"
       ]
     },

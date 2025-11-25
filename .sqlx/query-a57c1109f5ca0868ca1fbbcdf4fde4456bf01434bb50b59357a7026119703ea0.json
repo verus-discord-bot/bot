@@ -10,7 +10,7 @@
         "Int8",
         "Text",
         "Text",
-        "Int8",
+        "Numeric",
         "Text"
       ]
     },

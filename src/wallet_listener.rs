@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, instrument, trace, warn};
 use uuid::Uuid;
-use vrsc::{Address, Amount};
+use vrsc::Address;
 use vrsc_rpc::bitcoin::Txid;
 use vrsc_rpc::json::GetRawTransactionResultVerbose;
 use vrsc_rpc::{
@@ -18,6 +18,7 @@ use vrsc_rpc::{
 
 use crate::config::Config;
 use crate::database::*;
+use crate::util::Amount;
 use crate::{Error, VRSC_CURRENCY_ID};
 
 /// Listens for wallet transactions and processes them.
@@ -95,17 +96,16 @@ impl TransactionProcessor {
                                 {
                                     trace!(?user_id, "there is a user for this address");
 
-                                    if vout
-                                        .value
+                                    if Amount::from(vout.value)
                                         .gt(&self.config.application.min_deposit_threshold)
                                     {
                                         trace!("{txid} put in long queue");
                                         let mut long_write = self.queue_large_txns.write().await;
-                                        long_write.push_back((txid, vout.value))
+                                        long_write.push_back((txid, Amount::from(vout.value)))
                                     } else {
                                         trace!("{txid} put in short queue");
                                         let mut write = self.queue_small_txns.write().await;
-                                        write.push_back((txid, vout.value))
+                                        write.push_back((txid, Amount::from(vout.value)))
                                     }
                                 }
                             }
@@ -174,15 +174,14 @@ impl TransactionProcessor {
                         let mut long_write = self.queue_large_txns.write().await;
 
                         // if the value of the incoming transaction is greater than
-                        if vout
-                            .value
+                        if Amount::from(vout.value)
                             .gt(&self.config.application.min_deposit_threshold)
                         {
                             trace!("{txid} put in long queue");
-                            long_write.push_back((txid, vout.value))
+                            long_write.push_back((txid, Amount::from(vout.value)))
                         } else {
                             trace!("{txid} put in short queue");
-                            write.push_back((txid, vout.value))
+                            write.push_back((txid, Amount::from(vout.value)))
                         }
                     }
                 }
@@ -337,7 +336,7 @@ pub async fn process_txid(
                         if let Err(e) = increase_balance(
                             conn,
                             &user_id,
-                            vout.value_sat,
+                            vout.value_sat.into(),
                             &Address::from_str(VRSC_CURRENCY_ID)?,
                         )
                         .await
@@ -352,7 +351,7 @@ pub async fn process_txid(
                             &user_id,
                             &raw_tx.txid,
                             &Address::from_str(VRSC_CURRENCY_ID)?,
-                            vout.value_sat,
+                            vout.value_sat.into(),
                             address,
                         )
                         .await
@@ -362,7 +361,8 @@ pub async fn process_txid(
                                 e
                             )
                         } else {
-                            send_deposit_dm(http.clone(), user_id, vout.value).await?;
+                            send_deposit_dm(http.clone(), user_id, Amount::from(vout.value))
+                                .await?;
                         }
                     }
                 }
@@ -381,7 +381,7 @@ async fn send_deposit_dm(http: Arc<Http>, user_id: UserId, amount: Amount) -> Re
     let user = http.get_user(user_id).await?;
     user.direct_message(
         http,
-        CreateMessage::new().content(format!("Your deposit of {amount} has been processed.")),
+        CreateMessage::new().content(format!("Your deposit of {amount:?} has been processed.")),
     )
     .await?;
 

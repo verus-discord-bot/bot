@@ -4,8 +4,8 @@ use crate::{
     Error,
     commands::misc::Notification,
     reactdrop::{Reactdrop, ReactdropState},
+    util::Amount,
 };
-use num_traits::cast::ToPrimitive;
 use poise::serenity_prelude::UserId;
 use sqlx::{
     PgConnection, Postgres, Transaction,
@@ -13,7 +13,7 @@ use sqlx::{
 };
 use tracing::*;
 use uuid::Uuid;
-use vrsc::{Address, Amount};
+use vrsc::Address;
 use vrsc_rpc::bitcoin::Txid;
 
 // pub async fn insert_discord_user(conn: &mut PgConnection, user_id: &UserId) -> Result<(), Error> {
@@ -49,7 +49,7 @@ pub async fn store_tip_transactions(
             currency_id.to_string(),
             tippee.get() as i64,
             kind,
-            amount.as_sat() as i64,
+            amount.inner(),
             tipper.get() as i64,
         )
         .execute(&mut *conn)
@@ -67,9 +67,9 @@ pub async fn get_balance_for_user(
     conn: &mut PgConnection,
     user_id: UserId,
     currency_id: &Address,
-) -> Result<Option<u64>, Error> {
+) -> Result<Option<Amount>, Error> {
     let amount = sqlx::query!(
-        "SELECT balance 
+        "SELECT amount 
         FROM balances 
         WHERE discord_id = $1 AND
             currency_id = $2",
@@ -78,7 +78,7 @@ pub async fn get_balance_for_user(
     )
     .fetch_optional(conn)
     .await?
-    .map(|row| row.balance as u64);
+    .map(|row| Amount::new(row.amount));
 
     Ok(amount)
 }
@@ -96,26 +96,26 @@ pub async fn process_a_tip(
 ) -> Result<(), Error> {
     for tippee in tippees {
         sqlx::query!(
-            "INSERT INTO balances (currency_id, discord_id, balance)
+            "INSERT INTO balances (currency_id, discord_id, amount)
             VALUES ($1, $2, $3)
             ON CONFLICT (currency_id, discord_id)
             DO UPDATE
-            SET balance = balances.balance + excluded.balance",
+            SET amount = balances.amount + excluded.amount",
             currency_id.to_string(),
             tippee.get() as i64,
-            amount.as_sat() as i64
+            amount.inner()
         )
         .execute(&mut **tx)
         .await?;
     }
 
-    if let Some(mul) = amount.checked_mul(tippees.len() as u64) {
+    if let Some(mul) = amount.inner().checked_mul(tippees.len().into()) {
         sqlx::query!(
             "UPDATE balances 
-            SET balance = balance - $1
+            SET amount = amount - $1
             WHERE discord_id = $2 AND 
             currency_id = $3",
-            mul.as_sat() as i64,
+            mul,
             tipper.get() as i64,
             currency_id.to_string()
         )
@@ -220,13 +220,13 @@ pub async fn increase_balance(
     currency_id: &Address,
 ) -> Result<(), Error> {
     sqlx::query!(
-        "INSERT INTO balances (discord_id, balance, currency_id)
+        "INSERT INTO balances (discord_id, amount, currency_id)
         VALUES ($1, $2, $3)
         ON CONFLICT (discord_id, currency_id)
         DO UPDATE 
-        SET balance = balances.balance + excluded.balance",
+        SET amount = balances.amount + excluded.amount",
         user_id.get() as i64,
-        amount.as_sat() as i64,
+        amount.inner(),
         currency_id.to_string()
     )
     .execute(conn)
@@ -242,13 +242,13 @@ pub async fn decrease_balance(
     tx_fee: &Amount,
     currency_id: &Address,
 ) -> Result<(), Error> {
-    if let Some(to_decrease) = amount.checked_add(*tx_fee) {
+    if let Some(to_decrease) = amount.inner().checked_add(tx_fee.inner()) {
         sqlx::query!(
             "UPDATE balances 
-            SET balance = balance - $1 
+            SET amount = amount - $1 
             WHERE discord_id = $2 AND
             currency_id = $3",
-            to_decrease.as_sat() as i64,
+            to_decrease,
             user_id.get() as i64,
             currency_id.to_string()
         )
@@ -290,7 +290,7 @@ pub async fn store_deposit_transaction(
         tx_hash.to_string(),
         "deposit",
         currency_id.to_string(),
-        amount.as_sat() as i64,
+        amount.inner(),
         &address.to_string()
     )
     .execute(conn)
@@ -332,11 +332,11 @@ pub async fn store_withdraw_transaction(
         tx_hash,
         opid,
         "withdraw",
-        fee.as_sat() as i64,
+        fee.inner(),
         currency_id.to_string(),
-        amount.as_sat() as i64,
+        amount.inner(),
         &address.to_string(),
-        tx_fee.as_sat() as i64
+        tx_fee.inner()
     )
     .execute(conn)
     .await?;
@@ -469,50 +469,52 @@ pub async fn set_stored_txid_to_processed(
 pub async fn get_total_balance(
     conn: &mut PgConnection,
     currency_id: &Address,
-) -> Result<u64, Error> {
-    let record = sqlx::query!(
-        r#"SELECT COALESCE(SUM(CAST(balance AS BIGINT)), 0) AS "sum!"
+) -> Result<Amount, Error> {
+    let sum = sqlx::query!(
+        r#"SELECT COALESCE(SUM(amount), 0) AS "sum!"
         FROM balances
         WHERE currency_id = $1"#,
         currency_id.to_string()
     )
+    .map(|row| Amount::new(row.sum))
     .fetch_one(&mut *conn)
     .await?;
 
-    let res = record.sum.to_u64().unwrap_or_default();
-
-    Ok(res)
+    Ok(sum)
 }
 
 pub async fn get_total_tipped(
     conn: &mut PgConnection,
     currency_id: &Address,
-) -> Result<u64, Error> {
+) -> Result<Amount, Error> {
     let record = sqlx::query!(
-        r#"SELECT COALESCE(SUM(CAST(amount AS BIGINT)), 0) AS "sum!" 
+        r#"SELECT COALESCE(SUM(amount), 0) AS "sum!" 
         FROM tips 
         WHERE currency_id = $1"#,
         currency_id.to_string()
     )
+    .map(|row| Amount::new(row.sum))
     .fetch_one(&mut *conn)
     .await?;
 
-    let res = record.sum.to_u64().unwrap_or_default();
-
-    Ok(res)
+    Ok(record)
 }
 
-pub async fn get_largest_tip(conn: &mut PgConnection, currency_id: &Address) -> Result<u64, Error> {
-    let record = sqlx::query!(
+pub async fn get_largest_tip(
+    conn: &mut PgConnection,
+    currency_id: &Address,
+) -> Result<Amount, Error> {
+    let max = sqlx::query!(
         r#"SELECT COALESCE(MAX(amount), 0) AS "max!"
         FROM tips 
         WHERE currency_id = $1"#,
         currency_id.to_string()
     )
+    .map(|row| Amount::new(row.max))
     .fetch_one(&mut *conn)
     .await?;
 
-    Ok(record.max as u64)
+    Ok(max)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -520,7 +522,7 @@ pub async fn insert_reactdrop(
     conn: &mut PgConnection,
     author: i64,
     emoji: String,
-    amount: i64,
+    amount: Amount,
     channel_id: i64,
     message_id: i64,
     finish_time: DateTime<Utc>,
@@ -537,7 +539,7 @@ pub async fn insert_reactdrop(
         message_id,
         finish_time,
         emoji,
-        amount,
+        amount.inner(),
         currency_id.to_string()
     )
     .execute(conn)
@@ -562,7 +564,7 @@ pub async fn get_pending_reactdrops(conn: &mut PgConnection) -> Result<Vec<React
             status: crate::reactdrop::ReactdropState::Pending,
             author: (row.author as u64).into(),
             emoji: row.emojistr,
-            tip_amount: Amount::from_sat(row.amount as u64),
+            tip_amount: Amount::new(row.amount),
             channel_id: (row.channel_id as u64).into(),
             message_id: (row.message_id as u64).into(),
             finish_time: row.finish_time,
@@ -593,7 +595,7 @@ pub async fn update_reactdrop(
 pub async fn get_summed_deposits(conn: &mut PgConnection) -> Result<Amount, Error> {
     let row = sqlx::query!(
         r#"
-        SELECT SUM(amount) as "amount!" 
+        SELECT COALESCE(SUM(amount), 0) as "amount!" 
         FROM transactions 
         WHERE transaction_action = 'deposit'
         "#
@@ -601,9 +603,9 @@ pub async fn get_summed_deposits(conn: &mut PgConnection) -> Result<Amount, Erro
     .fetch_one(conn)
     .await?;
 
-    let amount = row.amount.to_u64().unwrap_or_default();
+    let amount = Amount::new(row.amount);
 
-    Ok(Amount::from_sat(amount))
+    Ok(amount)
 }
 
 pub async fn get_summed_withdrawals(conn: &mut PgConnection) -> Result<Amount, Error> {
@@ -617,7 +619,7 @@ pub async fn get_summed_withdrawals(conn: &mut PgConnection) -> Result<Amount, E
     .fetch_one(conn)
     .await?;
 
-    let amount = row.amount.to_u64().unwrap_or_default();
+    let amount = Amount::new(row.amount);
 
-    Ok(Amount::from_sat(amount))
+    Ok(amount)
 }

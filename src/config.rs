@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
+use crate::util::Amount;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use serde_aux::field_attributes::deserialize_number_from_string;
-use vrsc::Amount;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
@@ -55,9 +55,7 @@ pub struct ApplicationSettings {
     pub discord: SecretString,
     pub discord_guild_id: String,
     pub discord_admin_thread_id: String,
-    #[serde(with = "vrsc::util::amount::serde::as_sat")]
     pub global_withdrawal_fee: Amount,
-    #[serde(with = "vrsc::util::amount::serde::as_sat")]
     pub min_deposit_threshold: Amount,
     pub min_deposit_confirmations_small: u32,
     pub min_deposit_confirmations_large: u32,

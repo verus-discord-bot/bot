@@ -11,8 +11,8 @@ use sqlx::{
 use tokio::time::sleep;
 use tokio_graceful_shutdown::{IntoSubsystem, SubsystemHandle};
 use tracing::{debug, error, info, trace};
-use vrsc::Amount;
 
+use crate::util::Amount;
 use crate::{Error, commands, database};
 
 #[derive(Debug)]
@@ -147,7 +147,7 @@ impl Subsystem {
                         &self.http,
                         &reactdrop.channel_id,
                         reaction_users,
-                        &reactdrop.tip_amount,
+                        reactdrop.tip_amount,
                         "reactdrop",
                     )
                     .await

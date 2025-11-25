@@ -30,38 +30,38 @@
       },
       {
         "ordinal": 5,
-        "name": "fee",
-        "type_info": "Int8"
-      },
-      {
-        "ordinal": 6,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "updated_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 8,
+        "ordinal": 7,
         "name": "currency_id",
         "type_info": "Text"
       },
       {
+        "ordinal": 8,
+        "name": "address",
+        "type_info": "Text"
+      },
+      {
         "ordinal": 9,
-        "name": "amount",
-        "type_info": "Int8"
+        "name": "fee",
+        "type_info": "Numeric"
       },
       {
         "ordinal": 10,
-        "name": "tx_fee",
-        "type_info": "Int8"
+        "name": "amount",
+        "type_info": "Numeric"
       },
       {
         "ordinal": 11,
-        "name": "address",
-        "type_info": "Text"
+        "name": "tx_fee",
+        "type_info": "Numeric"
       }
     ],
     "parameters": {
@@ -76,12 +76,12 @@
       false,
       true,
       false,
-      true,
       false,
       false,
       false,
       false,
-      true,
+      false,
+      false,
       false
     ]
   },
