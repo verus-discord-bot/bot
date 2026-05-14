@@ -398,9 +398,10 @@ pub async fn amount(
     Ok(())
 }
 
-/// Donate the given amount to the `Verus Coin Foundation@` VerusID.
+/// Donate the given amount to the `VCFDonationMatching@` VerusID.
 ///
-/// Donate some VRSC to the Verus Coin Foundation@ VerusID.
+/// Donate some VRSC to the Verus Coin Foundation.
+/// `VCFDonationMatching@` is used so donations are matched by Valu.
 /// This will be an on-chain transaction, but no withdrawal fees are incurred.
 #[instrument(err, skip(ctx))]
 #[poise::command(slash_command, category = "Wallet")]
@@ -442,8 +443,8 @@ pub async fn donate_to_foundation(ctx: Context<'_>, amount: f64) -> Result<(), E
 
     let mut tx = ctx.data().database.begin().await?;
 
-    // Verus Coin Foundation@
-    let address = Address::from_str("i5v3h9FWVdRFbNHU7DfcpGykQjRaHtMqu7").unwrap();
+    // VCFDonationMatching@
+    let address = Address::from_str("iKxzVuoZFMSHMMQm3CVtJAbLpTbw9wr4j9").unwrap();
 
     if get_and_check_balance(&ctx, withdrawal_amount, Amount::ZERO)
         .await?
