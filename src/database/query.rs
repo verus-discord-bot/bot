@@ -83,6 +83,28 @@ pub async fn get_balance_for_user(
     Ok(amount)
 }
 
+/// Same as [`get_balance_for_user`], but locks the row until the current transaction ends.
+pub async fn get_balance_for_update(
+    conn: &mut PgConnection,
+    user_id: UserId,
+    currency_id: &Address,
+) -> Result<Option<u64>, Error> {
+    let amount = sqlx::query!(
+        "SELECT balance 
+        FROM balances 
+        WHERE discord_id = $1 AND
+            currency_id = $2
+        FOR UPDATE",
+        user_id.get() as i64,
+        currency_id.to_string()
+    )
+    .fetch_optional(conn)
+    .await?
+    .map(|row| row.balance as u64);
+
+    Ok(amount)
+}
+
 // process a tip from 1 user to 1 or more users.
 // The tipper can tip himself.
 // This function both increases the balances for the tip receivers and decreases the balance of the tipper.
@@ -242,25 +264,28 @@ pub async fn decrease_balance(
     tx_fee: &Amount,
     currency_id: &Address,
 ) -> Result<(), Error> {
-    if let Some(to_decrease) = amount.checked_add(*tx_fee) {
-        sqlx::query!(
-            "UPDATE balances 
-            SET balance = balance - $1 
-            WHERE discord_id = $2 AND
-            currency_id = $3",
-            to_decrease.as_sat() as i64,
-            user_id.get() as i64,
-            currency_id.to_string()
-        )
-        .execute(conn)
-        .await?;
-    } else {
+    let Some(to_decrease) = amount.checked_add(*tx_fee) else {
         // summing the 2 balances went wrong. This is an edge case that only happens when someone
         // is withdrawing more than 184,467,440,737.09551615 VRSC,
         // which is more than the supply of VRSC will ever be.
         unreachable!()
-        // TODO: It could be that a PBaaS chain will have such a supply, in which case we need to
-        // catch the error and inform the user. But not needed right now.
+    };
+
+    let result = sqlx::query!(
+        "UPDATE balances 
+        SET balance = balance - $1 
+        WHERE discord_id = $2 AND
+        currency_id = $3 AND
+        balance >= $1",
+        to_decrease.as_sat() as i64,
+        user_id.get() as i64,
+        currency_id.to_string()
+    )
+    .execute(conn)
+    .await?;
+
+    if result.rows_affected() != 1 {
+        return Err("insufficient balance to decrease".into());
     }
 
     Ok(())
@@ -311,6 +336,7 @@ pub async fn store_withdraw_transaction(
     amount: Amount,
     address: &Address,
     tx_fee: Amount,
+    status: &str,
 ) -> Result<(), Error> {
     let tx_hash = tx_hash.map(|tx| tx.to_string()).unwrap_or_default();
 
@@ -325,8 +351,9 @@ pub async fn store_withdraw_transaction(
             currency_id,
             amount,
             address,
-            tx_fee
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+            tx_fee,
+            status
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         uuid.to_string(),
         user_id.get() as i64,
         tx_hash,
@@ -336,10 +363,118 @@ pub async fn store_withdraw_transaction(
         currency_id.to_string(),
         amount.as_sat() as i64,
         &address.to_string(),
+        tx_fee.as_sat() as i64,
+        status
+    )
+    .execute(conn)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn set_withdraw_opid(
+    conn: &mut PgConnection,
+    uuid: &Uuid,
+    opid: &str,
+) -> Result<(), Error> {
+    sqlx::query!(
+        "UPDATE transactions
+        SET opid = $2
+        WHERE uuid = $1 AND transaction_action = 'withdraw' AND status = 'pending'",
+        uuid.to_string(),
+        opid
+    )
+    .execute(conn)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn finalize_withdraw(
+    conn: &mut PgConnection,
+    uuid: &Uuid,
+    tx_hash: &Txid,
+    tx_fee: Amount,
+) -> Result<bool, Error> {
+    let result = sqlx::query!(
+        "UPDATE transactions
+        SET transaction_id = $2, tx_fee = $3, status = 'sent'
+        WHERE uuid = $1 AND transaction_action = 'withdraw' AND status = 'pending'",
+        uuid.to_string(),
+        tx_hash.to_string(),
         tx_fee.as_sat() as i64
     )
     .execute(conn)
     .await?;
+
+    Ok(result.rows_affected() == 1)
+}
+
+/// Marks a pending withdraw as failed. Returns true if this call won the race
+/// and the caller should refund the user.
+pub async fn fail_pending_withdraw(conn: &mut PgConnection, uuid: &Uuid) -> Result<bool, Error> {
+    let result = sqlx::query!(
+        "UPDATE transactions
+        SET status = 'failed'
+        WHERE uuid = $1 AND transaction_action = 'withdraw' AND status = 'pending'",
+        uuid.to_string()
+    )
+    .execute(conn)
+    .await?;
+
+    Ok(result.rows_affected() == 1)
+}
+
+pub struct PendingWithdraw {
+    pub uuid: Uuid,
+    pub discord_id: UserId,
+    pub amount: Amount,
+    pub fee: Amount,
+    pub opid: Option<String>,
+    pub address: Address,
+    pub currency_id: Address,
+    pub created_at: DateTime<Utc>,
+}
+
+pub async fn get_pending_withdrawals(
+    conn: &mut PgConnection,
+) -> Result<Vec<PendingWithdraw>, Error> {
+    let rows = sqlx::query!(
+        "SELECT uuid, discord_id, amount, fee, opid, address, currency_id, created_at
+        FROM transactions
+        WHERE transaction_action = 'withdraw' AND status = 'pending'"
+    )
+    .fetch_all(conn)
+    .await?;
+
+    let mut pending = Vec::with_capacity(rows.len());
+    for row in rows {
+        pending.push(PendingWithdraw {
+            uuid: Uuid::parse_str(&row.uuid)?,
+            discord_id: UserId::new(row.discord_id as u64),
+            amount: Amount::from_sat(row.amount as u64),
+            fee: Amount::from_sat(row.fee.unwrap_or(0) as u64),
+            opid: row.opid.filter(|s| !s.is_empty()),
+            address: Address::from_str(&row.address)?,
+            currency_id: Address::from_str(&row.currency_id)?,
+            created_at: row.created_at,
+        });
+    }
+
+    Ok(pending)
+}
+
+pub async fn refund_failed_withdraw(
+    tx: &mut Transaction<'_, Postgres>,
+    pending: &PendingWithdraw,
+) -> Result<(), Error> {
+    if fail_pending_withdraw(&mut **tx, &pending.uuid).await? {
+        let refund = pending
+            .amount
+            .checked_add(pending.fee)
+            .unwrap_or(pending.amount);
+        increase_balance(&mut **tx, &pending.discord_id, refund, &pending.currency_id).await?;
+    }
 
     Ok(())
 }

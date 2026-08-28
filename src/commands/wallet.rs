@@ -4,7 +4,7 @@ use fast_qr::convert::{Builder, Shape, image::ImageBuilder};
 use fast_qr::qr::QRBuilder;
 use poise::CreateReply;
 use poise::serenity_prelude::{CreateAttachment, CreateEmbed};
-use sqlx::{Postgres, Transaction};
+use sqlx::{PgPool, Postgres, Transaction};
 use tracing::*;
 use uuid::Uuid;
 use vrsc::{Address, Amount};
@@ -84,139 +84,97 @@ pub async fn all(
     );
 
     let mut tx = ctx.data().database.begin().await?;
-    let uuid = Uuid::new_v4();
-    let withdrawal_fee = &ctx.data().withdrawal_fee.read().await.clone();
+    let withdrawal_fee = ctx.data().withdrawal_fee.read().await.clone();
+    let currency_id = Address::from_str(VRSC_CURRENCY_ID)?;
 
-    if let Some(balance) = database::get_balance_for_user(
-        &mut tx,
-        ctx.author().id,
-        &Address::from_str(VRSC_CURRENCY_ID)?,
-    )
-    .await?
-    {
-        let balance_amount = Amount::from_sat(balance);
-        let withdrawal_amount = balance_amount.sub(*withdrawal_fee); // no need to check for underflow, tx_fee is always low.
-
-        if withdrawal_amount > Amount::ZERO {
-            debug!(
-                "withdrawal_amount: {withdrawal_amount}, tx_fee: {withdrawal_fee} must together be balance_amount: {balance_amount}"
-            );
-
-            let sco =
-                SendCurrencyOutput::new(None, &withdrawal_amount, &address.to_string(), None, None);
-            let opid = client.send_currency("*", vec![sco], None, None)?;
-
-            debug!("sendcurrency opid: {:?}", &opid);
-
-            if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, client, &opid).await? {
-                let txn = client.get_transaction(&txid, None)?;
-                let tx_fee = txn.fee;
-                // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
-                database::store_withdraw_transaction(
-                    &mut tx,
-                    &uuid,
-                    &ctx.author().id,
-                    Some(&txid),
-                    &opid,
-                    withdrawal_fee,
-                    &Address::from_str(VRSC_CURRENCY_ID)?,
-                    withdrawal_amount,
-                    &address,
-                    tx_fee
-                        .map(|fee| Amount::from_vrsc(fee.abs()).unwrap_or(Amount::ZERO))
-                        .unwrap(),
-                )
-                .await?;
-
-                trace!(
-                    "transaction {txid} stored in db, now decrease balance with ({withdrawal_amount} + {withdrawal_fee})"
-                );
-                database::decrease_balance(
-                    &mut tx,
-                    &ctx.author().id,
-                    &withdrawal_amount,
-                    withdrawal_fee,
-                    &Address::from_str(VRSC_CURRENCY_ID)?,
-                )
-                .await?;
-
-                let new_balance = database::get_balance_for_user(
-                    &mut tx,
-                    ctx.author().id,
-                    &Address::from_str(VRSC_CURRENCY_ID)?,
-                )
-                .await?;
-
-                tx.commit().await?;
-
-                ctx.send(CreateReply::default().ephemeral(true).embed({
-                    let mut embed = CreateEmbed::new()
-                        .title("Withdraw")
-                        .field("Amount", withdrawal_amount.to_string(), false)
-                        .field("Fees", withdrawal_fee.to_string(), false)
-                        .field(
-                            "Explorer",
-                            format!("[link](https://insight.verus.io/tx/{txid})"),
-                            false,
-                        );
-
-                    if let Some(new_balance) = new_balance {
-                        embed = embed.field(
-                            "New balance",
-                            Amount::from_sat(new_balance).to_string(),
-                            false,
-                        );
-                    }
-
-                    embed
-                }))
-                .await?;
-            } else {
-                // at this point, the sendcurrency didn't finish. Maybe it went through, but we
-                // don't know.
-                // We should check this manually, so we'll let the user know to contact support
-                // and we'll store the op-id in the database.
-                let response = format!(
-                    "Something went wrong trying to process your withdrawal. \
-                Please contact support with withdrawal ID: {uuid}"
-                );
-
-                database::store_withdraw_transaction(
-                    &mut tx,
-                    &uuid,
-                    &ctx.author().id,
-                    None,
-                    &opid,
-                    withdrawal_fee,
-                    &Address::from_str(VRSC_CURRENCY_ID)?,
-                    withdrawal_amount,
-                    &address,
-                    Amount::ZERO,
-                )
-                .await?;
-
-                tx.commit().await?;
-                ctx.send(CreateReply::default().ephemeral(true).content(&response))
-                    .await?;
-            }
-
-            return Ok(());
-        } else {
-            ctx.send(CreateReply::default().ephemeral(true).content(format!(
-                "Your balance is insufficient to withdraw everything.\nMax available balance for \
-                withdraw: {}",
-                withdrawal_amount.checked_sub(*withdrawal_fee).unwrap_or(Amount::ZERO)
-            )))
-            .await?;
-        }
-    } else {
-        trace!("The user has no balance, abort");
+    let Some(balance) =
+        database::get_balance_for_update(&mut tx, ctx.author().id, &currency_id).await?
+    else {
         ctx.send(
             CreateReply::default()
                 .ephemeral(true)
                 .content("Your balance is insufficient to withdraw".to_string()),
         )
         .await?;
+
+        return Ok(());
+    };
+
+    let balance_amount = Amount::from_sat(balance);
+    let withdrawal_amount = balance_amount.sub(withdrawal_fee);
+
+    if withdrawal_amount <= Amount::ZERO {
+        ctx.send(CreateReply::default().ephemeral(true).content(format!(
+            "Your balance is insufficient to withdraw everything.\nMax available balance for \
+                withdraw: {}",
+            withdrawal_amount
+                .checked_sub(withdrawal_fee)
+                .unwrap_or(Amount::ZERO)
+        )))
+        .await?;
+
+        return Ok(());
+    }
+
+    let Some(reserved) = reserve_withdraw(
+        &mut tx,
+        ctx.author().id,
+        withdrawal_amount,
+        withdrawal_fee,
+        &address,
+        address.to_string(),
+    )
+    .await?
+    else {
+        ctx.send(
+            CreateReply::default()
+                .ephemeral(true)
+                .content("Your balance is insufficient to withdraw".to_string()),
+        )
+        .await?;
+
+        return Ok(());
+    };
+
+    tx.commit().await?;
+
+    match send_reserved_withdraw(&ctx.data().database, client, &reserved).await? {
+        Some(txid) => {
+            let mut conn = ctx.data().database.acquire().await?;
+            let new_balance =
+                database::get_balance_for_user(&mut conn, ctx.author().id, &currency_id).await?;
+
+            ctx.send(CreateReply::default().ephemeral(true).embed({
+                let mut embed = CreateEmbed::new()
+                    .title("Withdraw")
+                    .field("Amount", withdrawal_amount.to_string(), false)
+                    .field("Fees", withdrawal_fee.to_string(), false)
+                    .field(
+                        "Explorer",
+                        format!("[link](https://insight.verus.io/tx/{txid})"),
+                        false,
+                    );
+
+                if let Some(new_balance) = new_balance {
+                    embed = embed.field(
+                        "New balance",
+                        Amount::from_sat(new_balance).to_string(),
+                        false,
+                    );
+                }
+
+                embed
+            }))
+            .await?;
+        }
+        None => {
+            ctx.send(CreateReply::default().ephemeral(true).content(format!(
+                "Something went wrong trying to process your withdrawal. \
+                Please contact support with withdrawal ID: {}",
+                reserved.uuid
+            )))
+            .await?;
+        }
     }
 
     Ok(())
@@ -278,56 +236,37 @@ pub async fn amount(
     let withdrawal_amount = Amount::from_vrsc(withdrawal_amount)?;
 
     let mut tx = ctx.data().database.begin().await?;
-    let uuid = Uuid::new_v4();
     let withdrawal_fee = *ctx.data().withdrawal_fee.read().await;
 
-    // can we let the database return something meaningful when the withdraw is not possible?
-    if get_and_check_balance(&ctx, withdrawal_amount, withdrawal_fee)
-        .await?
-        .is_some()
-    {
-        trace!("balance is sufficient, withdrawal address is valid; starting sendcurrency");
+    let Some(reserved) = reserve_withdraw(
+        &mut tx,
+        ctx.author().id,
+        withdrawal_amount,
+        withdrawal_fee,
+        &address,
+        destination,
+    )
+    .await?
+    else {
+        ctx.send(CreateReply::default().ephemeral(true).content(format!(
+            "Your balance is insufficient to withdraw {withdrawal_amount}.\n
+            Max available balance for withdraw: {}",
+            withdrawal_amount
+                .checked_sub(withdrawal_fee)
+                .unwrap_or(Amount::ZERO)
+        )))
+        .await?;
 
-        let sco = SendCurrencyOutput::new(None, &withdrawal_amount, &destination, None, None);
-        let opid = client.send_currency("*", vec![sco], None, None)?;
+        return Ok(());
+    };
 
-        debug!("sendcurrency opid: {:?}", &opid);
+    tx.commit().await?;
 
-        if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, client, &opid).await? {
-            // let tx_fee = client.get_transaction(&txid, None)?.fee;
-            let txn = client.get_transaction(&txid, None)?;
-            let tx_fee = txn.fee;
-
-            // at this point the txid is known. Now blockchain shenanigans could be happening,
-            // so we should store everything in the transactions_db table
-            database::store_withdraw_transaction(
-                &mut tx,
-                &uuid,
-                &ctx.author().id,
-                Some(&txid),
-                &opid,
-                &withdrawal_fee,
-                &Address::from_str(VRSC_CURRENCY_ID)?,
-                withdrawal_amount,
-                &address,
-                tx_fee
-                    .map(|fee| Amount::from_vrsc(fee.abs()).unwrap_or(Amount::ZERO))
-                    .unwrap(),
-            )
-            .await?;
-
-            trace!("transaction stored, now decrease balance");
-            database::decrease_balance(
-                &mut tx,
-                &ctx.author().id,
-                &withdrawal_amount,
-                &withdrawal_fee,
-                &Address::from_str(VRSC_CURRENCY_ID)?,
-            )
-            .await?;
-
+    match send_reserved_withdraw(&ctx.data().database, client, &reserved).await? {
+        Some(txid) => {
+            let mut conn = ctx.data().database.acquire().await?;
             let new_balance = database::get_balance_for_user(
-                &mut tx,
+                &mut conn,
                 ctx.author().id,
                 &Address::from_str(VRSC_CURRENCY_ID)?,
             )
@@ -355,45 +294,16 @@ pub async fn amount(
                 embed
             }))
             .await?;
-        } else {
-            // at this point, the sendcurrency didn't finish. Maybe it went through, but we don't know.
-            // We should check this manually, so we'll let the user know to contact support and we'll store the op-id in the database.
-            let response = format!(
-                "Something went wrong trying to process your withdrawal.
-                Please contact support with withdrawal ID: {uuid}"
-            );
-
-            database::store_withdraw_transaction(
-                &mut tx,
-                &uuid,
-                &ctx.author().id,
-                None,
-                &opid,
-                &withdrawal_fee,
-                &Address::from_str(VRSC_CURRENCY_ID)?,
-                withdrawal_amount,
-                &address,
-                Amount::ZERO,
-            )
-            .await?;
-
-            ctx.send(CreateReply::default().ephemeral(true).content(&response))
-                .await?;
         }
-
-        tx.commit().await?;
-
-        return Ok(());
+        None => {
+            ctx.send(CreateReply::default().ephemeral(true).content(format!(
+                "Something went wrong trying to process your withdrawal.
+                Please contact support with withdrawal ID: {}",
+                reserved.uuid
+            )))
+            .await?;
+        }
     }
-
-    ctx.send(CreateReply::default().ephemeral(true).content(format!(
-            "Your balance is insufficient to withdraw {withdrawal_amount}.\n
-            Max available balance for withdraw: {}",
-            withdrawal_amount
-                .checked_sub(withdrawal_fee)
-                .unwrap_or(Amount::ZERO)
-        )))
-    .await?;
 
     Ok(())
 }
@@ -446,85 +356,45 @@ pub async fn donate_to_foundation(ctx: Context<'_>, amount: f64) -> Result<(), E
     // VCFDonationMatching@
     let address = Address::from_str("iKxzVuoZFMSHMMQm3CVtJAbLpTbw9wr4j9").unwrap();
 
-    if get_and_check_balance(&ctx, withdrawal_amount, Amount::ZERO)
-        .await?
-        .is_some()
-    {
-        trace!("balance is sufficient, withdrawal address is valid; starting sendcurrency");
+    let Some(reserved) = reserve_withdraw(
+        &mut tx,
+        ctx.author().id,
+        withdrawal_amount,
+        Amount::ZERO,
+        &address,
+        address.to_string(),
+    )
+    .await?
+    else {
+        ctx.send(
+            CreateReply::default()
+                .ephemeral(true)
+                .content("Your balance is insufficient to tip that amount!".to_string()),
+        )
+        .await?;
 
-        let client = &ctx.data().verus()?;
+        return Ok(());
+    };
 
-        let sco =
-            SendCurrencyOutput::new(None, &withdrawal_amount, &address.to_string(), None, None);
-        let opid = client.send_currency("*", vec![sco], None, None)?;
+    tx.commit().await?;
 
-        debug!("sendcurrency opid: {:?}", &opid);
-
-        if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, client, &opid).await? {
-            let tx_fee = client.get_transaction(&txid, None)?.fee;
-
-            // at this point the txid is known. Now blockchain shenanigans could be happening,
-            // so we should store everything in the transactions_db table
-            database::store_withdraw_transaction(
-                &mut tx,
-                &Uuid::new_v4(),
-                &ctx.author().id,
-                Some(&txid),
-                &opid,
-                &Amount::ZERO,
-                &Address::from_str(VRSC_CURRENCY_ID)?,
-                withdrawal_amount,
-                &address,
-                tx_fee
-                    .map(|fee| Amount::from_vrsc(fee.abs()).unwrap_or(Amount::ZERO))
-                    .unwrap(),
-            )
-            .await?;
-
-            database::decrease_balance(
-                &mut tx,
-                &ctx.author().id,
-                &withdrawal_amount,
-                &Amount::ZERO,
-                &Address::from_str(VRSC_CURRENCY_ID)?,
-            )
-            .await?;
-
-            tx.commit().await?;
-
+    let client = &ctx.data().verus()?;
+    match send_reserved_withdraw(&ctx.data().database, client, &reserved).await? {
+        Some(_) => {
             ctx.send(CreateReply::default().content(format!(
                 "<@{}> donated {} VRSC to the Verus Coin Foundation!",
                 ctx.author().id,
                 withdrawal_amount.as_vrsc()
             )))
             .await?;
-        } else {
-            // at this point, the sendcurrency didn't finish. Maybe it went through, but we don't know.
-            // We should check this manually, so we'll let the user know to contact support and we'll store the op-id in the database.
-            let uuid = Uuid::new_v4();
-            let response = format!(
+        }
+        None => {
+            ctx.send(CreateReply::default().ephemeral(true).content(format!(
                 "Something went wrong trying to process your withdrawal.
-                Please contact support with withdrawal ID: {uuid}"
-            );
-
-            database::store_withdraw_transaction(
-                &mut tx,
-                &uuid,
-                &ctx.author().id,
-                None,
-                &opid,
-                &Amount::ZERO,
-                &Address::from_str(VRSC_CURRENCY_ID)?,
-                withdrawal_amount,
-                &address,
-                Amount::ZERO,
-            )
+                Please contact support with withdrawal ID: {}",
+                reserved.uuid
+            )))
             .await?;
-
-            tx.commit().await?;
-
-            ctx.send(CreateReply::default().ephemeral(true).content(&response))
-                .await?;
         }
     }
 
@@ -633,7 +503,7 @@ async fn send_deposit_address_msg(ctx: Context<'_>, address: &Address) -> Result
 // This function waits a bit and gets the txid once the operation_status RPC gives one.
 // if it doesn't give one, the user is notified and the op-id is stored in the database.
 async fn wait_for_sendcurrency_finish(
-    tx: &mut Transaction<'_, Postgres>,
+    conn: &mut sqlx::PgConnection,
     client: &Client,
     opid: &str,
 ) -> Result<Option<Txid>, Error> {
@@ -662,7 +532,7 @@ async fn wait_for_sendcurrency_finish(
                 );
 
                 database::store_opid(
-                    &mut *tx,
+                    conn,
                     opid,
                     &opstatus.status,
                     opstatus.creation_time as i64,
@@ -678,7 +548,7 @@ async fn wait_for_sendcurrency_finish(
                 error!("execution failed with status: {}", opstatus.status);
 
                 database::store_opid(
-                    &mut *tx,
+                    conn,
                     opid,
                     &opstatus.status,
                     opstatus.creation_time as i64,
@@ -688,10 +558,125 @@ async fn wait_for_sendcurrency_finish(
                     params.currency.as_ref().unwrap(),
                 )
                 .await?;
+
+                return Ok(None);
             }
         } else {
             trace!("there was NO operation_status");
             tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+}
+
+struct ReservedWithdraw {
+    uuid: Uuid,
+    user_id: poise::serenity_prelude::UserId,
+    amount: Amount,
+    withdrawal_fee: Amount,
+    send_dest: String,
+}
+
+async fn reserve_withdraw(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: poise::serenity_prelude::UserId,
+    amount: Amount,
+    withdrawal_fee: Amount,
+    address: &Address,
+    send_dest: String,
+) -> Result<Option<ReservedWithdraw>, Error> {
+    let currency_id = Address::from_str(VRSC_CURRENCY_ID)?;
+    let Some(balance) = database::get_balance_for_update(&mut **tx, user_id, &currency_id).await?
+    else {
+        return Ok(None);
+    };
+
+    if !balance_is_enough(&Amount::from_sat(balance), &amount, &withdrawal_fee) {
+        return Ok(None);
+    }
+
+    let uuid = Uuid::new_v4();
+    database::decrease_balance(&mut **tx, &user_id, &amount, &withdrawal_fee, &currency_id).await?;
+    database::store_withdraw_transaction(
+        &mut **tx,
+        &uuid,
+        &user_id,
+        None,
+        "",
+        &withdrawal_fee,
+        &currency_id,
+        amount,
+        address,
+        Amount::ZERO,
+        "pending",
+    )
+    .await?;
+
+    Ok(Some(ReservedWithdraw {
+        uuid,
+        user_id,
+        amount,
+        withdrawal_fee,
+        send_dest,
+    }))
+}
+
+async fn refund_reserved(pool: &PgPool, reserved: &ReservedWithdraw) -> Result<(), Error> {
+    let currency_id = Address::from_str(VRSC_CURRENCY_ID)?;
+    let mut tx = pool.begin().await?;
+    if database::fail_pending_withdraw(&mut tx, &reserved.uuid).await? {
+        let refund = reserved
+            .amount
+            .checked_add(reserved.withdrawal_fee)
+            .unwrap_or(reserved.amount);
+        database::increase_balance(&mut tx, &reserved.user_id, refund, &currency_id).await?;
+    }
+    tx.commit().await?;
+
+    Ok(())
+}
+
+async fn send_reserved_withdraw(
+    pool: &PgPool,
+    client: &Client,
+    reserved: &ReservedWithdraw,
+) -> Result<Option<Txid>, Error> {
+    let sco = SendCurrencyOutput::new(None, &reserved.amount, &reserved.send_dest, None, None);
+    let opid = match client.send_currency("*", vec![sco], None, None) {
+        Ok(opid) => opid,
+        Err(e) => {
+            refund_reserved(pool, reserved).await?;
+            return Err(e.into());
+        }
+    };
+
+    debug!("sendcurrency opid: {:?}", &opid);
+
+    let mut conn = pool.acquire().await?;
+    database::set_withdraw_opid(&mut conn, &reserved.uuid, &opid).await?;
+
+    match wait_for_sendcurrency_finish(&mut conn, client, &opid).await? {
+        Some(txid) => {
+            let tx_fee = network_fee_for_txid(client, &txid);
+            database::finalize_withdraw(&mut conn, &reserved.uuid, &txid, tx_fee).await?;
+            Ok(Some(txid))
+        }
+        None => {
+            drop(conn);
+            refund_reserved(pool, reserved).await?;
+            Ok(None)
+        }
+    }
+}
+
+pub(crate) fn network_fee_for_txid(client: &Client, txid: &Txid) -> Amount {
+    match client.get_transaction(txid, None) {
+        Ok(txn) => txn
+            .fee
+            .map(|fee| Amount::from_vrsc(fee.abs()).unwrap_or(Amount::ZERO))
+            .unwrap_or(Amount::ZERO),
+        Err(e) => {
+            error!(?e, %txid, "get_transaction failed after sendcurrency");
+            Amount::ZERO
         }
     }
 }

@@ -1,7 +1,7 @@
 use anyhow::Context;
 use futures::StreamExt;
 use poise::serenity_prelude::{CreateMessage, Http, UserId};
-use sqlx::{PgConnection, PgPool};
+use sqlx::{PgPool, Postgres, Transaction};
 use std::collections::VecDeque;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -10,7 +10,9 @@ use tracing::{debug, error, instrument, trace, warn};
 use uuid::Uuid;
 use vrsc::{Address, Amount};
 use vrsc_rpc::bitcoin::Txid;
-use vrsc_rpc::json::GetRawTransactionResultVerbose;
+use vrsc_rpc::json::{
+    GetRawTransactionResultVerbose, GetTransactionDetailsCategory, GetTransactionResult,
+};
 use vrsc_rpc::{
     Auth,
     client::{Client, RpcApi},
@@ -85,6 +87,10 @@ impl TransactionProcessor {
                         .get_raw_transaction_verbose(&txid)
                         .with_context(|| format!("Failing tx: {txid}"))?;
 
+                    if should_skip_wallet_tx(verus_client, &txid) {
+                        continue;
+                    }
+
                     let mut conn = self.pool.acquire().await?;
 
                     for vout in raw_tx.vout.iter() {
@@ -128,6 +134,10 @@ impl TransactionProcessor {
             ))?
             .subscribe(b"hash")?;
 
+        if let Err(e) = self.reconcile_pending_withdrawals().await {
+            error!(?e, "pending withdraw reconcile failed");
+        }
+
         loop {
             if let Some(Ok(msg)) = socket.next().await {
                 if let Some(hash) = msg.into_iter().nth(1) {
@@ -141,6 +151,9 @@ impl TransactionProcessor {
 
                     self.process_short_queue().await?;
                     self.process_long_queue().await?;
+                    if let Err(e) = self.reconcile_pending_withdrawals().await {
+                        error!(?e, "pending withdraw reconcile failed");
+                    }
                 } else {
                     error!("not a valid message!");
                 }
@@ -162,6 +175,10 @@ impl TransactionProcessor {
 
         trace!("getting raw_transaction {txid}");
         let raw_tx = client.get_raw_transaction_verbose(&txid)?;
+
+        if should_skip_wallet_tx(&client, &txid) {
+            return Ok(());
+        }
 
         let mut conn = self.pool.acquire().await?;
 
@@ -224,8 +241,6 @@ impl TransactionProcessor {
 
                 let raw_tx = client.get_raw_transaction_verbose(&front.0)?;
 
-                let mut conn = self.pool.acquire().await?;
-
                 if let Some(confs) = raw_tx.confirmations {
                     let min_confs = self.config.application.min_deposit_confirmations_small;
 
@@ -234,7 +249,15 @@ impl TransactionProcessor {
                         break;
                     } else {
                         trace!("tx has at least {} confs: {}", min_confs, front.0);
-                        if let Err(e) = process_txid(Arc::clone(&http), &mut conn, &raw_tx).await {
+                        if let Err(e) = process_confirmed_txid(
+                            Arc::clone(&http),
+                            &self.pool,
+                            &client,
+                            &front.0,
+                            &raw_tx,
+                        )
+                        .await
+                        {
                             error!(
                                 "something went wrong while handling a new wallet tx: {:?}\n{:?}",
                                 e, &front
@@ -271,7 +294,6 @@ impl TransactionProcessor {
         debug!("{queue_size} transactions in long queue");
 
         loop {
-            let mut conn = self.pool.acquire().await?;
             if let Some(front) = write.front() {
                 trace!("read {front:?} from front");
 
@@ -295,7 +317,15 @@ impl TransactionProcessor {
                         break;
                     } else {
                         trace!("tx has at least {} confs: {}", min_confs, front.0);
-                        if let Err(e) = process_txid(Arc::clone(&http), &mut conn, &raw_tx).await {
+                        if let Err(e) = process_confirmed_txid(
+                            Arc::clone(&http),
+                            &self.pool,
+                            &client,
+                            &front.0,
+                            &raw_tx,
+                        )
+                        .await
+                        {
                             error!(
                                 "something went wrong while handling a new wallet tx: {:?}\n{:?}",
                                 e, &front
@@ -317,67 +347,203 @@ impl TransactionProcessor {
 
         Ok(())
     }
-}
 
-// checks if a transaction id contains an output address that belongs to a discord user
-// if it exists, the balance of that user is increased
-// the transactions is stored in the database such that it doesn't get processed again
-// a dm is sent to the user afterwards
-pub async fn process_txid(
-    http: Arc<Http>,
-    conn: &mut PgConnection,
-    raw_tx: &GetRawTransactionResultVerbose,
-) -> Result<(), Error> {
-    if !transaction_processed(conn, &raw_tx.txid, &Address::from_str(VRSC_CURRENCY_ID)?).await? {
-        for vout in raw_tx.vout.iter() {
-            if let Some(addresses) = &vout.script_pubkey.addresses {
-                for address in addresses {
-                    if let Some(user_id) = get_user_from_address(conn, address).await? {
-                        let uuid = Uuid::new_v4();
-                        if let Err(e) = increase_balance(
-                            conn,
-                            &user_id,
-                            vout.value_sat,
-                            &Address::from_str(VRSC_CURRENCY_ID)?,
-                        )
-                        .await
-                        {
-                            error!(
-                                "something went wrong while increasing a user's balance\nuser: {user_id} txid: {} vout: {} \nerror: {:?}",
-                                &raw_tx.txid, vout.n, e
-                            )
-                        } else if let Err(e) = store_deposit_transaction(
-                            &mut *conn,
-                            &uuid,
-                            &user_id,
-                            &raw_tx.txid,
-                            &Address::from_str(VRSC_CURRENCY_ID)?,
-                            vout.value_sat,
-                            address,
-                        )
-                        .await
-                        {
-                            error!(
-                                "something went wrong while storing a transaction to the database: {:?}",
-                                e
-                            )
-                        } else {
-                            send_deposit_dm(http.clone(), user_id, vout.value).await?;
+    pub async fn reconcile_pending_withdrawals(&self) -> Result<(), Error> {
+        let client = Client::vrsc(
+            self.config.application.testnet,
+            Auth::UserPass(
+                format!("127.0.0.1:{}", self.config.application.rpc_port),
+                self.config.application.rpc_user.clone(),
+                self.config.application.rpc_password.clone(),
+            ),
+        )?;
+
+        let mut conn = self.pool.acquire().await?;
+        let pending = get_pending_withdrawals(&mut conn).await?;
+        drop(conn);
+
+        if pending.is_empty() {
+            return Ok(());
+        }
+
+        let wallet_txs = client
+            .list_transactions(Some(100), None, None)
+            .unwrap_or_default();
+
+        for p in pending {
+            if let Some(opid) = &p.opid {
+                match client.z_get_operation_status(vec![opid.as_str()]) {
+                    Ok(status) => {
+                        if let Some(Some(opstatus)) = status.first() {
+                            match opstatus.status.as_str() {
+                                "success" => {
+                                    if let Some(result) = &opstatus.result {
+                                        let tx_fee = crate::commands::wallet::network_fee_for_txid(
+                                            &client,
+                                            &result.txid,
+                                        );
+                                        let mut conn = self.pool.acquire().await?;
+                                        finalize_withdraw(&mut conn, &p.uuid, &result.txid, tx_fee)
+                                            .await?;
+                                        continue;
+                                    }
+                                }
+                                "failed" => {
+                                    let mut tx = self.pool.begin().await?;
+                                    refund_failed_withdraw(&mut tx, &p).await?;
+                                    tx.commit().await?;
+                                    continue;
+                                }
+                                _ => {}
+                            }
                         }
                     }
+                    Err(e) => {
+                        warn!(?e, opid, "z_get_operation_status failed");
+                    }
                 }
-            } else {
-                debug!("no addresses found in scriptpubkey");
+            }
+
+            use vrsc_rpc::json::ListSinceBlockCategory;
+            let match_send = wallet_txs.iter().find(|t| {
+                matches!(t.category, ListSinceBlockCategory::Send)
+                    && t.address == p.address
+                    && t.amount.as_sat().unsigned_abs() == p.amount.as_sat()
+                    && t.time + 5 >= p.created_at.timestamp() as u64
+            });
+
+            if let Some(t) = match_send {
+                let tx_fee = t
+                    .fee
+                    .map(|f| Amount::from_sat(f.as_sat().unsigned_abs()))
+                    .unwrap_or(Amount::ZERO);
+                let mut conn = self.pool.acquire().await?;
+                finalize_withdraw(&mut conn, &p.uuid, &t.txid, tx_fee).await?;
+                continue;
+            }
+
+            let age = sqlx::types::chrono::Utc::now() - p.created_at;
+            if age.num_seconds() > 30 * 60 {
+                warn!(
+                    uuid = %p.uuid,
+                    address = %p.address,
+                    amount = %p.amount,
+                    "pending withdraw older than 30m with no matching daemon tx"
+                );
             }
         }
-    } else {
-        debug!("transaction already processed")
+
+        Ok(())
+    }
+}
+
+/// Skip staking/coinbase and our own sends when the wallet already knows the tx.
+/// If `gettransaction` fails, the wallet may not have indexed it yet — keep it.
+fn should_skip_wallet_tx(client: &Client, txid: &Txid) -> bool {
+    match client.get_transaction(txid, None) {
+        Ok(wallet_tx) => {
+            wallet_tx.generated == Some(true)
+                || !wallet_tx
+                    .details
+                    .iter()
+                    .any(|d| d.category == GetTransactionDetailsCategory::Receive)
+        }
+        Err(_) => false,
+    }
+}
+
+async fn process_confirmed_txid(
+    http: Arc<Http>,
+    pool: &PgPool,
+    client: &Client,
+    txid: &Txid,
+    raw_tx: &GetRawTransactionResultVerbose,
+) -> Result<(), Error> {
+    let wallet_tx = client.get_transaction(txid, None)?;
+    let mut db_tx = pool.begin().await?;
+    let dms = process_txid(&mut db_tx, raw_tx, &wallet_tx).await?;
+    db_tx.commit().await?;
+
+    for (user_id, amount) in dms {
+        if let Err(e) = send_deposit_dm(http.clone(), user_id, amount).await {
+            error!(?e, %user_id, "failed to send deposit DM");
+        }
     }
 
     Ok(())
 }
 
-async fn send_deposit_dm(http: Arc<Http>, user_id: UserId, amount: Amount) -> Result<(), Error> {
+/// Credits a wallet transaction as a deposit when it is an actual receive to a user address.
+///
+/// Shared-wallet movements must not be credited: staking/coinbase (`generated`), change from
+/// our own withdrawals, and other `send` outputs. Those stay in the daemon without increasing
+/// user balances. Only `gettransaction` details with category `receive` are deposits.
+pub async fn process_txid(
+    tx: &mut Transaction<'_, Postgres>,
+    raw_tx: &GetRawTransactionResultVerbose,
+    wallet_tx: &GetTransactionResult,
+) -> Result<Vec<(UserId, Amount)>, Error> {
+    let currency_id = Address::from_str(VRSC_CURRENCY_ID)?;
+
+    if wallet_tx.generated == Some(true) {
+        debug!(
+            txid = %raw_tx.txid,
+            "skipping generated (coinbase/stake) transaction"
+        );
+        return Ok(Vec::new());
+    }
+
+    if transaction_processed(&mut **tx, &raw_tx.txid, &currency_id).await? {
+        debug!("transaction already processed");
+        return Ok(Vec::new());
+    }
+
+    let mut dms = Vec::new();
+
+    for detail in wallet_tx
+        .details
+        .iter()
+        .filter(|d| d.category == GetTransactionDetailsCategory::Receive)
+    {
+        let Some(user_id) = get_user_from_address(&mut **tx, &detail.address).await? else {
+            continue;
+        };
+
+        let Some(vout) = raw_tx.vout.iter().find(|v| v.n == u32::from(detail.vout)) else {
+            warn!(
+                txid = %raw_tx.txid,
+                vout = detail.vout,
+                "receive detail has no matching vout"
+            );
+            continue;
+        };
+
+        let amount = vout.value_sat;
+        let uuid = Uuid::new_v4();
+
+        increase_balance(&mut **tx, &user_id, amount, &currency_id).await?;
+        store_deposit_transaction(
+            &mut **tx,
+            &uuid,
+            &user_id,
+            &raw_tx.txid,
+            &currency_id,
+            amount,
+            &detail.address,
+        )
+        .await?;
+
+        dms.push((user_id, vout.value));
+    }
+
+    Ok(dms)
+}
+
+pub(crate) async fn send_deposit_dm(
+    http: Arc<Http>,
+    user_id: UserId,
+    amount: Amount,
+) -> Result<(), Error> {
     let user = http.get_user(user_id).await?;
     user.direct_message(
         http,

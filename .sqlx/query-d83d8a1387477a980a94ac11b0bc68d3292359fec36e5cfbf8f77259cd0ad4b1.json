@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE transactions\n        SET status = 'failed'\n        WHERE uuid = $1 AND transaction_action = 'withdraw' AND status = 'pending'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d83d8a1387477a980a94ac11b0bc68d3292359fec36e5cfbf8f77259cd0ad4b1"
+}
