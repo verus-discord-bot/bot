@@ -10,7 +10,7 @@ use vrsc_rpc::{bitcoin::Txid, client::RpcApi};
 
 use crate::{
     Context, Error, VRSC_CURRENCY_ID, database,
-    wallet_listener::{TransactionProcessor, process_txid},
+    wallet_listener::{TransactionProcessor, process_txid, send_deposit_dm},
 };
 
 #[instrument(skip(ctx))]
@@ -240,8 +240,15 @@ pub async fn checktxid(ctx: Context<'_>, txid: Txid) -> Result<(), Error> {
     let client = &ctx.data().verus()?;
 
     if let Ok(raw_tx) = client.get_raw_transaction_verbose(&txid) {
-        process_txid(http, &mut tx, &raw_tx).await?;
+        let wallet_tx = client.get_transaction(&txid, None)?;
+        let dms = process_txid(&mut tx, &raw_tx, &wallet_tx).await?;
         tx.commit().await?;
+
+        for (user_id, amount) in dms {
+            if let Err(e) = send_deposit_dm(http.clone(), user_id, amount).await {
+                tracing::error!(?e, %user_id, "failed to send deposit DM");
+            }
+        }
     }
 
     Ok(())

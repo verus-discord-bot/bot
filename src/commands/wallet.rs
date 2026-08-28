@@ -109,8 +109,7 @@ pub async fn all(
             debug!("sendcurrency opid: {:?}", &opid);
 
             if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, client, &opid).await? {
-                let txn = client.get_transaction(&txid, None)?;
-                let tx_fee = txn.fee;
+                let tx_fee = network_fee_for_txid(client, &txid);
                 // at this point the txid is known. Now blockchain shenanigans could be happening, so we should store everything in the transactions_db table
                 database::store_withdraw_transaction(
                     &mut tx,
@@ -122,9 +121,7 @@ pub async fn all(
                     &Address::from_str(VRSC_CURRENCY_ID)?,
                     withdrawal_amount,
                     &address,
-                    tx_fee
-                        .map(|fee| Amount::from_vrsc(fee.abs()).unwrap_or(Amount::ZERO))
-                        .unwrap(),
+                    tx_fee,
                 )
                 .await?;
 
@@ -294,9 +291,7 @@ pub async fn amount(
         debug!("sendcurrency opid: {:?}", &opid);
 
         if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, client, &opid).await? {
-            // let tx_fee = client.get_transaction(&txid, None)?.fee;
-            let txn = client.get_transaction(&txid, None)?;
-            let tx_fee = txn.fee;
+            let tx_fee = network_fee_for_txid(client, &txid);
 
             // at this point the txid is known. Now blockchain shenanigans could be happening,
             // so we should store everything in the transactions_db table
@@ -310,9 +305,7 @@ pub async fn amount(
                 &Address::from_str(VRSC_CURRENCY_ID)?,
                 withdrawal_amount,
                 &address,
-                tx_fee
-                    .map(|fee| Amount::from_vrsc(fee.abs()).unwrap_or(Amount::ZERO))
-                    .unwrap(),
+                tx_fee,
             )
             .await?;
 
@@ -332,6 +325,10 @@ pub async fn amount(
                 &Address::from_str(VRSC_CURRENCY_ID)?,
             )
             .await?;
+
+            // Commit before notifying Discord. sendcurrency already left the wallet; a
+            // failed DM must not roll back the debit (that double-pays on retry).
+            tx.commit().await?;
 
             ctx.send(CreateReply::default().ephemeral(true).embed({
                 let mut embed = CreateEmbed::new()
@@ -377,11 +374,11 @@ pub async fn amount(
             )
             .await?;
 
+            tx.commit().await?;
+
             ctx.send(CreateReply::default().ephemeral(true).content(&response))
                 .await?;
         }
-
-        tx.commit().await?;
 
         return Ok(());
     }
@@ -461,7 +458,7 @@ pub async fn donate_to_foundation(ctx: Context<'_>, amount: f64) -> Result<(), E
         debug!("sendcurrency opid: {:?}", &opid);
 
         if let Some(txid) = wait_for_sendcurrency_finish(&mut tx, client, &opid).await? {
-            let tx_fee = client.get_transaction(&txid, None)?.fee;
+            let tx_fee = network_fee_for_txid(client, &txid);
 
             // at this point the txid is known. Now blockchain shenanigans could be happening,
             // so we should store everything in the transactions_db table
@@ -475,9 +472,7 @@ pub async fn donate_to_foundation(ctx: Context<'_>, amount: f64) -> Result<(), E
                 &Address::from_str(VRSC_CURRENCY_ID)?,
                 withdrawal_amount,
                 &address,
-                tx_fee
-                    .map(|fee| Amount::from_vrsc(fee.abs()).unwrap_or(Amount::ZERO))
-                    .unwrap(),
+                tx_fee,
             )
             .await?;
 
@@ -692,6 +687,19 @@ async fn wait_for_sendcurrency_finish(
         } else {
             trace!("there was NO operation_status");
             tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+}
+
+fn network_fee_for_txid(client: &Client, txid: &Txid) -> Amount {
+    match client.get_transaction(txid, None) {
+        Ok(txn) => txn
+            .fee
+            .map(|fee| Amount::from_vrsc(fee.abs()).unwrap_or(Amount::ZERO))
+            .unwrap_or(Amount::ZERO),
+        Err(e) => {
+            error!(?e, %txid, "get_transaction failed after sendcurrency");
+            Amount::ZERO
         }
     }
 }
