@@ -134,6 +134,10 @@ impl TransactionProcessor {
             ))?
             .subscribe(b"hash")?;
 
+        if let Err(e) = self.reconcile_pending_withdrawals().await {
+            error!(?e, "pending withdraw reconcile failed");
+        }
+
         loop {
             if let Some(Ok(msg)) = socket.next().await {
                 if let Some(hash) = msg.into_iter().nth(1) {
@@ -147,6 +151,9 @@ impl TransactionProcessor {
 
                     self.process_short_queue().await?;
                     self.process_long_queue().await?;
+                    if let Err(e) = self.reconcile_pending_withdrawals().await {
+                        error!(?e, "pending withdraw reconcile failed");
+                    }
                 } else {
                     error!("not a valid message!");
                 }
@@ -335,6 +342,94 @@ impl TransactionProcessor {
             } else {
                 trace!("new block but no transactions in queue");
                 break;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn reconcile_pending_withdrawals(&self) -> Result<(), Error> {
+        let client = Client::vrsc(
+            self.config.application.testnet,
+            Auth::UserPass(
+                format!("127.0.0.1:{}", self.config.application.rpc_port),
+                self.config.application.rpc_user.clone(),
+                self.config.application.rpc_password.clone(),
+            ),
+        )?;
+
+        let mut conn = self.pool.acquire().await?;
+        let pending = get_pending_withdrawals(&mut conn).await?;
+        drop(conn);
+
+        if pending.is_empty() {
+            return Ok(());
+        }
+
+        let wallet_txs = client
+            .list_transactions(Some(100), None, None)
+            .unwrap_or_default();
+
+        for p in pending {
+            if let Some(opid) = &p.opid {
+                match client.z_get_operation_status(vec![opid.as_str()]) {
+                    Ok(status) => {
+                        if let Some(Some(opstatus)) = status.first() {
+                            match opstatus.status.as_str() {
+                                "success" => {
+                                    if let Some(result) = &opstatus.result {
+                                        let tx_fee = crate::commands::wallet::network_fee_for_txid(
+                                            &client,
+                                            &result.txid,
+                                        );
+                                        let mut conn = self.pool.acquire().await?;
+                                        finalize_withdraw(&mut conn, &p.uuid, &result.txid, tx_fee)
+                                            .await?;
+                                        continue;
+                                    }
+                                }
+                                "failed" => {
+                                    let mut tx = self.pool.begin().await?;
+                                    refund_failed_withdraw(&mut tx, &p).await?;
+                                    tx.commit().await?;
+                                    continue;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!(?e, opid, "z_get_operation_status failed");
+                    }
+                }
+            }
+
+            use vrsc_rpc::json::ListSinceBlockCategory;
+            let match_send = wallet_txs.iter().find(|t| {
+                matches!(t.category, ListSinceBlockCategory::Send)
+                    && t.address == p.address
+                    && t.amount.as_sat().unsigned_abs() == p.amount.as_sat()
+                    && t.time + 5 >= p.created_at.timestamp() as u64
+            });
+
+            if let Some(t) = match_send {
+                let tx_fee = t
+                    .fee
+                    .map(|f| Amount::from_sat(f.as_sat().unsigned_abs()))
+                    .unwrap_or(Amount::ZERO);
+                let mut conn = self.pool.acquire().await?;
+                finalize_withdraw(&mut conn, &p.uuid, &t.txid, tx_fee).await?;
+                continue;
+            }
+
+            let age = sqlx::types::chrono::Utc::now() - p.created_at;
+            if age.num_seconds() > 30 * 60 {
+                warn!(
+                    uuid = %p.uuid,
+                    address = %p.address,
+                    amount = %p.amount,
+                    "pending withdraw older than 30m with no matching daemon tx"
+                );
             }
         }
 
